@@ -146,8 +146,10 @@ function parseExcalidrawSkeletons(raw: string, existingIds: Set<string>): Array<
     el.id = fresh
     seen.add(fresh)
   }
-  // start/end 引用改写与悬空剔除。
-  const known = new Set(items.map((el) => String(el.id)))
+  // start/end 引用改写与悬空剔除。引用有效集 = 本批 id + 既有画布 id
+  //（允许新插入的连线绑定既有元素——此前只认本批 id，绑到既有元素的
+  // 端点会被当悬空删掉，连线直接丢失）。
+  const known = new Set<string>([...items.map((el) => String(el.id)), ...existingIds])
   const out = items.filter((el) => {
     if (el.type !== 'arrow' && el.type !== 'line') return true
     let keep = true
@@ -462,6 +464,30 @@ export default function ExcalidrawPage({
       const bottom = current.reduce((max, el) => Math.max(max, el.y + (el.height ?? 0)), 0)
       const offset = current.length ? bottom + 60 : 0
       const placed = (offset ? converted.map((el) => ({ ...el, y: el.y + offset })) : converted) as SceneElements
+      // 绑定连线端点自算：官方转换器对带 start/end 绑定的骨架不重算 points
+      //（0.17.6 实测），autoFix 给缺 points 的绑定连线补的 [[0,0],[0,0]] 会让
+      // 所有箭头堆到各自原点叠成一团——这里按绑定元素中心自算端点（起点=
+      // 起始元素中心，连线 x/y=起点，points=[[0,0],[Δ]]）；绑定对象含本批
+      // 与既有画布元素。仅重算两端都有（或至少一端有）绑定的连线。
+      const all = [...current, ...placed]
+      const centerOf = (el: { x: number; y: number; width?: number; height?: number }) => ({
+        x: el.x + (el.width ?? 0) / 2,
+        y: el.y + (el.height ?? 0) / 2,
+      })
+      for (const el of placed) {
+        if (el.type !== 'arrow' && el.type !== 'line') continue
+        const e = el as unknown as Record<string, unknown>
+        const sb = e.startBinding as { elementId?: string } | null | undefined
+        const eb = e.endBinding as { elementId?: string } | null | undefined
+        const from = sb?.elementId ? all.find((x) => x.id === sb.elementId) : undefined
+        const to = eb?.elementId ? all.find((x) => x.id === eb.elementId) : undefined
+        if (!from && !to) continue
+        const start = from ? centerOf(from) : { x: Number(e.x) || 0, y: Number(e.y) || 0 }
+        const end = to ? centerOf(to) : { x: start.x + 120, y: start.y }
+        e.x = start.x
+        e.y = start.y
+        e.points = [[0, 0], [end.x - start.x, end.y - start.y]]
+      }
       api.updateScene({ elements: [...current, ...placed] })
       api.scrollToContent(placed)
       return { ok: true, elements: placed }
