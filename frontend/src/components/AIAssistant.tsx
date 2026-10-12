@@ -1422,11 +1422,12 @@ useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns, aiUid])
 
-  /** 切换会话：中断进行中的流式请求并恢复目标会话消息。 */
+  /** 切换会话：中断进行中的流式请求并恢复目标会话消息（贴底显示最新）。 */
   const switchConvo = (id: string) => {
     const target = convosRef.current.find((c) => c.id === id)
     if (!target || id === convoIdRef.current) return
     abortRef.current?.abort()
+    sticky.scrollToBottom()
     convoIdRef.current = id
     setConvoId(id)
     setNotice('')
@@ -1849,6 +1850,7 @@ useEffect(() => {
    *  「新对话」按钮同此（convoId 置空 → 下一条消息开启新会话）。 */
   const newChat = () => {
     abortRef.current?.abort()
+    sticky.scrollToBottom()
     convoIdRef.current = ''
     setConvoId('')
     applyTurns(() => [])
