@@ -32,9 +32,9 @@
   ```
 
 ## 阶段三：三处宿主迁移
-- [ ] S7. AIAssistant.tsx → 使用 AIChatShell（替换现有抽屉内部实现）
-- [ ] S8. AIEditChat.tsx → 改为 AIChatShell 的 editor 模式薄包装
-- [ ] S9. ViewerAIWidget.tsx → 使用 AIChatShell（替换现有悬浮卡内部实现）
+- [x] S7. AIAssistant.tsx → 使用 AIChatShell（替换现有抽屉内部实现）
+- [x] S8. AIEditChat.tsx → 改为 AIChatShell 的 editor 模式薄包装
+- [x] S9. ViewerAIWidget.tsx → 使用 AIChatShell（替换现有悬浮卡内部实现）
 
 ## 阶段四：功能对齐
 - [ ] S10. 助手获得：消息操作三件套（已有）/ 悬浮窗模式 / 批量多选 / 用量可见性
@@ -73,6 +73,11 @@
 
 **验证**：替换后 tsc + npm run build + 手动测试（打开编辑页 → 发消息 → 工具循环 → 悬浮窗 → 批量 → 会话切换）
 
-## S8-S9 迁移要点
-- S8 AIAssistant：最大差异（Bubble.List → ChatThread、Sender → ChatInput）；人设/工作目录/记忆经 slots 注入
-- S9 ViewerAIWidget：最小改动（不加会话管理，仅换消息流+输入区渲染）
+## S8-S9 迁移状态
+- S7 ✅ AIEditChat：JSX 替换为 Shell（-469行），业务逻辑不动，已部署验证
+- S8 📋 AIAssistant（2678行）：下一会话——保留 Drawer 容器，内部 Bubble.List→ChatThread、
+  Sender→ChatInput、header→ChatHeader；人设/RAG/记忆/MCP 经 slots 注入。
+  关键：Drawer 是容器不改，只换 Drawer.children 内部实现
+- S9 📋 ViewerAIWidget（~700行）：最小——悬浮球展开后内部换 ChatThread+ChatInput
+- S14 📋 死代码清理：删 AIAssistant 旧渲染代码、删 AIEditChat 已注释代码
+- 插件 📋 esbuild 编译 Shell 为 ES5 IIFE（受限于 DS 沙箱无 React）
