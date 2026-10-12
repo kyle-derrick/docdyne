@@ -21,18 +21,20 @@
 //   DocFlow AI 插件，见 frontend/public/oo-plugins/docflow-ai）；本面板
 //   仅服务有落盘通道的宿主页（Monaco/Tiptap/白板/图表）。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App as AntdApp, Button, Input, Popover, Segmented, Tooltip } from 'antd'
+import { App as AntdApp, Button, Checkbox, Input, Popover, Segmented, Tooltip } from 'antd'
 import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, FileText, HelpCircle, MessagesSquare, Paperclip, Plus, Sparkles, X } from 'lucide-react'
-import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles } from '../api'
+import { Check, Copy, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Plus, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
 import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
 import ConvoPicker from './aichat/ConvoPicker'
+import TraceView from './aichat/TraceView'
+import type { TraceStage } from './aichat/TraceView'
 import { useStickyScroll } from './aichat/useStickyScroll'
 import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './aichat/icons'
 import type { AIAttachFile } from './aichat'
@@ -243,6 +245,8 @@ function sanitizeSessionTurns(raw: Array<Record<string, unknown>>): ChatTurn[] {
       ...(typeof m.thinkingMS === 'number' ? { thinkingMS: m.thinkingMS } : {}),
       ...(Array.isArray(m.webSources) ? { webSources: m.webSources as AIWebSource[] } : {}),
       ...(Array.isArray(m.toolCalls) ? { toolCalls: m.toolCalls as AIToolCallEntry[] } : {}),
+      ...(Array.isArray(m.trace) ? { trace: m.trace as TraceStage[] } : {}),
+      ...(m.agentStream ? { agentStream: true } : {}),
       ...(m.applied ? { applied: m.applied as AppliedRecord } : {}),
       ...(typeof m.applyError === 'string' ? { applyError: m.applyError } : {}),
     }))
@@ -321,6 +325,29 @@ interface ChatTurn {
   applied?: AppliedRecord
   /** 自动应用失败原因（文档未被修改）。 */
   applyError?: string
+  /** Agent 过程分段（v7.3：思考段与工具调用交织，分阶段折叠展示）。 */
+  trace?: TraceStage[]
+  /** Agent 轮次标记：流式期间的内容为原始 TOOL_CALL 行，紧凑样式展示。 */
+  agentStream?: boolean
+}
+
+/** Agent 流式原始输出（TOOL_CALL 单行）：等宽小字 + 单行省略，点击展开
+ *  原文（悬停 title 亦可看全文）——替代裸 markdown 渲染整段 JSON。 */
+function AgentRawLine({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div
+      className={`ai-agent-raw${open ? ' open' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      title={open ? undefined : text}
+      onClick={() => setOpen((v) => !v)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) } }}
+    >
+      {text}
+    </div>
+  )
 }
 
 /** 编辑器页头部「AI 对话」按钮（主点击开面板；下拉=并入的 AIEditMenu 快捷
@@ -618,6 +645,75 @@ export default function AIEditChat({
     setSessEditing(null)
   }
 
+  // ---- 消息级操作（v7.3：复制/删除问答对/保存到文件 + 批量多选）----
+  const [batchMode, setBatchMode] = useState(false)
+  const [checked, setChecked] = useState<Set<number>>(new Set())
+  const [savingFile, setSavingFile] = useState(false)
+  const toggleChecked = (id: number) => {
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const exitBatch = () => {
+    setBatchMode(false)
+    setChecked(new Set())
+  }
+  /** 删除一次问答（一输入一输出）：assistant 侧按钮删除其与前置最近 user；
+   *  批量删除按所选 turn id 过滤。 */
+  const deleteExchange = (asstId: number) => {
+    setTurns((prev) => {
+      const idx = prev.findIndex((x) => x.id === asstId)
+      if (idx < 0) return prev
+      let userId: number | null = null
+      for (let i = idx - 1; i >= 0; i--) {
+        if (prev[i].role === 'user') { userId = prev[i].id; break }
+      }
+      return prev.filter((x) => x.id !== asstId && x.id !== userId)
+    })
+  }
+  const deleteChecked = () => {
+    setTurns((prev) => prev.filter((x) => !checked.has(x.id)))
+    setChecked(new Set())
+  }
+  /** 把会话（或所选子集）导出为 Markdown 新文件，落在当前文件所在目录。 */
+  const saveConversationFile = async (ids?: number[]) => {
+    if (!fileId || savingFile) return
+    const sel = ids ?? turns.map((x) => x.id)
+    const list = turns.filter((x) => sel.includes(x.id) && x.content.trim())
+    if (!list.length) return
+    setSavingFile(true)
+    try {
+      const title = sessionTitleOf(turns) || fileName || (zh ? 'AI 会话' : 'AI conversation')
+      const stamp = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const stampStr = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}`
+      const lines: string[] = [
+        `# ${zh ? 'AI 会话' : 'AI conversation'}：${title}`,
+        '',
+        `> ${stamp.toLocaleString()}${fileName ? ` · ${fileName}` : ''} · DocFlow`,
+        '',
+      ]
+      for (const x of list) {
+        lines.push(x.role === 'user' ? `## 🧑 ${zh ? '用户' : 'User'}` : `## 🤖 ${zh ? 'AI' : 'AI'}`)
+        lines.push('')
+        lines.push(x.content.trim())
+        lines.push('')
+      }
+      const safe = title.replace(/[\/:*?"<>|\s]+/g, '-').slice(0, 30)
+      const name = `${zh ? 'AI会话' : 'AI-conversation'}-${safe || 'session'}-${stampStr}.md`
+      const parent = (await getFileMeta(fileId).catch(() => null))?.parent_id ?? null
+      await uploadFile(new File([lines.join('\n')], name, { type: 'text/markdown' }), parent, () => {})
+      void message.success(zh ? `已保存为 ${name}` : `Saved as ${name}`)
+    } catch (err) {
+      void message.error(err instanceof Error ? err.message : (zh ? '保存失败' : 'Save failed'))
+    } finally {
+      setSavingFile(false)
+    }
+  }
+
   /** 删除会话（确认后）；删的是当前会话则切到最近一个，无则开新空白。 */
   const deleteSession = (id: string) => {
     const target = sessionsRef.current.find((s) => s.id === id)
@@ -857,8 +953,9 @@ export default function AIEditChat({
     setTurns((prev) => prev.map((x) => (x.id === turnId ? { ...x, ...patch(x) } : x)))
   }
 
-  /** Agent 模式发送：工具循环 + FINAL；过程写入助手回合（toolCalls 链）。
-   *  仅「可修改」模式进入；「仅对话」走 sendAgentChat（无工具不改文档）。 */
+  /** Agent 模式发送：工具循环 + FINAL；过程以 trace 分段写入助手回合
+   *  （v7.3：每轮思考段与工具调用交织为独立折叠条目；流式期间的原始
+   *  TOOL_CALL 行由 AgentRawLine 紧凑展示）。仅「可修改」模式进入。 */
   const sendAgent = async (question: string) => {
     const tools = agentToolsRef.current ?? []
     const hostLabel = agentHostLabel(applyKind)
@@ -888,7 +985,7 @@ export default function AIEditChat({
         id: userTurnId, role: 'user', content: question,
         note: tgt.hasSelection ? `选区 ${tgt.text.length} 字` : '全文上下文',
       },
-      { id: asstTurnId, role: 'assistant', content: '', streaming: true },
+      { id: asstTurnId, role: 'assistant', content: '', streaming: true, agentStream: true, trace: [] },
     ])
     setBusy(true)
     const controller = new AbortController()
@@ -896,10 +993,25 @@ export default function AIEditChat({
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: question }]
     // 白板/图表多元素插入 + 读校验轮次较多（Office 插件侧为 50）
     const MAX_ROUNDS = 24
+    // 过程分段写入（trace）：think=本轮思考段（首个思考增量开段），tool=一次调用。
+    let stageSeq = 0
+    const pushStage = (stage: Omit<TraceStage, 'key'>): number => {
+      const key = ++stageSeq
+      patchLastTurn(asstTurnId, (x) => ({ trace: [...(x.trace ?? []), { ...stage, key }] }))
+      return key
+    }
+    const patchStage = (key: number, patch: Partial<TraceStage>) => {
+      patchLastTurn(asstTurnId, (x) => ({
+        trace: (x.trace ?? []).map((st) => (st.key === key ? { ...st, ...patch } : st)),
+      }))
+    }
     try {
       let finalText = ''
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         let acc = ''
+        let roundThink = ''
+        let roundThinkStart = 0
+        let thinkKey = 0
         await aiChat(
           { messages: convo, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined },
           {
@@ -908,10 +1020,12 @@ export default function AIEditChat({
               patchLastTurn(asstTurnId, () => ({ content: acc }))
             },
             onThinking: (th) => {
-              patchLastTurn(asstTurnId, (x) => ({
-                thinking: (x.thinking ?? '') + th,
-                thinkingStartedAt: x.thinkingStartedAt ?? Date.now(),
-              }))
+              if (!roundThinkStart) {
+                roundThinkStart = Date.now()
+                thinkKey = pushStage({ kind: 'think', text: '' })
+              }
+              roundThink += th
+              patchStage(thinkKey, { text: roundThink.slice(-12000) })
             },
             onMeta: () => {},
             onTool: () => {},
@@ -920,6 +1034,7 @@ export default function AIEditChat({
           },
           controller.signal,
         )
+        if (thinkKey) patchStage(thinkKey, { ms: Math.max(0, Date.now() - roundThinkStart) })
         const parsed = parseAgentReply(acc)
         if (parsed.type === 'final') {
           // 纯散文回复（无 TOOL_CALL / FINAL 标记）→ 纠正后重试（≤2 次）
@@ -934,11 +1049,12 @@ export default function AIEditChat({
         const tool = parsed.call.tool
         const args = parsed.call.args
         const def = tools.find((t) => t.name === tool)
-        // 工具链条目：running → 终态（exec 结果/错误）
-        const entryId = Date.now() + round
-        patchLastTurn(asstTurnId, (x) => ({
-          toolCalls: [...(x.toolCalls ?? []), { label: def ? def.label(args) : `${tool}`, server: 'docflow', tool, input: JSON.stringify(args).slice(0, 400), status: 'running' as const, _id: entryId }],
-        }))
+        const tKey = pushStage({
+          kind: 'tool',
+          label: def ? def.label(args) : tool,
+          input: JSON.stringify(args).slice(0, 600),
+          status: 'running',
+        })
         let result: { ok: boolean; data?: unknown; error?: string }
         if (!def) {
           result = { ok: false, error: `未知工具 ${tool}（可用：${tools.map((t) => t.name).join(', ')}）` }
@@ -949,29 +1065,26 @@ export default function AIEditChat({
             result = { ok: false, error: err instanceof Error ? err.message : String(err) }
           }
         }
-        patchLastTurn(asstTurnId, (x) => ({
-          toolCalls: (x.toolCalls ?? []).map((e) => (
-            (e as { _id?: number })._id === entryId
-              ? { ...e, status: result.ok ? ('success' as const) : ('error' as const), output: result.ok ? JSON.stringify(result.data ?? { ok: true }).slice(0, 400) : (result.error ?? '失败') }
-              : e
-          )),
-        }))
+        patchStage(tKey, {
+          status: result.ok ? 'success' : 'error',
+          output: (result.ok ? JSON.stringify(result.data ?? { ok: true }) : (result.error ?? '失败')).slice(0, 600),
+        })
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify({ tool, args })}` })
         convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 3000)}` })
       }
-      patchLastTurn(asstTurnId, (x) => ({
+      patchLastTurn(asstTurnId, () => ({
         content: finalText || '（未产生最终答复）',
         streaming: false,
-        thinkingMS: x.thinkingStartedAt ? Math.max(0, Date.now() - x.thinkingStartedAt) : undefined,
+        agentStream: false,
         note: finalText ? undefined : '已达工具轮次上限，已执行操作保留',
       }))
     } catch (err) {
       const aborted = err instanceof Error && err.name === 'AbortError'
-      patchLastTurn(asstTurnId, (x) => ({
+      patchLastTurn(asstTurnId, () => ({
         streaming: false,
+        agentStream: false,
         note: aborted ? '已停止（已执行操作保留）' : undefined,
         error: aborted ? undefined : (err instanceof Error ? err.message : t(locale, 'aiAssistantErr')),
-        thinkingMS: x.thinkingStartedAt ? Math.max(0, Date.now() - x.thinkingStartedAt) : undefined,
       }))
     } finally {
       abortRef.current = null
@@ -1445,6 +1558,18 @@ export default function AIEditChat({
               />
             </Tooltip>
           </Popover>
+          {/* 批量操作：多选消息 → 批量删除 / 保存所选到文件。 */}
+          <Tooltip title={zh ? '批量操作消息（多选删除/保存）' : 'Batch message actions (multi-select delete/save)'}>
+            <Button
+              size="small"
+              type="text"
+              className={batchMode ? 'batch-on' : ''}
+              icon={<ListChecks size={13} strokeWidth={2} />}
+              onClick={() => (batchMode ? exitBatch() : setBatchMode(true))}
+              aria-label={zh ? '批量操作' : 'Batch actions'}
+              aria-pressed={batchMode}
+            />
+          </Tooltip>
           {/* 新建会话（当前会话自动存入服务端历史）。 */}
           <Tooltip title={zh ? '新建会话' : 'New session'}>
             <Button
@@ -1507,21 +1632,38 @@ export default function AIEditChat({
         )}
         {turns.map((turn) => (
           <div key={turn.id} className={`ai-turn ai-turn-${turn.role}`}>
+            {batchMode && (
+              <Checkbox
+                className="ai-turn-check"
+                checked={checked.has(turn.id)}
+                onChange={() => toggleChecked(turn.id)}
+                aria-label={zh ? '选择消息' : 'Select message'}
+              />
+            )}
             {turn.role === 'user' ? (
-              <div className="ai-bubble ai-bubble-user">
-                {turn.content}
-                {turn.files && turn.files.length > 0 && (
-                  <span className="ai-turn-files">
-                    {turn.files.map((f) => (
-                      <span key={f.fileId} className="ai-turn-file-chip" title={f.fileName}>
-                        <Paperclip size={10} strokeWidth={2} aria-hidden="true" />
-                        <span>{f.fileName}</span>
-                      </span>
-                    ))}
-                  </span>
+              <>
+                <div className="ai-bubble ai-bubble-user">
+                  {turn.content}
+                  {turn.files && turn.files.length > 0 && (
+                    <span className="ai-turn-files">
+                      {turn.files.map((f) => (
+                        <span key={f.fileId} className="ai-turn-file-chip" title={f.fileName}>
+                          <Paperclip size={10} strokeWidth={2} aria-hidden="true" />
+                          <span>{f.fileName}</span>
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                  {turn.note && <div className="ai-edit-chat-note">{turn.note}</div>}
+                </div>
+                {!batchMode && (
+                  <div className="ai-edit-chat-actions user-ops">
+                    <Button size="small" type="text" icon={<Copy size={12} strokeWidth={2} />} onClick={() => copy(turn.content)}>
+                      {zh ? '复制' : 'Copy'}
+                    </Button>
+                  </div>
                 )}
-                {turn.note && <div className="ai-edit-chat-note">{turn.note}</div>}
-              </div>
+              </>
             ) : (
               <>
                 {/* 助手头像：与全局 AI 助手同款 Sparkles 圆标。 */}
@@ -1529,9 +1671,17 @@ export default function AIEditChat({
                   <Sparkles size={13} strokeWidth={2} />
                 </div>
                 <div className="ai-bubble ai-bubble-assistant">
-                  {/* 推理思考折叠区（流式展开跟随、完成自动收起并展示用时）。 */}
-                  <AIChatThinking text={turn.thinking ?? ''} streaming={turn.streaming} thinkingMS={turn.thinkingMS} zh={zh} />
+                  {/* 过程追踪（v7.3 Agent 轮次）：思考段与工具调用分阶段折叠；
+                      非 agent 轮次回落单段思考折叠区。 */}
+                  {turn.trace && turn.trace.length > 0 ? (
+                    <TraceView stages={turn.trace} running={!!turn.streaming} zh={zh} />
+                  ) : (
+                    <AIChatThinking text={turn.thinking ?? ''} streaming={turn.streaming} thinkingMS={turn.thinkingMS} zh={zh} />
+                  )}
                   {turn.content ? (
+                    turn.agentStream && turn.streaming ? (
+                      <AgentRawLine text={turn.content} />
+                    ) : (
                     // payload 通道自动应用成功后收起原始回复（大段 JSON/XML 不
                     // 再整屏裸输出）；仅对话/失败/流式期间保持原样渲染。
                     (applyKind === 'excalidraw-json' || applyKind === 'drawio-xml' || applyKind === 'richtext-patch') && turn.applied && !turn.streaming ? (
@@ -1546,6 +1696,7 @@ export default function AIEditChat({
                       />
                     ) : (
                       <AIMarkdown text={turn.content} zh={zh} streaming={turn.streaming} />
+                      )
                     )
                   ) : turn.streaming ? (
                     <span className="ai-thinking">{t(locale, 'aiAssistantGenerating')}</span>
@@ -1556,13 +1707,23 @@ export default function AIEditChat({
                   {turn.streaming && turn.content && <span className="ai-caret" aria-hidden="true" />}
                   {turn.error && <div className="ai-error-msg">{turn.error}</div>}
                   {/* 外部工具调用（MCP）：Wrench 小标签逐条列出（顺序保留）。 */}
-                  {turn.toolCalls && <AIToolCalls toolCalls={turn.toolCalls} zh={zh} />}
+                  {turn.toolCalls && !turn.trace && <AIToolCalls toolCalls={turn.toolCalls} zh={zh} />}
                   {turn.note && <div className="ai-edit-chat-note muted">{turn.note}</div>}
-                  {!turn.streaming && turn.content && (
+                  {!turn.streaming && turn.content && !batchMode && (
                     <div className="ai-edit-chat-actions">
                       <Button size="small" type="text" icon={<Copy size={13} strokeWidth={2} />} onClick={() => copy(turn.content)}>
                         {zh ? '复制' : 'Copy'}
                       </Button>
+                      <Tooltip title={zh ? '删除本轮问答（输入+输出）' : 'Delete this exchange (prompt + reply)'}>
+                        <Button size="small" type="text" icon={<Trash2 size={13} strokeWidth={2} />} onClick={() => deleteExchange(turn.id)}>
+                          {zh ? '删除' : 'Delete'}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title={zh ? '把当前会话导出为 Markdown 文件（当前文件所在目录）' : 'Export this conversation as a Markdown file (same folder)'}>
+                        <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => void saveConversationFile()}>
+                          {zh ? '保存' : 'Save'}
+                        </Button>
+                      </Tooltip>
                     </div>
                   )}
                   {/* 自动应用状态：进行中 / 修改点（可撤销）/ 已撤销 / 失败。 */}
@@ -1625,6 +1786,19 @@ export default function AIEditChat({
                 <button type="button" aria-label={zh ? '移除引用' : 'Remove reference'} onClick={() => toggleAttach({ id: f.fileId, name: f.fileName })}>×</button>
               </span>
             ))}
+          </div>
+        )}
+        {batchMode && (
+          <div className="ai-batch-bar">
+            <span className="muted">{zh ? `已选 ${checked.size} 项` : `${checked.size} selected`}</span>
+            <span className="spacer" />
+            <Button size="small" icon={<Save size={12} strokeWidth={2} />} disabled={checked.size === 0 || savingFile} loading={savingFile} onClick={() => void saveConversationFile([...checked])}>
+              {zh ? '保存所选到文件' : 'Save selection'}
+            </Button>
+            <Button size="small" danger disabled={checked.size === 0} icon={<Trash2 size={12} strokeWidth={2} />} onClick={deleteChecked}>
+              {zh ? '删除所选' : 'Delete'}
+            </Button>
+            <Button size="small" type="text" onClick={exitBatch}>{zh ? '退出' : 'Exit'}</Button>
           </div>
         )}
         <div className="chat-input-box">
