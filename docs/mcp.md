@@ -97,9 +97,14 @@ curl -s .../mcp -H "Authorization: Bearer dfpat_..." \
 | `df_list_spaces` | 列出可见空间（定位 space_id） | files:read |
 | `df_resolve_path` | 按路径定位文件返回 file_id（如 `docs/报告.md`） | files:read |
 | `df_download_url` | 返回下载/预览 API 路径（大文件引导） | files:read |
+| `df_list_conversations` | 列出当前用户的 AI 会话（assistant/editor/plugin 域，可按 file_id 过滤） | files:read |
+| `df_get_conversation` | 读会话完整内容（事件重放；外部 agent 可接手站内编辑会话） | files:read |
+| `df_append_conversation` | 向会话追加事件（turn 增量 / snapshot 全量；写入方案供站内「继续」） | files:write |
+| `df_platform_skills` | 返回内置领域知识（drawio XML / excalidraw 骨架 / Office 规范 / 工具用法）——据此可直接产出合法图表/白板/文档内容 | files:read |
 
 说明：
 
+- **技能开放（C4）**：`df_platform_skills` 返回与站内编辑 Agent 同源的领域知识（drawio/excalidraw/Office 规范）——外部 agent 先取技能再 `df_write_file`/`df_write_version` 即可产出平台可用的图表与白板文件；AI 会话工具（list/get/append）可读写站内编辑会话上下文。
 - `space_id` 参数缺省为用户默认空间；`df_list_spaces` 可列出全部可见空间（直接成员或经用户组）
 - 跨空间操作（读/写/建目录/回收站）显式传 `space_id`，要求在册成员权限
 - **drawio / excalidraw 无需专用工具**：`.drawio` 即 XML、`.excalidraw` 即 JSON，AI 直接 `df_read_file` 读文本、编辑后 `df_write_version` 写回即为新版本

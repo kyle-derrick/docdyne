@@ -153,6 +153,10 @@ const (
 	//（通用设置列表不展示、通用写入口不可写）。
 	KeyAIPersonas = "ai.personas"
 	KeyAISkills   = "ai.skills"
+
+	// KeyAIAgentPackages 编辑器 Agent 技能包（C2）：system 附加段 + 工具
+	// 白名单 + applyKind 过滤；管理端 PUT /admin/settings/ai 维护。
+	KeyAIAgentPackages = "ai.agent_packages"
 	// KeyAIMCPServices 为外部 MCP 服务器配置（ai.mcp，JSON 数组整体读替）：
 	// 管理员维护（专用 /admin/settings/ai/mcp 端点）、对话入口 use_mcp 开启
 	// 时热读取消费；auth_header 同 api_key——只写不读（留空 = 按 ID 继承
@@ -481,6 +485,8 @@ type AIConfig struct {
 	// 读该键；SetAI 中载荷 nil = 保持现值（参照 RAG 块合并语义），非 nil
 	//（含空数组 = 清空）校验后整块写入。
 	Personas []AIPersonaDef `json:"personas,omitempty"`
+	// AgentPackages 为技能包（ai.agent_packages 键）：合并语义同 Personas。
+	AgentPackages []AIAgentPackageDef `json:"agent_packages,omitempty"`
 }
 
 type AIRAGConfig struct {
@@ -1709,6 +1715,29 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		}
 		merged.Personas = normalized
 	}
+	// agent_packages 合并（语义同 personas）。
+	if in.AgentPackages == nil {
+		cur, err := s.AIAgentPackages()
+		if err != nil {
+			return AIConfig{}, err
+		}
+		merged.AgentPackages = cur
+	} else {
+		normalized := make([]AIAgentPackageDef, 0, len(in.AgentPackages))
+		for _, pk := range in.AgentPackages {
+			np := pk
+			np.ID = strings.TrimSpace(pk.ID)
+			np.Name = strings.TrimSpace(pk.Name)
+			normalized = append(normalized, np)
+		}
+		if err := ValidateAIAgentPackages(normalized); err != nil {
+			return AIConfig{}, err
+		}
+		if err := s.writeAIListRow(KeyAIAgentPackages, normalized, actor); err != nil {
+			return AIConfig{}, err
+		}
+		merged.AgentPackages = normalized
+	}
 	if merged.Enabled == nil {
 		merged.Enabled = current.Enabled // 载荷未带 = 保持现值（nil 保持自动）
 	}
@@ -1814,6 +1843,14 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 // 默认，与 Get 的回退语义一致，人设缺失不阻塞对话链路）。
 func (s *Store) AIPersonas() ([]AIPersonaDef, error) {
 	list, err := readAIList[AIPersonaDef](s, KeyAIPersonas)
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func (s *Store) AIAgentPackages() ([]AIAgentPackageDef, error) {
+	list, err := readAIList[AIAgentPackageDef](s, KeyAIAgentPackages)
 	if err != nil {
 		return nil, err
 	}

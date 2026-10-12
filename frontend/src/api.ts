@@ -3523,6 +3523,11 @@ export interface AIConvoScope {
 }
 
 /** 列出 scope 内最近会话（updated_at 倒序，≤30 条）。 */
+/** 拉取 /ai/models 原始响应（agent_packages 等扩展字段）。 */
+export async function getAIModelsRaw(): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>('/api/v1/ai/models')
+}
+
 export async function aiListConversations(scope: AIConvoScope): Promise<AIConvoMeta[]> {
   const params = new URLSearchParams({ source: scope.source })
   if (scope.fileId) params.set('file_id', scope.fileId)

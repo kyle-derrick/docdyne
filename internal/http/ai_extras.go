@@ -466,3 +466,38 @@ func aiMCPTestRespond(c *gin.Context, url, authHeader string, headers map[string
 		"ok": true, "tools": len(tools), "names": names, "latency_ms": latency,
 	})
 }
+
+
+// agentPackagesForKind 返回编辑器 Agent 技能包（内置 + 平台定义合并；
+// kind 非空时过滤适用包）。内置包按编辑类型提供领域专家规范。
+func (h *Handler) agentPackagesForKind(kind string) []settings.AIAgentPackageDef {
+	packs := []settings.AIAgentPackageDef{
+		{ID: "builtin-excel-analyst", Name: "Excel 报表专家", Kinds: []string{"text"}, SystemExtra: "你是 Excel 报表专家：整表用 write_table（含表头行二维数组）；数字/百分比/日期列设 numberFormat；关键行加条件格式；表头冻结；完成后 read_range 校验行列。"},
+		{ID: "builtin-diagram-architect", Name: "图表架构师", Kinds: []string{"excalidraw-json", "drawio-xml"}, SystemExtra: "你是图表架构师：先 read_scene/list_cells 掌握现状；新增优先 insert_elements/insert_cells，改色改字用 update_elements/update_cells（styleSet 合并），不整图重画；连线必须绑定既有元素；完成自检无重叠、连线无悬空。"},
+		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校：逐条定位（find 用 10-80 字唯一片段）；改动最小化（格式调整用 format_text/set_block_type，不整段替换）；完成后 read_document 抽查。"},
+	}
+	if h.settings != nil {
+		if svc, ok := h.settings.(interface{ AIAgentPackages() ([]settings.AIAgentPackageDef, error) }); ok {
+			if extra, err := svc.AIAgentPackages(); err == nil {
+				packs = append(packs, extra...)
+			}
+		}
+	}
+	if kind == "" {
+		return packs
+	}
+	out := packs[:0]
+	for _, p := range packs {
+		if len(p.Kinds) == 0 {
+			out = append(out, p)
+			continue
+		}
+		for _, k := range p.Kinds {
+			if k == kind {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	return out
+}

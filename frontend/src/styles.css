@@ -7567,3 +7567,6 @@ kbd {
 
 /* 谨慎模式开关开启态（B1）。 */
 .ai-attach-btn.cautious-on { color: var(--warning, #d48806); }
+
+/* 技能包选择器（C2）。 */
+.ai-pkg-select { min-width: 132px; max-width: 160px; font-size: 12px; }

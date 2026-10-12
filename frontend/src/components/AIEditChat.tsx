@@ -8,13 +8,13 @@
 //   持久化（按文件分域，ConvoPicker 统一选择器：搜索/切换/重命名/删除）；
 // - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App as AntdApp, Button, Checkbox, Input, Popover, Segmented, Tooltip } from 'antd'
+import { App as AntdApp, Button, Checkbox, Input, Popover, Segmented, Select, Tooltip } from 'antd'
 import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
-import { aiAppendConversation, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
+import { aiAppendConversation, getAIModelsRaw, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
@@ -730,6 +730,11 @@ export default function AIEditChat({
   //（所选模型从 docflow.ai.model 读取，无记忆时回落 default_models.chat；
   //  模型列表仅用于评估思考能力）。
   const [models, setModels] = useState<AIModelOption[]>([])
+  // 技能包（C2）：/ai/models.agent_packages（内置 + 平台定义）。
+  const [agentPackages, setAgentPackages] = useState<Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[] }>>([])
+  const [pkgId, setPkgId] = useState('')
+  const pkgIdRef = useRef('')
+  pkgIdRef.current = pkgId
   const [modelKey, setModelKey] = useState(() => {
     try {
       return window.localStorage.getItem(AI_MODEL_STORAGE_KEY) ?? ''
@@ -807,6 +812,10 @@ export default function AIEditChat({
     if (!aiOn) return
     void getAIModels().then((list) => {
       setModels(list)
+      getAIModelsRaw().then((raw) => {
+        const packs = (raw as { agent_packages?: Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[] }> }).agent_packages
+        if (Array.isArray(packs)) setAgentPackages(packs.filter((x) => x && x.id))
+      }).catch(() => { /* ignore */ })
       setModelKey((cur) => {
         if (cur && list.some((m) => m.id === cur)) return cur
         const dkey = defaultAIModelKey()
@@ -922,13 +931,15 @@ export default function AIEditChat({
   const buildAgentSystem = (tools: AIEditTool[], plan: boolean): string => {
     const hostLabel = agentHostLabel(applyKind)
     const extra = agentSystemExtraRef.current
+    const pkg = agentPackages.find((x) => x.id === pkgIdRef.current)
+    const pkgExtra = pkg?.system_extra ? `【技能包：${pkg.name}】\n${pkg.system_extra}` : ''
     const list = plan ? tools.filter((t) => READONLY_TOOL_RE.test(t.name)) : tools
     const L = [
       `你是 DocFlow 内置文档编辑 Agent（宿主：${hostLabel}）。${plan ? '当前为计划模式：只能调用只读工具探查文档现状，不得修改；探查完成后以 FINAL 输出一份可执行的修改计划（分步骤，说明每步将使用的工具与参数要点）。' : '通过调用工具直接操作当前文档，用户只描述意图。'}`,
       '',
       `可用工具（每次回复恰好一行 TOOL_CALL {...} 调用一个，或以 FINAL 开头给出最终答复${plan ? '（计划）' : ''}）：`,
       ...list.map((t) => `- ${t.name}：${t.desc}`),
-      ...(extra ? ['', extra] : []),
+      ...(extra || pkgExtra ? ['', [extra, pkgExtra].filter(Boolean).join('\n\n')] : []),
       '',
       '输出格式（硬性要求——违反则本轮无效）：每轮回复的完整内容必须恰好是一行 TOOL_CALL {...}（单个工具、合法 JSON、前后不得有任何解释/思考/推理文字），或以 FINAL 开头的最终答复。',
       `禁止输出 "I'll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。`,
@@ -963,7 +974,7 @@ export default function AIEditChat({
     const controller = new AbortController()
     abortRef.current = controller
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: question }]
-    await runAgentLoop(tools, convo, asstTurnId, controller, {}, attachFiles)
+    await runAgentLoop(subAgentTools(tools), convo, asstTurnId, controller, {}, attachFiles)
   }
 
   /** 计划模式：只读工具探查 → FINAL=执行计划（标记 planReady）。 */
@@ -997,7 +1008,7 @@ export default function AIEditChat({
       { role: 'user', content: `请严格按以下计划逐步执行（该计划来自刚才的只读探查，可直接依据；执行完毕 FINAL 总结）：
 ${planText}` },
     ]
-    await runAgentLoop(tools, convo, asstTurnId, controller)
+    await runAgentLoop(subAgentTools(tools), convo, asstTurnId, controller)
     void userTurnId
   }
 
@@ -1066,8 +1077,97 @@ ${planText}` },
     const controller = new AbortController()
     abortRef.current = controller
     convo.push({ role: 'user', content: '继续（从中断处接着执行，保持同样的输出协议）。' })
-    await runAgentLoop(agentToolsRef.current ?? [], convo, asstTurnId, controller)
+    await runAgentLoop(subAgentTools(agentToolsRef.current ?? []), convo, asstTurnId, controller)
   }
+
+  /** 子 agent（C1）：独立只读小循环——检索过程不占主循环上下文，只回
+   *  结构化摘要。与主循环同协议（TOOL_CALL/FINAL），预算独立（≤8 轮）、
+   *  同参连败 4 次熔断；未出摘要返回错误供主循环换路径。 */
+  const runSubAgent = async (
+    goal: string,
+    tools: AIEditTool[],
+    maxRounds = 8,
+  ): Promise<{ ok: boolean; data?: unknown; error?: string }> => {
+    const readonlyTools = tools.filter((t) => READONLY_TOOL_RE.test(t.name))
+    if (readonlyTools.length === 0) return { ok: false, error: '宿主未注册只读工具，无法派发子任务' }
+    const sys = [
+      `你是 DocFlow 只读检索子 Agent。目标：${goal}`,
+      '用只读工具探查，FINAL 输出结构化摘要（发现清单 + 关键事实 + 相关位置/数值），不修改任何内容。',
+      '可用工具：',
+      ...readonlyTools.map((t) => `- ${t.name}：${t.desc}`),
+      '输出格式（硬性）：每轮恰好一行 TOOL_CALL {...}，或 FINAL 开头的摘要。',
+    ].join(String.fromCharCode(10))
+    const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: goal }]
+    let failStreak = 0
+    let lastFailSig = ''
+    try {
+      for (let round = 1; round <= maxRounds; round++) {
+        let acc = ''
+        await aiChat({ messages: convo }, {
+          onDelta: (c) => { acc += c },
+          onMeta: () => {}, onThinking: () => {}, onTool: () => {}, onToolResult: () => {}, onSources: () => {},
+        })
+        const parsed = parseAgentReply(acc)
+        if (parsed.type === 'final') return { ok: true, data: { summary: parsed.text } }
+        const def = readonlyTools.find((t) => t.name === parsed.call.tool)
+        if (!def) {
+          convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify(parsed.call)}` })
+          convo.push({ role: 'user', content: 'TOOL_RESULT {"ok":false,"error":"未知工具"}' })
+          continue
+        }
+        const r = await def.exec(parsed.call.args).catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+        const sig = r.ok ? '' : `${parsed.call.tool}:${JSON.stringify(parsed.call.args)}`
+        if (r.ok) { failStreak = 0; lastFailSig = '' }
+        else if (sig === lastFailSig) {
+          if (++failStreak >= 4) return { ok: false, error: `子任务连败熔断：${parsed.call.tool}` }
+        } else { failStreak = 1; lastFailSig = sig }
+        convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify(parsed.call)}` })
+        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(r).slice(0, 3000)}` })
+      }
+      return { ok: false, error: `子任务达预算（${maxRounds} 轮）未出摘要` }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  /** 技能包应用：工具白名单过滤（元工具 deep_search/parallel_scan 恒留）。 */
+  const applyPackageTools = (tools: AIEditTool[]): AIEditTool[] => {
+    const pkg = agentPackages.find((x) => x.id === pkgIdRef.current)
+    if (!pkg || !Array.isArray(pkg.tools) || pkg.tools.length === 0) return tools
+    const allow = new Set([...pkg.tools, 'deep_search', 'parallel_scan'])
+    return tools.filter((t) => allow.has(t.name))
+  }
+
+  /** 元工具：deep_search（单目标深查）与 parallel_scan（≤3 并发）——
+   *  大范围检索派发给独立上下文，主循环只拿摘要。 */
+  const subAgentTools = (hostTools: AIEditTool[]): AIEditTool[] => [
+    ...applyPackageTools(hostTools),
+    {
+      name: 'deep_search',
+      desc: '{goal} → 派发独立只读子 Agent 深查一个目标（≤8 轮），返回结构化摘要（发现/事实/位置）——大范围检索不占主上下文。',
+      label: (a: Record<string, unknown>) => `深查 ${String(a.goal ?? '').slice(0, 16)}`,
+      exec: async (a: Record<string, unknown>) => runSubAgent(String(a.goal ?? ''), hostTools),
+    },
+    {
+      name: 'parallel_scan',
+      desc: '{tasks:[{goal},…]} → 并发派发 ≤3 个只读子 Agent 各查一个目标，返回逐项摘要（适合多区域/多主题探查）。',
+      label: (a: Record<string, unknown>) => `并发探查 ×${Array.isArray(a.tasks) ? Math.min(a.tasks.length, 3) : '?'}`,
+      exec: async (a: Record<string, unknown>) => {
+        const tasks = (Array.isArray(a.tasks) ? a.tasks : [])
+          .map((t) => String((t as { goal?: unknown })?.goal ?? ''))
+          .filter(Boolean)
+          .slice(0, 3)
+        if (!tasks.length) return { ok: false, error: 'tasks 必填：[{goal},…]' }
+        const results = await Promise.all(tasks.map((g) => runSubAgent(g, hostTools, 8)))
+        return {
+          ok: true,
+          data: {
+            results: tasks.map((g, i) => ({ goal: g, ...(results[i] as { ok: boolean; data?: unknown; error?: string }) })),
+          },
+        }
+      },
+    },
+  ]
 
   /** Agent 工具循环主体（send 与「继续」共用）。 */
   const runAgentLoop = async (
@@ -1752,6 +1852,22 @@ ${planText}` },
                 <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
               </Button>
             </Popover>
+            {/* 技能包选择（C2）：内置 + 平台定义；选择后注入附加规范并按白名单过滤工具。 */}
+            {agentPackages.length > 0 && (
+              <Select
+                size="small"
+                value={pkgId}
+                onChange={(v) => setPkgId(v)}
+                className="ai-pkg-select"
+                aria-label={zh ? '技能包' : 'Skill package'}
+                options={[
+                  { value: '', label: zh ? '技能包：默认' : 'Package: default' },
+                  ...agentPackages
+                    .filter((x) => !Array.isArray(x.kinds) || x.kinds.length === 0 || x.kinds.includes(applyKind))
+                    .map((x) => ({ value: x.id, label: `${zh ? '技能包' : 'Package'}：${x.name}` })),
+                ]}
+              />
+            )}
             {/* 右：模型选择 + 发送/停止（最右端，与 AI 助理/创作同款样式）。 */}
             <div className="chat-tools-right">
               {models.length > 0 && (

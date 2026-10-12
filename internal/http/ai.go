@@ -919,7 +919,7 @@ func (h *Handler) aiModels(c *gin.Context) {
 	// personas 为平台人设（ai.personas，非敏感明文——管理员配给全员选用
 	// 的 system 提示模板，本人可见 system_prompt 无妨）：对话入口据此合并
 	// 人设下拉（平台 tag），选中后前端以其 system_prompt 作为首条 system。
-	c.JSON(http.StatusOK, gin.H{"providers": providers, "default_models": defaults, "personas": h.platformPersonas()})
+	c.JSON(http.StatusOK, gin.H{"providers": providers, "default_models": defaults, "personas": h.platformPersonas(), "agent_packages": h.agentPackagesForKind("")})
 }
 
 // getAISettings GET /admin/settings/ai：读生效配置（密钥掩码）。

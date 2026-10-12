@@ -5,6 +5,11 @@
 ## [Unreleased]
 
 ### 变更
+- **Agent 体系 P2 全量落地（对标 pi/opencode，设计采纳不引码；TODO-agent.md 留档）**：
+  - 死代码清理（-835 行）：单轮指令通道（richtext-patch/docflow-edit、白板/drawio 单轮提示、autoApply/undo、scope 选区）全删——Agent 工具循环为唯一编辑通道；引用文件接入 Agent（此前静默失效）
+  - **子 Agent（C1）**：deep_search（独立只读小循环 ≤8 轮，同参连败 4 次熔断，只回结构化摘要不占主上下文）+ parallel_scan（≤3 目标并发）作为元工具注入执行通道
+  - **技能包（C2，pi packages 式）**：ai.agent_packages 平台设置（管理端 PUT /admin/settings/ai 维护）+ 3 个内置包（Excel 报表专家/图表架构师/文档审校，按 applyKind 过滤）；/ai/models 暴露；编辑页工具栏选择器——选中注入附加规范并按工具白名单过滤
+  - **MCP 全能力开放（C4）**：df_list/get/append_conversation（会话外控）+ **df_platform_skills**（内置领域知识对外开放：drawio XML/excalidraw 骨架/Office 规范——外部 agent 取技能后直接产出合法图表/白板文件）；docs/mcp.md 同步
 - **Agent 强化 P1（TODO-agent.md）**：①谨慎模式（默认开，可关）——破坏性工具（delete_*/clear_*/replace_diagram/write_document/delete_block 等）执行前确认，取消=跳过并回喂模型自适应（编辑页 antd confirm + 插件 ?v=15 confirm，状态 localStorage 记忆）；②用量可见性——SSE usage 逐轮聚合到回合，TraceView 头部显示「N 轮 · N tok · Ns」，插件完成提示带 token；③会话导入导出——编辑页头部按钮，本文件域全部会话（含过程 trace）.json 导出/合并导入；④后端双循环（openai/anthropic）接入同参连败熔断（8 次，df_* JSON 结果可判定时）
 - **Agent 体系强化 P0（对标 pi/opencode 设计，TODO-agent.md）**：①上下文压缩（pi/opencode 式滑动窗口——超 60 条丢中段+注入压缩说明、旧工具结果截短，300 轮预算下防上下文爆窗；不改写原始会话，「继续」仍用全量）；②瞬态错误自动重试（网络/网关抖动重试 1 次）；③最后一条 AI 消息「重新生成」（删本轮问答对并按当前模式重发）；④**计划模式**（opencode plan agent 式）：编辑页面板与 Office 插件新增「计划」档——只读工具子集探查并产出分步执行计划（模型请求写工具会被拦截引导），一键「按计划执行」转入执行循环（插件 ?v=14）
 - **AI 会话记录服务端持久化（v7.2）**：新增 ai_conversations 表（migration 053）与 /api/v1/ai/conversations CRUD（openapi 同步）；全局助手、编辑页面板（按文件）、OnlyOffice 插件三处会话统一落服务端（source=assistant/editor/plugin 分域，每域保留最近 **300** 个，写入裁最旧）——跨设备一致；本机 localStorage 旧记录首载自动迁移上服务端，插件离线时本机只读回退。会话选择器统一为共用 ConvoPicker 组件（新建 + **标题搜索**（本地即时过滤）+ 切换 + 重命名 + 删除 + 计数脚注），全局助手与编辑页同源渲染、插件为同款原生实现

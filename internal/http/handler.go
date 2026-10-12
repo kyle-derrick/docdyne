@@ -292,7 +292,7 @@ type Handler struct {
 }
 
 func NewHandler(authService *auth.Service, users *auth.UserStore, fileStore *files.Store, shares *share.Service, spaces *space.Service, uploads *upload.Service, storage upload.Storage, cookieSecure bool, cookieDomain string, refreshTokenTTL time.Duration) *Handler {
-	h := &Handler{auth: authService, users: users, files: fileStore, shares: shares, spaces: spaces, uploads: uploads, storage: storage, cookieSecure: cookieSecure, cookieDomain: cookieDomain, refreshTokenTTL: refreshTokenTTL, audit: audit.NopRecorder{}, mailer: mail.NewNoopMailer(), idem: newIdemCache(idempotencyTTL), versionReader: fileStore, usage: fileStore, aiFiles: fileStore, resolver: fileStore, unpacker: fileStore, csrfStrict: true, loginMaxRetries: 5, loginLockDuration: 15 * time.Minute, mcpDeps: &mcp.Deps{Files: fileStore, Uploads: uploads, Storage: storage, Shares: shares, Spaces: spaces}}
+	h := &Handler{auth: authService, users: users, files: fileStore, shares: shares, spaces: spaces, uploads: uploads, storage: storage, cookieSecure: cookieSecure, cookieDomain: cookieDomain, refreshTokenTTL: refreshTokenTTL, audit: audit.NopRecorder{}, mailer: mail.NewNoopMailer(), idem: newIdemCache(idempotencyTTL), versionReader: fileStore, usage: fileStore, aiFiles: fileStore, resolver: fileStore, unpacker: fileStore, csrfStrict: true, loginMaxRetries: 5, loginLockDuration: 15 * time.Minute, mcpDeps: &mcp.Deps{Files: fileStore, Uploads: uploads, Storage: storage, Shares: shares, Spaces: spaces, Convos: users}}
 	if fileStore != nil {
 		h.zipper = fileStore
 	}

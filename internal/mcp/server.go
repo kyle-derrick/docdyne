@@ -112,6 +112,8 @@ type Deps struct {
 	Search  SearchService
 	// AI 为 AI 能力（ask_docs/summarize_file/ai_chat；AI 能力第一版）。
 	AI AIAssistant
+	// Convos 为 AI 会话存取（df_list/get/append_conversation；nil 不注册）。
+	Convos ConvoStore
 }
 
 // Tool 为一个 MCP 工具定义：inputSchema 手写 JSON Schema（不引 zod）；
@@ -153,7 +155,7 @@ func NewServer(deps *Deps) *Server {
 		deps = &Deps{}
 	}
 	s := &Server{deps: deps}
-	s.tools = append(allTools(), aiTools()...)
+	s.tools = append(append(allTools(), aiTools()...), conversationTools(s.deps.Convos)...)
 	return s
 }
 
