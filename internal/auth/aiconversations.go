@@ -42,17 +42,35 @@ const (
 // ErrInvalidAIConversation 表示会话载荷非法（HTTP 400 语义）。
 var ErrInvalidAIConversation = errors.New("invalid ai conversation")
 
-// AIConversation 对应 ai_conversations 表一行。
+// AIConversation 对应 ai_conversations 表一行（正文在事件表，读取时重放）。
 type AIConversation struct {
-	ID        uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID    uuid.UUID       `gorm:"type:uuid;not null;index" json:"-"`
-	FileID    *uuid.UUID      `gorm:"type:uuid" json:"file_id"`
-	Source    string          `gorm:"size:16;not null" json:"source"`
-	Title     string          `gorm:"not null" json:"title"`
-	Messages  json.RawMessage `gorm:"type:jsonb;not null" json:"messages"`
+	ID           uuid.UUID    `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID       uuid.UUID    `gorm:"type:uuid;not null;index" json:"-"`
+	FileID       *uuid.UUID   `gorm:"type:uuid" json:"file_id"`
+	Source       string       `gorm:"size:16;not null" json:"source"`
+	Title        string       `gorm:"not null" json:"title"`
+	MessageCount int          `gorm:"not null" json:"message_count"`
+	// Messages 为事件重放产物（GetAIConversation 填充；非数据库列）。
+	Messages  json.RawMessage `gorm:"-" json:"messages"`
 	CreatedAt time.Time       `gorm:"not null" json:"created_at"`
 	UpdatedAt time.Time       `gorm:"not null" json:"updated_at"`
 }
+
+// AIConvoEvent 对应 ai_conversation_events 一行（append-only）。
+// kind: turn=追加回合（payload 为消息数组，按序拼接）；snapshot=全量快照
+//（payload 为完整消息数组，重放时替换此前状态——删除/导入等重排操作经
+// 快照表达，日志本身只追加）。会话行维护 title/updated_at/message_count。
+type AIConvoEvent struct {
+	ID             uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
+	ConversationID uuid.UUID       `gorm:"type:uuid;not null;index" json:"conversation_id"`
+	Seq            int64           `gorm:"not null" json:"seq"`
+	Kind           string          `gorm:"size:16;not null" json:"kind"`
+	Payload        json.RawMessage `gorm:"type:jsonb;not null" json:"payload"`
+	CreatedAt      time.Time       `gorm:"not null" json:"created_at"`
+}
+
+// TableName 显式映射到 ai_conversation_events。
+func (AIConvoEvent) TableName() string { return "ai_conversation_events" }
 
 // TableName 显式映射到 ai_conversations。
 func (AIConversation) TableName() string { return "ai_conversations" }
@@ -142,14 +160,9 @@ func (s *UserStore) ListAIConversations(userID uuid.UUID, fileID *uuid.UUID, sou
 	}
 	out := make([]AIConversationMeta, 0, len(rows))
 	for _, r := range rows {
-		var count int
-		var arr []json.RawMessage
-		if json.Unmarshal(r.Messages, &arr) == nil {
-			count = len(arr)
-		}
 		out = append(out, AIConversationMeta{
 			ID: r.ID, FileID: r.FileID, Source: r.Source,
-			Title: r.Title, MessageCount: count, UpdatedAt: r.UpdatedAt,
+			Title: r.Title, MessageCount: r.MessageCount, UpdatedAt: r.UpdatedAt,
 		})
 	}
 	return out, nil
@@ -169,7 +182,7 @@ func (s *UserStore) CreateAIConversation(userID uuid.UUID, fileID *uuid.UUID, so
 		FileID:   fileID,
 		Source:   source,
 		Title:    strings.TrimSpace(title),
-		Messages: json.RawMessage("[]"),
+		MessageCount: 0,
 	}
 	if err := s.db.Create(&row).Error; err != nil {
 		return AIConversation{}, err
@@ -181,7 +194,7 @@ func (s *UserStore) CreateAIConversation(userID uuid.UUID, fileID *uuid.UUID, so
 	return row, nil
 }
 
-// GetAIConversation 取单个会话（本人维度；不存在返回 found=false）。
+// GetAIConversation 取单个会话并重放事件生成 Messages（本人维度）。
 func (s *UserStore) GetAIConversation(userID, id uuid.UUID) (AIConversation, bool, error) {
 	var row AIConversation
 	err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&row).Error
@@ -191,23 +204,92 @@ func (s *UserStore) GetAIConversation(userID, id uuid.UUID) (AIConversation, boo
 	if err != nil {
 		return AIConversation{}, false, err
 	}
+	msgs, err := s.replayAIConvo(id)
+	if err != nil {
+		return AIConversation{}, false, err
+	}
+	row.Messages = msgs
 	return row, true, nil
 }
 
-// UpdateAIConversation 整体替换 title 与/或 messages（本人维度）。
-func (s *UserStore) UpdateAIConversation(userID, id uuid.UUID, title *string, messages json.RawMessage) (bool, error) {
+// replayAIConvo 按 seq 重放事件：turn 追加 payload 数组、snapshot 替换。
+func (s *UserStore) replayAIConvo(id uuid.UUID) (json.RawMessage, error) {
+	var events []AIConvoEvent
+	if err := s.db.Where("conversation_id = ?", id).Order("seq ASC").Find(&events).Error; err != nil {
+		return nil, err
+	}
+	acc := []json.RawMessage{}
+	for _, ev := range events {
+		var items []json.RawMessage
+		if json.Unmarshal(ev.Payload, &items) != nil {
+			continue
+		}
+		if ev.Kind == "snapshot" {
+			acc = items
+		} else {
+			acc = append(acc, items...)
+		}
+	}
+	out, err := json.Marshal(acc)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(out), nil
+}
+
+// AppendAIConvoEvent 追加事件（turn=追加 payload 消息 / snapshot=全量替换）
+// 并维护会话行 message_count 与 updated_at。校验沿用 ValidateAIConvoMessages
+//（对 snapshot 的完整数组校验；turn 校验本段增量）。
+func (s *UserStore) AppendAIConvoEvent(userID, id uuid.UUID, kind string, payload json.RawMessage) (bool, error) {
+	if kind != "turn" && kind != "snapshot" {
+		return false, fmt.Errorf("%w: kind 须为 turn|snapshot", ErrInvalidAIConversation)
+	}
+	if err := ValidateAIConvoMessages(payload); err != nil {
+		return false, err
+	}
+	var row AIConversation
+	if err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+		return false, err
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(payload, &items); err != nil {
+		return false, fmt.Errorf("%w: payload 须为 JSON 数组", ErrInvalidAIConversation)
+	}
+	var maxSeq int64
+	if err := s.db.Model(&AIConvoEvent{}).Where("conversation_id = ?", id).
+		Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
+		return false, err
+	}
+	ev := AIConvoEvent{
+		ID: uuid.Must(uuid.NewV7()), ConversationID: id, Seq: maxSeq + 1,
+		Kind: kind, Payload: payload,
+	}
+	if err := s.db.Create(&ev).Error; err != nil {
+		return false, err
+	}
+	count := row.MessageCount
+	if kind == "snapshot" {
+		count = len(items)
+	} else {
+		count += len(items)
+	}
+	if err := s.db.Model(&AIConversation{}).Where("id = ?", id).Updates(map[string]any{
+		"message_count": count, "updated_at": time.Now(),
+	}).Error; err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// UpdateAIConversation 更新标题（本人维度；内容写走 AppendAIConvoEvent，
+// messages 参数保留签名兼容但已停用）。
+func (s *UserStore) UpdateAIConversation(userID, id uuid.UUID, title *string, _ json.RawMessage) (bool, error) {
 	patch := map[string]any{"updated_at": time.Now()}
 	if title != nil {
 		if err := ValidateAIConvoTitle(*title); err != nil {
 			return false, err
 		}
 		patch["title"] = strings.TrimSpace(*title)
-	}
-	if messages != nil {
-		if err := ValidateAIConvoMessages(messages); err != nil {
-			return false, err
-		}
-		patch["messages"] = messages
 	}
 	res := s.db.Model(&AIConversation{}).
 		Where("id = ? AND user_id = ?", id, userID).Updates(patch)

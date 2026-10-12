@@ -666,6 +666,7 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	api.POST("/ai/conversations", h.aiConvoCreate)
 	api.GET("/ai/conversations/:id", h.aiConvoGet)
 	api.PUT("/ai/conversations/:id", h.aiConvoUpdate)
+	api.POST("/ai/conversations/:id/events", h.aiConvoEvents)
 	api.DELETE("/ai/conversations/:id", h.aiConvoDelete)
 	api.POST("/ai/chat", auth.RequireScope(auth.ScopeAIChat), h.aiChat)
 	api.POST("/ai/summarize", auth.RequireScope(auth.ScopeAIChat), h.aiSummarize)

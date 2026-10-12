@@ -3546,9 +3546,15 @@ export async function aiGetConversation(id: string): Promise<AIConvoRow> {
   return data.conversation
 }
 
-/** 更新会话（title 与/或 messages 整体替换；messages ≤64 条 / ≤256KB）。 */
-export async function aiUpdateConversation(id: string, body: { title?: string; messages?: Array<Record<string, unknown>> }): Promise<void> {
+/** 更新会话标题（内容写走 aiAppendConversation 事件端点）。 */
+export async function aiUpdateConversation(id: string, body: { title: string }): Promise<void> {
   await api(`/api/v1/ai/conversations/${id}`, jsonInit('PUT', body))
+}
+
+/** 追加会话事件（append-only）：kind=turn 增量回合 / snapshot 全量快照
+ *  （删除/导入等重排操作经快照表达；读取（aiGetConversation）为重放结果）。 */
+export async function aiAppendConversation(id: string, kind: 'turn' | 'snapshot', messages: Array<Record<string, unknown>>): Promise<void> {
+  await api(`/api/v1/ai/conversations/${id}/events`, jsonInit('POST', { kind, messages }))
 }
 
 /** 删除会话（不存在/非本人 404）。 */

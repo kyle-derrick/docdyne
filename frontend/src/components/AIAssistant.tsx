@@ -60,6 +60,7 @@ import {
   aiGetConversation,
   aiListConversations,
   aiSummarizeFileStream,
+  aiAppendConversation,
   aiUpdateConversation,
   authFetch,
   createAIMemory,
@@ -1367,6 +1368,7 @@ useEffect(() => {
     let alive = true
     const restore = (list: AIConvo[]) => {
       if (!alive) return
+      convoSyncedLenRef.current = list[0]?.messages.length ?? 0
       convosRef.current = list
       setConvos(list)
       const top = list[0]
@@ -1387,7 +1389,7 @@ useEffect(() => {
             for (const c of [...local].reverse()) {
               if (!c.messages.length) continue
               const row = await aiCreateConversation({ source: 'assistant' }, c.title || (zh ? '历史会话' : 'Imported'))
-              await aiUpdateConversation(row.id, { messages: c.messages.slice(-AI_CONVO_MSG_MAX) as unknown as Array<Record<string, unknown>> })
+              await aiAppendConversation(row.id, 'snapshot', c.messages.slice(-AI_CONVO_MSG_MAX) as unknown as Array<Record<string, unknown>>)
             }
             try { window.localStorage.removeItem(aiConvosKey(aiUid)) } catch { /* ignore */ }
             metas = await aiListConversations({ source: 'assistant' })
@@ -1416,6 +1418,9 @@ useEffect(() => {
   // done 后落盘）→ 当前会话 PUT messages（无活跃会话先 POST 创建；标题 =
   // 首条用户消息前 16 字，重命名优先）；失败静默（下一轮重试）。列表 metas
   // 本地同步维护（≤30 个），切换时按需拉取正文。
+  // 事件模型：新回合完成（400ms 防抖）→ append turn 增量；syncedLen 追踪
+  // 已同步条数（清空/删除走 deleteConvo 整删，无部分删除）。
+  const convoSyncedLenRef = useRef(0)
   useEffect(() => {
     if (!aiUid) return
     const timer = window.setTimeout(() => {
@@ -1423,11 +1428,13 @@ useEffect(() => {
       const msgs: AIConvoMessage[] = turns
         .filter((x) => !x.error && x.content.trim())
         .map((x) => ({ role: x.role, content: x.content, ts: now }))
-      if (msgs.length === 0) return
+      const synced = convoSyncedLenRef.current
+      const persist = msgs.slice(-AI_CONVO_MSG_MAX)
+      if (persist.length <= synced) return
       const id = convoIdRef.current
       const prev = convosRef.current.find((c) => c.id === id)
       const title = prev?.title || aiConvoTitleFrom(turns) || (zh ? '新对话' : 'New chat')
-      const persist = msgs.slice(-AI_CONVO_MSG_MAX)
+      const delta = persist.slice(synced)
       void (async () => {
         try {
           let cid = id
@@ -1437,7 +1444,8 @@ useEffect(() => {
             convoIdRef.current = cid
             setConvoId(cid)
           }
-          await aiUpdateConversation(cid, { messages: persist as unknown as Array<Record<string, unknown>> })
+          await aiAppendConversation(cid, 'turn', delta as unknown as Array<Record<string, unknown>>)
+          convoSyncedLenRef.current = persist.length
           const rest = [
             { id: cid, title, updatedAt: now, messages: persist },
             ...convosRef.current.filter((c) => c.id !== cid),
@@ -1469,12 +1477,13 @@ useEffect(() => {
     const apply = (msgs: AIConvoMessage[]) => {
       applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
     }
-    if (target.messages.length > 0) { apply(target.messages); return }
+    if (target.messages.length > 0) { convoSyncedLenRef.current = target.messages.length; apply(target.messages); return }
     void aiGetConversation(id)
       .then((row) => {
         if (convoIdRef.current !== id) return
         const msgs = (row.messages as unknown as AIConvoMessage[]).filter((m) => m && typeof m.content === 'string')
         convosRef.current = convosRef.current.map((c) => (c.id === id ? { ...c, messages: msgs } : c))
+        convoSyncedLenRef.current = msgs.length
         apply(msgs)
       })
       .catch(() => {
@@ -1896,6 +1905,7 @@ useEffect(() => {
   const newChat = () => {
     abortRef.current?.abort()
     sticky.scrollToBottom()
+    convoSyncedLenRef.current = 0
     convoIdRef.current = ''
     setConvoId('')
     applyTurns(() => [])

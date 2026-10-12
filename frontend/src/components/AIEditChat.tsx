@@ -14,7 +14,7 @@ import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
-import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
+import { aiAppendConversation, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
@@ -451,6 +451,7 @@ export default function AIEditChat({
     }))
     sessionsRef.current = list
     setSessions(list)
+    syncedLenRef.current = 0
     if (list[0]) {
       activeSessIdRef.current = list[0].id
       setActiveSessId(list[0].id)
@@ -459,6 +460,7 @@ export default function AIEditChat({
         const saved = sanitizeSessionTurns(row.messages)
         list[0] = { ...list[0], turns: saved }
         sessionsRef.current = [...list]
+        syncedLenRef.current = saved.length
         setTurns(saved)
       } catch {
         /* 正文拉取失败按空会话处理 */
@@ -478,7 +480,7 @@ export default function AIEditChat({
             for (const s of [...local].reverse()) {
               if (!s.turns.length) continue
               const row = await aiCreateConversation(convoScope, s.title || '历史会话')
-              await aiUpdateConversation(row.id, { messages: s.turns as unknown as Array<Record<string, unknown>> })
+              await aiAppendConversation(row.id, 'snapshot', s.turns as unknown as Array<Record<string, unknown>>)
             }
             try {
               window.localStorage.removeItem(legacyConvsKey)
@@ -496,37 +498,61 @@ export default function AIEditChat({
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId])
+  // 会话同步（事件模型）：新回合完成 → append turn 增量；删除消息 →
+  // snapshot 全量；清空 → 删除服务端会话。syncedLen 记录已同步条数。
+  const syncedLenRef = useRef(0)
   useEffect(() => {
     if (!fileId) return
-    // 进行中的回合（流式/应用中）不落盘，等完成后下一次更新再存。
-    if (turns.some((x) => x.streaming || x.applying)) return
-    const persist = turns.slice(-40).map((x) => ({ ...x, streaming: undefined, applying: undefined }))
-    if (persist.length === 0) return
+    if (turns.some((x) => x.streaming)) return
+    const persist = turns.map((x) => ({ ...x, streaming: undefined }))
+    const synced = syncedLenRef.current
     const id = activeSessIdRef.current
-    const prev = sessionsRef.current.find((s) => s.id === id)
-    const title = prev?.title || sessionTitleOf(persist) || (zh ? '新会话' : 'New session')
     void (async () => {
       try {
-        let cid = id
-        if (!cid || !prev) {
-          const row = await aiCreateConversation(convoScope, title)
-          cid = row.id
-          activeSessIdRef.current = cid
-          setActiveSessId(cid)
+        if (persist.length > synced) {
+          const prev = sessionsRef.current.find((s) => s.id === id)
+          const title = prev?.title || sessionTitleOf(persist) || (zh ? '新会话' : 'New session')
+          let cid = id
+          if (!cid || !prev) {
+            const row = await aiCreateConversation(convoScope, title)
+            cid = row.id
+            activeSessIdRef.current = cid
+            setActiveSessId(cid)
+          } else if (!prev.title) {
+            void aiUpdateConversation(cid, { title }).catch(() => { /* 静默 */ })
+          }
+          await aiAppendConversation(cid, 'turn', persist.slice(synced) as unknown as Array<Record<string, unknown>>)
+          syncedLenRef.current = persist.length
+          const rest = [
+            { id: cid, title, updatedAt: Date.now(), messageCount: persist.length, turns },
+            ...sessionsRef.current.filter((s) => s.id !== cid),
+          ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 300)
+          sessionsRef.current = rest
+          setSessions(rest)
+        } else if (persist.length < synced) {
+          if (persist.length === 0) {
+            if (id) {
+              await aiDeleteConversation(id).catch(() => { /* 静默 */ })
+              const rest = sessionsRef.current.filter((s) => s.id !== id)
+              sessionsRef.current = rest
+              setSessions(rest)
+            }
+            syncedLenRef.current = 0
+          } else if (id) {
+            await aiAppendConversation(id, 'snapshot', persist.slice(-40) as unknown as Array<Record<string, unknown>>)
+            syncedLenRef.current = Math.min(persist.length, 40)
+            const rest = sessionsRef.current.map((s) => (s.id === id ? { ...s, updatedAt: Date.now(), messageCount: persist.length } : s))
+            sessionsRef.current = rest
+            setSessions(rest)
+          }
         }
-        await aiUpdateConversation(cid, { messages: persist as unknown as Array<Record<string, unknown>> })
-        const rest = [
-          { id: cid, title, updatedAt: Date.now(), messageCount: persist.length, turns: persist },
-          ...sessionsRef.current.filter((s) => s.id !== cid),
-        ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 300)
-        sessionsRef.current = rest
-        setSessions(rest)
       } catch {
-        /* 服务端写失败静默（下一轮重试） */
+        /* 服务端写失败静默（下次变更重试；syncedLen 不前移） */
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId, turns])
+
   /** 切换会话（正文按需拉取；贴底显示最新）。 */
   const switchSession = (id: string) => {
     const target = sessionsRef.current.find((s) => s.id === id)
@@ -535,13 +561,14 @@ export default function AIEditChat({
     setActiveSessId(id)
     setNotice('')
     sticky.scrollToBottom()
-    if (target.turns.length > 0) { setTurns(target.turns); return }
+    if (target.turns.length > 0) { syncedLenRef.current = target.turns.length; setTurns(target.turns); return }
     void aiGetConversation(id)
       .then((row) => {
         if (activeSessIdRef.current !== id) return
         const saved = sanitizeSessionTurns(row.messages)
         sessionsRef.current = sessionsRef.current.map((s) => (s.id === id ? { ...s, turns: saved } : s))
         setSessions([...sessionsRef.current])
+        syncedLenRef.current = saved.length
         setTurns(saved)
       })
       .catch(() => {
@@ -552,6 +579,7 @@ export default function AIEditChat({
   const newSession = () => {
     activeSessIdRef.current = ''
     setActiveSessId('')
+    syncedLenRef.current = 0
     setTurns([])
     setNotice('')
     setSessOpen(false)
@@ -1014,7 +1042,7 @@ ${planText}` },
         const messages = Array.isArray(it?.messages) ? (it.messages as Array<Record<string, unknown>>) : []
         if (!messages.length) continue
         const row = await aiCreateConversation(convoScope, title)
-        await aiUpdateConversation(row.id, { messages: messages.slice(-40) })
+        await aiAppendConversation(row.id, 'snapshot', messages.slice(-40))
         imported++
       }
       const metas = await aiListConversations(convoScope)

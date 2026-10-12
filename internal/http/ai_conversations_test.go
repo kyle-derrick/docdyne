@@ -96,11 +96,34 @@ func (f *fakeAIConvoStore) UpdateAIConversation(userID, id uuid.UUID, title *str
 			}
 			f.rows[i].Title = *title
 		}
-		if messages != nil {
-			if err := auth.ValidateAIConvoMessages(messages); err != nil {
-				return false, err
-			}
-			f.rows[i].Messages = messages
+		f.rows[i].UpdatedAt = time.Now()
+		return true, nil
+	}
+	return false, nil
+}
+
+func (f *fakeAIConvoStore) AppendAIConvoEvent(userID, id uuid.UUID, kind string, payload json.RawMessage) (bool, error) {
+	if err := auth.ValidateAIConvoMessages(payload); err != nil {
+		return false, err
+	}
+	for i := range f.rows {
+		if f.rows[i].ID != id || f.rows[i].UserID != userID {
+			continue
+		}
+		var items []json.RawMessage
+		if err := json.Unmarshal(payload, &items); err != nil {
+			return false, err
+		}
+		if kind == "snapshot" {
+			f.rows[i].Messages = payload
+			f.rows[i].MessageCount = len(items)
+		} else {
+			var acc []json.RawMessage
+			_ = json.Unmarshal(f.rows[i].Messages, &acc)
+			acc = append(acc, items...)
+			out, _ := json.Marshal(acc)
+			f.rows[i].Messages = out
+			f.rows[i].MessageCount += len(items)
 		}
 		f.rows[i].UpdatedAt = time.Now()
 		return true, nil
@@ -133,6 +156,7 @@ func newAIConvoRouter(store aiConvoStore, actor uuid.UUID) *gin.Engine {
 	r.POST("/api/v1/ai/conversations", withUser(h.aiConvoCreate))
 	r.GET("/api/v1/ai/conversations/:id", withUser(h.aiConvoGet))
 	r.PUT("/api/v1/ai/conversations/:id", withUser(h.aiConvoUpdate))
+	r.POST("/api/v1/ai/conversations/:id/events", withUser(h.aiConvoEvents))
 	r.DELETE("/api/v1/ai/conversations/:id", withUser(h.aiConvoDelete))
 	return r
 }
@@ -162,15 +186,24 @@ func TestAIConversationsCRUD(t *testing.T) {
 		t.Fatalf("create body 解析失败: %v %s", err, w.Body.String())
 	}
 
-	// 写入消息（messages 为前端回合数组，服务端不逐条解释）。
-	msgs, _ := json.Marshal(map[string]any{"messages": []map[string]any{
+	// 追加回合事件（turn；messages 为前端回合数组，服务端不逐条解释）。
+	msgs, _ := json.Marshal(map[string]any{"kind": "turn", "messages": []map[string]any{
 		{"role": "user", "content": "把第二段改简洁"},
 		{"role": "assistant", "content": "已通过 replace_text 完成"},
 	}})
 	w = httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/v1/ai/conversations/"+created.Conversation.ID, bytes.NewReader(msgs)))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/ai/conversations/"+created.Conversation.ID+"/events", bytes.NewReader(msgs)))
 	if w.Code != http.StatusOK {
-		t.Fatalf("update status = %d body %s", w.Code, w.Body.String())
+		t.Fatalf("events status = %d body %s", w.Code, w.Body.String())
+	}
+	// 追加第二段 turn 后以 snapshot 收敛（删除语义）。
+	snap, _ := json.Marshal(map[string]any{"kind": "snapshot", "messages": []map[string]any{
+		{"role": "user", "content": "把第二段改简洁"},
+	}})
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/ai/conversations/"+created.Conversation.ID+"/events", bytes.NewReader(snap)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("snapshot status = %d body %s", w.Code, w.Body.String())
 	}
 
 	// 列表：file_id + source 过滤命中，message_count=2；他人 scope 不可见。
@@ -189,8 +222,8 @@ func TestAIConversationsCRUD(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatalf("list body 解析失败: %v", err)
 	}
-	if len(list.Conversations) != 1 || list.Conversations[0].MessageCount != 2 || list.Conversations[0].Title != "润色报告" {
-		t.Fatalf("list 期望 1 条（count=2, title=润色报告）: %+v", list.Conversations)
+	if len(list.Conversations) != 1 || list.Conversations[0].MessageCount != 1 || list.Conversations[0].Title != "润色报告" {
+		t.Fatalf("list 期望 1 条（snapshot 后 count=1, title=润色报告）: %+v", list.Conversations)
 	}
 	if got := len(store.match(other, &fileID, "editor")); got != 0 {
 		t.Fatalf("他人应不可见，got %d", got)
@@ -199,14 +232,14 @@ func TestAIConversationsCRUD(t *testing.T) {
 	// 读取正文。
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/ai/conversations/"+created.Conversation.ID, nil))
-	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("replace_text")) {
-		t.Fatalf("get status = %d body %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("把第二段改简洁")) || bytes.Contains(w.Body.Bytes(), []byte("replace_text")) {
+		t.Fatalf("get 应为快照后内容（不含被删条目）: %d %s", w.Code, w.Body.String())
 	}
 
-	// 非法 messages（非数组）→ 400 INVALID_AI_CONVERSATION。
-	bad, _ := json.Marshal(map[string]any{"messages": map[string]any{"nope": 1}})
+	// 非法 messages（非数组）→ 400 INVALID_AI_CONVERSATION（events 端点）。
+	bad, _ := json.Marshal(map[string]any{"kind": "turn", "messages": map[string]any{"nope": 1}})
 	w = httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/v1/ai/conversations/"+created.Conversation.ID, bytes.NewReader(bad)))
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/ai/conversations/"+created.Conversation.ID+"/events", bytes.NewReader(bad)))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("非法 messages 应 400: %d %s", w.Code, w.Body.String())
 	}

@@ -148,7 +148,7 @@
           var msgs = normalizeMsgs(s.messages).slice(0, 40);
           if (!msgs.length) return null;
           return apiJSON('/api/v1/ai/conversations', { method: 'POST', body: JSON.stringify({ source: 'plugin', title: s.title || sessTitleOf(msgs) || '历史会话' }) })
-            .then(function (d) { return apiJSON('/api/v1/ai/conversations/' + d.conversation.id, { method: 'PUT', body: JSON.stringify({ messages: msgs }) }); });
+            .then(function (d) { return apiJSON('/api/v1/ai/conversations/' + d.conversation.id + '/events', { method: 'POST', body: JSON.stringify({ kind: 'snapshot', messages: msgs }) }); });
         });
       })(oldest[i]);
     }
@@ -197,7 +197,7 @@
           return activeId;
         });
     run.then(function (cid) {
-      return apiJSON('/api/v1/ai/conversations/' + cid, { method: 'PUT', body: JSON.stringify({ messages: persist }) });
+      return apiJSON('/api/v1/ai/conversations/' + cid + '/events', { method: 'POST', body: JSON.stringify({ kind: 'turn', messages: persist }) });
     }).then(function () {
       var others = sessions.filter(function (s) { return s.id !== activeId; });
       others.push({ id: activeId, title: title, updatedAt: Date.now() });

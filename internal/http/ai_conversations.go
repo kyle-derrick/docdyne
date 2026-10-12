@@ -26,6 +26,7 @@ type aiConvoStore interface {
 	CreateAIConversation(userID uuid.UUID, fileID *uuid.UUID, source, title string) (auth.AIConversation, error)
 	GetAIConversation(userID, id uuid.UUID) (auth.AIConversation, bool, error)
 	UpdateAIConversation(userID, id uuid.UUID, title *string, messages json.RawMessage) (bool, error)
+	AppendAIConvoEvent(userID, id uuid.UUID, kind string, payload json.RawMessage) (bool, error)
 	DeleteAIConversation(userID, id uuid.UUID) (bool, error)
 }
 
@@ -141,8 +142,8 @@ func (h *Handler) aiConvoGet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"conversation": row})
 }
 
-// aiConvoUpdate PUT /api/v1/ai/conversations/:id {title?, messages?}：
-// 整体替换（messages 为前端回合数组；两字段均可选，至少其一）。
+// aiConvoUpdate PUT /api/v1/ai/conversations/:id {title}：
+// 更新标题（内容写走 POST /:id/events 事件端点）。
 func (h *Handler) aiConvoUpdate(c *gin.Context) {
 	if h.aiConversations == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai conversations is not configured"})
@@ -153,22 +154,17 @@ func (h *Handler) aiConvoUpdate(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Title    *string          `json:"title"`
-		Messages *json.RawMessage `json:"messages"`
+		Title *string `json:"title"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	if req.Title == nil && req.Messages == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "title or messages required", "code": "INVALID_AI_CONVERSATION"})
+	if req.Title == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title required", "code": "INVALID_AI_CONVERSATION"})
 		return
 	}
-	var messages json.RawMessage
-	if req.Messages != nil {
-		messages = *req.Messages
-	}
-	found, err := h.aiConversations.UpdateAIConversation(userID(c), id, req.Title, messages)
+	found, err := h.aiConversations.UpdateAIConversation(userID(c), id, req.Title, nil)
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidAIConversation) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_AI_CONVERSATION"})
@@ -204,4 +200,43 @@ func (h *Handler) aiConvoDelete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// aiConvoEvents POST /api/v1/ai/conversations/:id/events {kind, messages}：
+// 追加事件（turn=追加回合消息 / snapshot=全量快照替换；messages 为前端
+// 回合结构数组）。返回最新 message_count。
+func (h *Handler) aiConvoEvents(c *gin.Context) {
+	if h.aiConversations == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai conversations is not configured"})
+		return
+	}
+	id, ok := parseID(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var req struct {
+		Kind     string          `json:"kind"`
+		Messages json.RawMessage `json:"messages"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if req.Kind == "" {
+		req.Kind = "turn"
+	}
+	found, err := h.aiConversations.AppendAIConvoEvent(userID(c), id, req.Kind, req.Messages)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidAIConversation) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_AI_CONVERSATION"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to append conversation events"})
+		return
+	}
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

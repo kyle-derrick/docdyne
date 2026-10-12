@@ -5400,11 +5400,11 @@ paths:
     put:
       tags: [AI]
       operationId: aiConversationsUpdate
-      summary: 更新会话（title 与/或 messages 整体替换）
+      summary: 更新会话标题
       description: >-
-        messages 为前端回合结构数组整体替换（≤64 条、原始 JSON ≤256KB，
-        服务端不逐条解释）；title 可选（≤120 字符）；两字段至少其一。
-        更新刷新 updated_at（列表排序基准）。不存在/非本人 404。
+        更新标题（≤120 字符）并刷新 updated_at（列表排序基准）。会话内容
+        的写入走事件端点（POST /ai/conversations/{id}/events）。
+        不存在/非本人 404。
       parameters:
         - name: id
           in: path
@@ -5416,13 +5416,9 @@ paths:
           application/json:
             schema:
               type: object
-              description: title / messages 至少其一
+              required: [title]
               properties:
-                title: { type: string }
-                messages:
-                  type: array
-                  description: 前端回合结构数组（整段替换）
-                  items: { type: object }
+                title: { type: string, description: ≤120 字符 }
       responses:
         '200':
           description: 已更新
@@ -5456,6 +5452,57 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '204': { description: 已删除 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 会话存储未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+
+  /ai/conversations/{id}/events:
+    post:
+      tags: [AI]
+      operationId: aiConversationsAppendEvents
+      summary: 追加会话事件（turn 追加回合 / snapshot 全量快照）
+      description: >-
+        append-only 事件日志（migration 054）：kind=turn 时 messages 为本段
+        增量回合（按序拼接）；kind=snapshot 时 messages 为完整消息数组
+        （重放时替换此前状态——删除/导入等重排操作经快照表达）。校验：
+        单事件 ≤64 条、原始 JSON ≤256KB。GET 读取为事件重放结果。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                kind: { type: string, enum: [turn, snapshot], default: turn }
+                messages:
+                  type: array
+                  description: 前端回合结构数组（turn=增量；snapshot=全量）
+                  items: { type: object }
+      responses:
+        '200':
+          description: 已追加
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '400':
+          description: 载荷非法（code=INVALID_AI_CONVERSATION）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503':
@@ -7563,7 +7610,7 @@ components:
         title: { type: string }
         messages:
           type: array
-          description: 前端回合结构数组（整存整取，≤64 条 / ≤256KB）
+          description: 事件重放产物（turn 追加 / snapshot 替换；单事件 ≤64 条 / ≤256KB）
           items: { type: object }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
