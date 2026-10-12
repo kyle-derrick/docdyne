@@ -32,7 +32,11 @@ const (
 	AIConvoMaxTitleRunes   = 120
 	AIConvoMaxMessages     = 64
 	AIConvoMaxMessageBytes = 256 << 10 // 256KB（整段 messages JSON）
-	AIConvoKeepPerScope    = 30        // 每 (user, file_id, source) 保留最近 N 个
+	// AIConvoKeepPerScope 每 (user, file_id, source) 保留最近 N 个会话
+	//（写入时裁最旧）。v7.2 起服务端存储，配额从 localStorage 时代的 30
+	// 提到 300——不设上限会有 DB 无界增长风险，300 覆盖重度使用且元信息
+	// 列表载荷极小（约 150B/条）。
+	AIConvoKeepPerScope = 300
 )
 
 // ErrInvalidAIConversation 表示会话载荷非法（HTTP 400 语义）。

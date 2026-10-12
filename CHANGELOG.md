@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### 变更
-- **AI 会话记录服务端持久化（v7.2）**：新增 ai_conversations 表（migration 053）与 /api/v1/ai/conversations CRUD（openapi 同步）；全局助手、编辑页面板（按文件）、OnlyOffice 插件三处会话统一落服务端（source=assistant/editor/plugin 分域，每域保留最近 30 个）——跨设备一致；本机 localStorage 旧记录首载自动迁移上服务端，插件离线时本机只读回退。编辑页会话 UI 与全局助手统一为同款 Conversations 组件（切换 + 重命名 + 删除 + 新建）
+- **AI 会话记录服务端持久化（v7.2）**：新增 ai_conversations 表（migration 053）与 /api/v1/ai/conversations CRUD（openapi 同步）；全局助手、编辑页面板（按文件）、OnlyOffice 插件三处会话统一落服务端（source=assistant/editor/plugin 分域，每域保留最近 **300** 个，写入裁最旧）——跨设备一致；本机 localStorage 旧记录首载自动迁移上服务端，插件离线时本机只读回退。会话选择器统一为共用 ConvoPicker 组件（新建 + **标题搜索**（本地即时过滤）+ 切换 + 重命名 + 删除 + 计数脚注），全局助手与编辑页同源渲染、插件为同款原生实现
 - 修复全局助手「打开抽屉不在最新行」根因：项目样式由外层 .aic-list-wrap 接管滚动（内部 scroll-box overflow:visible），此前贴底逻辑滚的是不可滚动的内部元素（空操作）；useStickyScroll 改为探测真实可滚动容器（内部 scroll-box → 包裹层 → 父级），打开/发送/切会话/摘要均经 scrollToBottom 生效
 
 - **AI 编辑工具套装体系（v7）**：所有文档类型升级为工具循环 Agent（TOOL_CALL/FINAL 协议），坐标/序号全编辑器统一 1 基；各类型套装见 [docs/ai-editing.md](docs/ai-editing.md)

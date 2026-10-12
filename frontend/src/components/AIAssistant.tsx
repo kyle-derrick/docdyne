@@ -45,7 +45,7 @@ import { Drawer, Button, Input, Popconfirm, Popover, Segmented, Select, Switch, 
 import type { DataNode } from 'antd/es/tree'
 import antdZhCN from 'antd/locale/zh_CN'
 import antdEnUS from 'antd/locale/en_US'
-import { Conversations, Sender, XProvider } from '@ant-design/x'
+import { Sender, XProvider } from '@ant-design/x'
 import xZhCN from '@ant-design/x/es/locale/zh_CN'
 import xEnUS from '@ant-design/x/es/locale/en_US'
 import { Sparkles, Trash2, FileText, Globe, RotateCcw, Copy, Plus, Check, Paperclip, Brain, Pencil, PencilLine, Pin, BookMarked, Wrench, Zap, FolderCog, FolderOpen, MessagesSquare, Crosshair, FileSearch, Search } from 'lucide-react'
@@ -711,6 +711,7 @@ export function AIChatToggleBar({
 // 网络来源归一化与渲染、工具调用链迁至 components/aichat（三处对话共用），
 // 保留原导出名以兼容 AIEditChat 等既有引用。
 import { AIChatThinking, AIMessageList, AIToolChain, AIWebSourcesView, applyToolResult, normalizeWebSources, toolEntryFrom } from './aichat'
+import ConvoPicker from './aichat/ConvoPicker'
 import { CHAT_SEND_ICON as SEND_ICON, CHAT_STOP_ICON as STOP_ICON } from './aichat/icons'
 import type { AIChatTurnData, AIToolCallEntry, AIAttachFile } from './aichat'
 import AIAttachTree from './aichat/AIAttachTree'
@@ -1070,7 +1071,7 @@ export interface AIConvo {
 }
 
 /** 会话数量 / 单会话消息数上限。 */
-const AI_CONVO_MAX = 30
+const AI_CONVO_MAX = 300
 const AI_CONVO_MSG_MAX = 50
 
 /** 旧本机存储 key（仅迁移源）。 */
@@ -1118,19 +1119,6 @@ function aiConvoTitleFrom(turns: ChatTurn[]): string {
   return first ? first.content.trim().slice(0, 16) : ''
 }
 
-/** 相对时间展示（刚刚 / x 分钟前 / x 小时前 / x 天前 / 日期）。 */
-function aiConvoRelTime(ts: number, zh: boolean): string {
-  if (!ts) return ''
-  const diff = Date.now() - ts
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return zh ? '刚刚' : 'just now'
-  if (m < 60) return zh ? `${m} 分钟前` : `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return zh ? `${h} 小时前` : `${h}h ago`
-  const d = Math.floor(h / 24)
-  if (d < 30) return zh ? `${d} 天前` : `${d}d ago`
-  return new Date(ts).toLocaleDateString()
-}
 
 /**
  * 图标式开关 pill（DeepSeek 式：图标 + 短词；开启态主色描边 + 淡填充，
@@ -2095,7 +2083,7 @@ useEffect(() => {
       keyboard={!pinned}
       extra={
         <span className="ai-drawer-extra">
-          {/* 历史会话：Conversations 组件（切换 + ⋯ 菜单重命名 / 删除）。 */}
+          {/* 历史会话：ConvoPicker 共用组件（新建+搜索+切换+重命名/删除，与编辑页同源）。 */}
           <Popover
             trigger="click"
             placement="bottomRight"
@@ -2107,48 +2095,18 @@ useEffect(() => {
               setConvoOpen(next)
             }}
             content={
-              <div className="aiax-conv-pop">
-                <button type="button" className="aiax-conv-new" onClick={() => { setConvoOpen(false); newChat() }}>
-                  <Plus size={13} strokeWidth={2} aria-hidden="true" />
-                  <span>{zh ? '新会话' : 'New conversation'}</span>
-                </button>
-                {convos.length === 0 ? (
-                  <div className="ai-attach-state muted">{zh ? '暂无历史会话' : 'No conversations yet'}</div>
-                ) : (
-                  <Conversations
-                    className="aiax-conv-list"
-                    items={convos.map((c) => ({
-                      key: c.id,
-                      label: (
-                        <span className="aiax-conv-label" title={c.title}>
-                          <span className="t">{c.title || (zh ? '未命名会话' : 'Untitled')}</span>
-                          <span className="time muted">{aiConvoRelTime(c.updatedAt, zh)}</span>
-                        </span>
-                      ),
-                    }))}
-                    activeKey={convoId || undefined}
-                    onActiveChange={(key) => { setConvoOpen(false); switchConvo(key) }}
-                    menu={(info) => ({
-                      items: [
-                        { key: 'rename', label: zh ? '重命名' : 'Rename' },
-                        { key: 'delete', label: zh ? '删除' : 'Delete', danger: true },
-                      ],
-                      onClick: ({ key: op }) => {
-                        const id = String(info.key)
-                        if (op === 'rename') {
-                          const cur = convos.find((c) => c.id === id)
-                          if (cur) setConvoEditing({ id: cur.id, draft: cur.title })
-                        } else if (op === 'delete') {
-                          deleteConvo(id)
-                        }
-                      },
-                    })}
-                  />
-                )}
-                <div className="ai-attach-state muted">
-                  {zh ? '会话保存在服务端（最近 30 个，跨设备同步）' : 'Stored on the server (latest 30, synced across devices)'}
-                </div>
-              </div>
+              <ConvoPicker
+                items={convos}
+                activeId={convoId}
+                zh={zh}
+                onSwitch={(id) => { setConvoOpen(false); switchConvo(id) }}
+                onRename={(id) => {
+                  const cur = convos.find((c) => c.id === id)
+                  if (cur) setConvoEditing({ id: cur.id, draft: cur.title })
+                }}
+                onDelete={deleteConvo}
+                onNew={() => { setConvoOpen(false); newChat() }}
+              />
             }
           >
             <Tooltip title={zh ? '历史会话（切换 / 重命名 / 删除）' : 'Conversation history (switch / rename / delete)'}>

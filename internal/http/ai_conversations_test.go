@@ -49,8 +49,8 @@ func (f *fakeAIConvoStore) ListAIConversations(userID uuid.UUID, fileID *uuid.UU
 		return nil, err
 	}
 	rows := f.match(userID, fileID, source)
-	if limit <= 0 || limit > 30 {
-		limit = 30
+	if limit <= 0 || limit > auth.AIConvoKeepPerScope {
+		limit = auth.AIConvoKeepPerScope
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]

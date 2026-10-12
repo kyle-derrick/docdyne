@@ -5288,7 +5288,7 @@ paths:
       operationId: aiConversationsList
       summary: AI 会话记录列表（服务端持久化）
       description: >-
-        返回 scope 内最近会话（updated_at 倒序，≤30 条，不含 messages
+        返回 scope 内最近会话（updated_at 倒序，≤300 条，不含 messages
         正文）。scope 由 query 决定：source（assistant=全局助手缺省 /
         editor=编辑页面板 / plugin=OnlyOffice 插件）与 file_id（编辑页/
         插件传对应文件 id；全局助手不传即 NULL 域）。本人维度。
@@ -5337,7 +5337,7 @@ paths:
       summary: 新建空会话
       description: >-
         新建空会话（messages=[]，返回完整行）；scope 同列表（source 缺省
-        assistant）。每 (用户, file_id, source) 保留最近 30 个，超出自动
+        assistant）。每 (用户, file_id, source) 保留最近 300 个，超出自动
         裁最旧。title ≤120 字符可空。
       requestBody:
         required: true

@@ -173,7 +173,7 @@
       var others = sessions.filter(function (s) { return s.id !== activeId; });
       others.push({ id: activeId, title: title, updatedAt: Date.now() });
       others.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-      sessions = others.slice(0, 30);
+      sessions = others.slice(0, 300);
       renderSessions();
     }).catch(function () {
       setHint('会话保存失败（服务端不可达）');
@@ -189,53 +189,11 @@
     }
     stickBottom(true);
   }
-  /** 会话浮层渲染（打开时与保存后刷新）。 */
-  function fmtTime(ts) {
-    var d = Date.now() - ts;
-    if (d < 60000) return '刚刚';
-    if (d < 3600000) return Math.floor(d / 60000) + ' 分钟前';
-    if (d < 86400000) return Math.floor(d / 3600000) + ' 小时前';
-    return Math.floor(d / 86400000) + ' 天前';
-  }
-  function renderSessions() {
-    if (!sessPanel) return;
-    sessPanel.innerHTML = '';
-    if (!sessions.length) {
-      var em = document.createElement('div');
-      em.className = 'sess-empty';
-      em.textContent = '暂无历史会话';
-      sessPanel.appendChild(em);
-    }
-    for (var i = 0; i < sessions.length; i++) {
-      (function (s) {
-        var row = document.createElement('div');
-        row.className = 'sess-item' + (s.id === activeId ? ' active' : '');
-        var t = document.createElement('span'); t.className = 't'; t.title = s.title || ''; t.textContent = s.title || '（未命名）';
-        var tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = fmtTime(s.updatedAt);
-        var del = document.createElement('button'); del.className = 'del'; del.title = '删除会话'; del.textContent = '✕';
-        del.onclick = function (ev) {
-          ev.stopPropagation();
-          apiJSON('/api/v1/ai/conversations/' + s.id, { method: 'DELETE' }).catch(function () {});
-          sessions = sessions.filter(function (x) { return x.id !== s.id; });
-          if (s.id === activeId) {
-            if (sessions[0]) { activeId = sessions[0].id; history = []; renderHistory(); void loadSessionBody(activeId); }
-            else { activeId = ''; history = []; renderHistory(); }
-          }
-          renderSessions();
-        };
-        row.appendChild(t); row.appendChild(tm); row.appendChild(del);
-        row.onclick = function () {
-          if (s.id === activeId) { sessPanel.style.display = 'none'; return; }
-          activeId = s.id;
-          history = [];
-          renderHistory();
-          sessPanel.style.display = 'none';
-          setHint('加载会话…');
-          void loadSessionBody(activeId);
-        };
-        sessPanel.appendChild(row);
-      })(sessions[i]);
-    }
+  /** 会话浮层：骨架只建一次（搜索框常驻——重建会丢输入焦点），列表随
+   *  过滤词与会话集局部重绘；标题本地即时过滤（300 条量级零延迟）。 */
+  var sessFilterEl = null, sessListEl = null, sessFootEl = null, sessFilter = '';
+  function initSessionsPanel() {
+    if (!sessPanel || sessListEl) return;
     var nb = document.createElement('button');
     nb.className = 'sess-new';
     nb.textContent = '＋ 新建会话';
@@ -246,7 +204,78 @@
       sessPanel.style.display = 'none';
       setHint('已新建会话');
     };
+    sessFilterEl = document.createElement('input');
+    sessFilterEl.type = 'search';
+    sessFilterEl.className = 'sess-search';
+    sessFilterEl.placeholder = '搜索会话标题';
+    sessFilterEl.setAttribute('aria-label', '搜索会话');
+    sessFilterEl.oninput = function () { sessFilter = sessFilterEl.value.trim().toLowerCase(); renderSessionList(); };
+    sessListEl = document.createElement('div');
+    sessListEl.className = 'sess-list';
+    sessFootEl = document.createElement('div');
+    sessFootEl.className = 'sess-foot';
     sessPanel.appendChild(nb);
+    sessPanel.appendChild(sessFilterEl);
+    sessPanel.appendChild(sessListEl);
+    sessPanel.appendChild(sessFootEl);
+  }
+  function renderSessionList() {
+    if (!sessListEl) return;
+    sessListEl.innerHTML = '';
+    var q = sessFilter;
+    var shown = 0;
+    for (var i = 0; i < sessions.length; i++) {
+      var s = sessions[i];
+      if (q && (s.title || '').toLowerCase().indexOf(q) < 0) continue;
+      shown++;
+      (function (row) {
+        var el2 = document.createElement('div');
+        el2.className = 'sess-item' + (row.id === activeId ? ' active' : '');
+        var t = document.createElement('span'); t.className = 't'; t.title = row.title || ''; t.textContent = row.title || '（未命名）';
+        var tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = fmtTime(row.updatedAt);
+        var del = document.createElement('button'); del.className = 'del'; del.title = '删除会话'; del.textContent = '✕';
+        del.onclick = function (ev) {
+          ev.stopPropagation();
+          apiJSON('/api/v1/ai/conversations/' + row.id, { method: 'DELETE' }).catch(function () {});
+          sessions = sessions.filter(function (x) { return x.id !== row.id; });
+          if (row.id === activeId) {
+            if (sessions[0]) { activeId = sessions[0].id; history = []; renderHistory(); void loadSessionBody(activeId); }
+            else { activeId = ''; history = []; renderHistory(); }
+          }
+          renderSessionList();
+        };
+        el2.appendChild(t); el2.appendChild(tm); el2.appendChild(del);
+        el2.onclick = function () {
+          if (row.id === activeId) { sessPanel.style.display = 'none'; return; }
+          activeId = row.id;
+          history = [];
+          renderHistory();
+          sessPanel.style.display = 'none';
+          setHint('加载会话…');
+          void loadSessionBody(activeId);
+        };
+        sessListEl.appendChild(el2);
+      })(s);
+    }
+    if (!sessions.length) {
+      var em = document.createElement('div');
+      em.className = 'sess-empty';
+      em.textContent = '暂无历史会话';
+      sessListEl.appendChild(em);
+    } else if (!shown) {
+      var nm = document.createElement('div');
+      nm.className = 'sess-empty';
+      nm.textContent = '没有匹配的会话';
+      sessListEl.appendChild(nm);
+    }
+    if (sessFootEl) {
+      sessFootEl.textContent = '共 ' + sessions.length + ' 个会话 · 保存在服务端（最近 300 个）';
+    }
+  }
+  function renderSessions() {
+    if (!sessPanel) return;
+    initSessionsPanel();
+    renderSessionList();
   }
   /** 拉取会话正文 → 回放（切换/删除当前后接管）。 */
   function loadSessionBody(id) {

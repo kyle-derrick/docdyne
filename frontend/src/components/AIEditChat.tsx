@@ -22,7 +22,6 @@
 //   仅服务有落盘通道的宿主页（Monaco/Tiptap/白板/图表）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntdApp, Button, Input, Popover, Segmented, Tooltip } from 'antd'
-import { Conversations } from '@ant-design/x'
 import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
@@ -33,6 +32,7 @@ import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
 import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
+import ConvoPicker from './aichat/ConvoPicker'
 import { useStickyScroll } from './aichat/useStickyScroll'
 import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './aichat/icons'
 import type { AIAttachFile } from './aichat'
@@ -283,19 +283,6 @@ function sessionTitleOf(list: ChatTurn[]): string {
   return first ? first.content.trim().replace(/\s+/g, ' ').slice(0, 18) : ''
 }
 
-/** 会话列表相对时间（与全局助手同款文案：刚刚 / N 分钟前 / N 小时前 / N 天前 / 日期）。 */
-function fmtSessionTime(ts: number, zh: boolean): string {
-  if (!ts) return ''
-  const diff = Date.now() - ts
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return zh ? '刚刚' : 'just now'
-  if (m < 60) return zh ? `${m} 分钟前` : `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return zh ? `${h} 小时前` : `${h}h ago`
-  const d = Math.floor(h / 24)
-  if (d < 30) return zh ? `${d} 天前` : `${d}d ago`
-  return new Date(ts).toLocaleDateString()
-}
 
 /** 单条已应用回复的「修改点」记录（撤销回退锚点）。 */
 interface AppliedRecord {
@@ -582,7 +569,7 @@ export default function AIEditChat({
         const rest = [
           { id: cid, title, updatedAt: Date.now(), messageCount: persist.length, turns: persist },
           ...sessionsRef.current.filter((s) => s.id !== cid),
-        ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30)
+        ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 300)
         sessionsRef.current = rest
         setSessions(rest)
       } catch {
@@ -1434,48 +1421,18 @@ export default function AIEditChat({
               setSessOpen(next)
             }}
             content={
-              <div className="aiax-conv-pop">
-                <button type="button" className="aiax-conv-new" onClick={() => { setSessOpen(false); newSession() }}>
-                  <Plus size={13} strokeWidth={2} aria-hidden="true" />
-                  <span>{zh ? '新会话' : 'New conversation'}</span>
-                </button>
-                {sessions.length === 0 ? (
-                  <div className="ai-attach-state muted">{zh ? '暂无历史会话' : 'No sessions yet'}</div>
-                ) : (
-                  <Conversations
-                    className="aiax-conv-list"
-                    items={sessions.map((s) => ({
-                      key: s.id,
-                      label: (
-                        <span className="aiax-conv-label" title={s.title}>
-                          <span className="t">{s.title || (zh ? '未命名会话' : 'Untitled')}</span>
-                          <span className="time muted">{fmtSessionTime(s.updatedAt, zh)}</span>
-                        </span>
-                      ),
-                    }))}
-                    activeKey={activeSessId || undefined}
-                    onActiveChange={(key) => { setSessOpen(false); switchSession(key) }}
-                    menu={(info) => ({
-                      items: [
-                        { key: 'rename', label: zh ? '重命名' : 'Rename' },
-                        { key: 'delete', label: zh ? '删除' : 'Delete', danger: true },
-                      ],
-                      onClick: ({ key: op }) => {
-                        const id = String(info.key)
-                        if (op === 'rename') {
-                          const cur = sessions.find((s) => s.id === id)
-                          if (cur) setSessEditing({ id: cur.id, draft: cur.title })
-                        } else if (op === 'delete') {
-                          deleteSession(id)
-                        }
-                      },
-                    })}
-                  />
-                )}
-                <div className="ai-attach-state muted">
-                  {zh ? '会话保存在服务端（最近 30 个，跨设备同步）' : 'Stored on the server (latest 30, synced across devices)'}
-                </div>
-              </div>
+              <ConvoPicker
+                items={sessions}
+                activeId={activeSessId}
+                zh={zh}
+                onSwitch={(id) => { setSessOpen(false); switchSession(id) }}
+                onRename={(id) => {
+                  const cur = sessions.find((x) => x.id === id)
+                  if (cur) setSessEditing({ id: cur.id, draft: cur.title })
+                }}
+                onDelete={deleteSession}
+                onNew={() => { setSessOpen(false); newSession() }}
+              />
             }
           >
             <Tooltip title={zh ? '历史会话（切换 / 重命名 / 删除）' : 'Session history (switch / rename / delete)'}>
