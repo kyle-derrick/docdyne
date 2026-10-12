@@ -26,9 +26,10 @@ export interface ChatInputProps {
   pkgId: string
   onPkgChange: (id: string) => void
   applyKind: string
-  // 谨慎模式
+  // 谨慎模式（showCautious=false 时隐藏按钮——仅编辑宿主有意义）
   cautious: boolean
   onCautiousToggle: () => void
+  showCautious?: boolean
   // 引用文件
   attachedFiles: Array<{ fileId: string; fileName: string }>
   onFileDetach: (fileId: string) => void
@@ -45,7 +46,7 @@ export interface ChatInputProps {
 export default function ChatInput({
   zh, value, onChange, onSend, onStop, busy, placeholder,
   packages, pkgId, onPkgChange, applyKind,
-  cautious, onCautiousToggle,
+  cautious, onCautiousToggle, showCautious = true,
   attachedFiles, onFileDetach,
   modelSlot, togglesSlot, skillSlot, extraSlot,
 }: ChatInputProps) {
@@ -97,10 +98,12 @@ export default function ChatInput({
                 icon={<Package size={14} strokeWidth={2} />} aria-label="技能包" />
             </Dropdown>
           )}
-          <Tooltip title={cautious ? (zh ? '谨慎模式开' : 'Cautious on') : (zh ? '谨慎模式关' : 'Cautious off')}>
-            <Button size="small" type="text" className={`ai-attach-btn${cautious ? ' cautious-on' : ''}`}
-              icon={<ShieldAlert size={14} strokeWidth={2} />} onClick={onCautiousToggle} aria-pressed={cautious} />
-          </Tooltip>
+          {showCautious && (
+            <Tooltip title={cautious ? (zh ? '谨慎模式开' : 'Cautious on') : (zh ? '谨慎模式关' : 'Cautious off')}>
+              <Button size="small" type="text" className={`ai-attach-btn${cautious ? ' cautious-on' : ''}`}
+                icon={<ShieldAlert size={14} strokeWidth={2} />} onClick={onCautiousToggle} aria-pressed={cautious} />
+            </Tooltip>
+          )}
           {togglesSlot}
           {extraSlot}
           <div className="chat-tools-right">

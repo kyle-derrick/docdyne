@@ -2,10 +2,16 @@
 // 从 AIEditChat 提取——包含：消息列表容器（贴底跟随）+ 用户/助手气泡 +
 // TraceView/AIChatThinking + 操作行（复制/删除/保存/重新生成/继续/按计划执行）。
 // 所有宿主共用；场景差异通过 props 的回调函数注入。
+// v7.4（S8）：内容恢复 AIMarkdown 渲染（S7 迁移时误回退为纯文本）；补齐
+// 助手宿主字段——toolCalls（工具链）/sources（RAG 文件来源）/webSources
+// （网络来源）/stopped（已停止）/usage（用量）与 emptySlot（欢迎+建议卡）。
 import { Button, Tooltip } from 'antd'
-import { Copy, Paperclip, Play, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { useState } from 'react'
-import { AIChatThinking } from './index'
+import { Copy, FileText, Paperclip, Play, RotateCcw, Save, Trash2 } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { AIChatThinking, AIToolChain, AIWebSourcesView } from './AIMessageList'
+import type { AIToolCallEntry, AIWebSource } from './turns'
+import AIMarkdown from '../AIMarkdown'
+import type { AISource, AIUsage } from '../../api'
 import TraceView from './TraceView'
 import type { TraceStage, TraceUsage } from './TraceView'
 
@@ -26,17 +32,30 @@ export interface ChatMessage {
   limitPaused?: boolean
   planReady?: boolean
   usage?: TraceUsage
+  // ---- 助手宿主字段（编辑宿主不产生；渲染端全部可选） ----
+  /** 用户主动停止（保留已生成内容，不视为错误）。 */
+  stopped?: boolean
+  /** 工具调用链（df_* 平台文件工具 / MCP）。 */
+  toolCalls?: AIToolCallEntry[]
+  /** RAG 检索来源文件链接。 */
+  sources?: AISource[]
+  /** 联网搜索来源。 */
+  webSources?: AIWebSource[]
+  /** 本轮用量（SSE done；tokens + 耗时）。 */
+  usageAI?: AIUsage
 }
 
 export interface ChatThreadProps {
   zh: boolean
   messages: ChatMessage[]
   emptyHint: string
+  /** 空态自定义内容（欢迎语 + 建议卡等；提供时替代 emptyHint 文本）。 */
+  emptySlot?: ReactNode
   generatingLabel: string
   // 操作回调
   onCopy: (content: string) => void
   onDeleteExchange: (asstId: number) => void
-  onSaveConversation: () => void
+  onSaveConversation: (ids?: number[]) => void
   onRegenerate: (asstId: number) => void
   onContinue: (asstId: number) => void
   onExecutePlan: (planText: string) => void
@@ -67,7 +86,7 @@ function AgentRawLine({ text }: { text: string }) {
 }
 
 export default function ChatThread({
-  zh, messages, emptyHint, generatingLabel,
+  zh, messages, emptyHint, emptySlot, generatingLabel,
   onCopy, onDeleteExchange, onSaveConversation, onRegenerate, onContinue, onExecutePlan,
   busy, batchMode, savingFile,
   checkedIds, onToggleChecked,
@@ -75,9 +94,7 @@ export default function ChatThread({
 }: ChatThreadProps) {
   return (
     <div className="ai-edit-chat-thread" ref={wrapRef} onScroll={onScroll}>
-      {messages.length === 0 && (
-        <div className="ai-edit-chat-empty muted">{emptyHint}</div>
-      )}
+      {messages.length === 0 && (emptySlot ?? <div className="ai-edit-chat-empty muted">{emptyHint}</div>)}
       {messages.map((msg) => (
         <div key={msg.id} className={`ai-turn ai-turn-${msg.role}`}>
           {batchMode && (
@@ -121,19 +138,45 @@ export default function ChatThread({
                 ) : (
                   <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
                 )}
+                {/* 外部工具调用链（df_* 平台文件工具 / MCP）。 */}
+                {msg.toolCalls && msg.toolCalls.length > 0 && <AIToolChain toolCalls={msg.toolCalls} zh={zh} />}
                 {msg.content ? (
                   msg.agentStream && msg.streaming ? (
                     <AgentRawLine text={msg.content} />
                   ) : (
-                    <div className="ai-markdown-body">{msg.content}</div>
+                    <AIMarkdown text={msg.content} zh={zh} streaming={msg.streaming} />
                   )
                 ) : msg.streaming ? (
                   <span className="ai-thinking">{generatingLabel}</span>
+                ) : msg.stopped ? (
+                  <span className="ai-thinking muted">{zh ? '（已停止）' : '(stopped)'}</span>
                 ) : (
                   <span className="muted">{zh ? '（模型未返回内容）' : '(no content)'}</span>
                 )}
                 {msg.streaming && msg.content && <span className="ai-caret" aria-hidden="true" />}
+                {msg.stopped && msg.content && <span className="ai-stopped-tag">{zh ? '已停止' : 'stopped'}</span>}
                 {msg.error && <div className="ai-error-msg">{msg.error}</div>}
+                {/* RAG 检索来源文件链接。 */}
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="ai-sources">
+                    <span className="ai-sources-label muted">{zh ? '来源' : 'Sources'}：</span>
+                    {msg.sources.map((s) => (
+                      <a key={s.file_id} className="ai-source-link" href={s.url} target="_blank" rel="noopener noreferrer" title={s.name}>
+                        <FileText size={12} strokeWidth={2} aria-hidden="true" />
+                        {s.name}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {/* 联网搜索来源（折叠列表）。 */}
+                {msg.webSources && <AIWebSourcesView sources={msg.webSources} zh={zh} />}
+                {/* 本轮用量（tokens + 耗时）。 */}
+                {msg.usageAI && !msg.streaming && (
+                  <div className="ai-usage-line muted">
+                    {(msg.usageAI.prompt_tokens || 0) + (msg.usageAI.completion_tokens || 0)} tok
+                    {msg.usageAI.duration_ms > 0 ? ` · ${(msg.usageAI.duration_ms / 1000).toFixed(1)}s` : ''}
+                  </div>
+                )}
                 {msg.note && <div className="ai-edit-chat-note muted">{msg.note}</div>}
                 {msg.planReady && !msg.streaming && !batchMode && (
                   <div className="ai-edit-chat-actions">
@@ -149,18 +192,20 @@ export default function ChatThread({
                     </Button>
                   </div>
                 )}
-                {!msg.streaming && msg.content && !batchMode && (
+                {!msg.streaming && (msg.content || msg.stopped) && !batchMode && (
                   <div className="ai-edit-chat-actions">
-                    <Button size="small" type="text" icon={<Copy size={13} strokeWidth={2} />} onClick={() => onCopy(msg.content)}>
-                      {zh ? '复制' : 'Copy'}
-                    </Button>
+                    {msg.content && (
+                      <Button size="small" type="text" icon={<Copy size={13} strokeWidth={2} />} onClick={() => onCopy(msg.content)}>
+                        {zh ? '复制' : 'Copy'}
+                      </Button>
+                    )}
                     <Tooltip title={zh ? '删除本轮问答' : 'Delete exchange'}>
                       <Button size="small" type="text" icon={<Trash2 size={13} strokeWidth={2} />} onClick={() => onDeleteExchange(msg.id)}>
                         {zh ? '删除' : 'Delete'}
                       </Button>
                     </Tooltip>
                     <Tooltip title={zh ? '保存会话到文件' : 'Save to file'}>
-                      <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={onSaveConversation}>
+                      <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => onSaveConversation()}>
                         {zh ? '保存' : 'Save'}
                       </Button>
                     </Tooltip>

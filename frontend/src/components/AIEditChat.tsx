@@ -1526,7 +1526,7 @@ ${planText}` },
         onExportSessions={() => void exportSessionsFile()}
         onImportSessions={() => importInputRef.current?.click()}
         onCopy={copy} onDeleteExchange={deleteExchange}
-        onSaveConversation={() => void openSaveDialog()}
+        onSaveConversation={(ids) => void openSaveDialog(ids)}
         onRegenerate={regenerate} onContinue={(id) => void continueAgent(id)}
         onExecutePlan={(plan) => void executePlan(plan)}
         savingFile={savingFile}

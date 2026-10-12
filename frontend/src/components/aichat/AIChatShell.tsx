@@ -27,6 +27,8 @@ export interface AIChatShellProps {
   // 消息流
   messages: ChatMessage[]
   emptyHint: string
+  /** 空态自定义内容（assistant：欢迎语 + 建议卡）。 */
+  emptySlot?: ReactNode
   generatingLabel: string
   // 输入
   inputValue: string
@@ -50,7 +52,7 @@ export interface AIChatShellProps {
   // ---- 消息操作 ----
   onCopy: (content: string) => void
   onDeleteExchange: (asstId: number) => void
-  onSaveConversation: () => void
+  onSaveConversation: (ids?: number[]) => void
   onRegenerate: (asstId: number) => void
   onContinue: (asstId: number) => void
   onExecutePlan: (planText: string) => void
@@ -64,6 +66,10 @@ export interface AIChatShellProps {
   // ---- 悬浮窗 ----
   floatMode: boolean
   onToggleFloat: () => void
+  /** false 时隐藏悬浮切换（assistant 宿主本身即 Drawer 浮层）。 */
+  showFloat?: boolean
+  /** false 时隐藏谨慎模式按钮（仅 editor 宿主有意义）。 */
+  showCautious?: boolean
   panelRef: Ref<HTMLElement>
   onHeadPointerDown?: (e: React.PointerEvent) => void
   // ---- 批量 ----
@@ -86,6 +92,8 @@ export interface AIChatShellProps {
   skillSlot?: ReactNode
   // ---- 宿主特有 slot ----
   extraHeaderSlot?: ReactNode
+  /** 头部下方独立工具行（assistant：人设/工作目录/记忆）。 */
+  belowHeaderSlot?: ReactNode
   extraToolbarSlot?: ReactNode
   extraAboveInputSlot?: ReactNode
 }
@@ -96,7 +104,7 @@ export default function AIChatShell(p: AIChatShellProps) {
   const panel = (
     <aside
       ref={p.panelRef}
-      className={`ai-edit-chat-panel${p.floatMode ? ' floating' : ''}`}
+      className={`ai-edit-chat-panel${p.floatMode ? ' floating' : ''}${p.hostType === 'assistant' ? ' in-drawer' : ''}`}
       aria-label={p.zh ? 'AI 对话' : 'AI chat'}
     >
       <ChatHeader
@@ -106,9 +114,11 @@ export default function AIChatShell(p: AIChatShellProps) {
         onDeleteSession={p.onDeleteSession} onNewSession={p.onNewSession}
         onExportSessions={p.onExportSessions} onImportSessions={p.onImportSessions}
         batchMode={p.batchMode} onToggleBatch={p.onToggleBatch}
-        floatMode={p.floatMode} onToggleFloat={p.onToggleFloat} onClose={p.onClose}
+        floatMode={p.floatMode} onToggleFloat={p.onToggleFloat} showFloat={p.showFloat !== false}
+        onClose={p.onClose}
         extraSlot={p.extraHeaderSlot}
       />
+      {p.belowHeaderSlot}
       {p.showModeSegment && (
         <div className="ai-edit-chat-mode">
           <Segmented size="small" value={p.mode} onChange={(v) => p.onModeChange(v as ChatMode)}
@@ -125,7 +135,8 @@ export default function AIChatShell(p: AIChatShellProps) {
         </div>
       )}
       <ChatThread
-        zh={p.zh} messages={p.messages} emptyHint={p.emptyHint} generatingLabel={p.generatingLabel}
+        zh={p.zh} messages={p.messages} emptyHint={p.emptyHint} emptySlot={p.emptySlot}
+        generatingLabel={p.generatingLabel}
         onCopy={p.onCopy} onDeleteExchange={p.onDeleteExchange}
         onSaveConversation={p.onSaveConversation} onRegenerate={p.onRegenerate}
         onContinue={p.onContinue} onExecutePlan={p.onExecutePlan}
@@ -137,7 +148,7 @@ export default function AIChatShell(p: AIChatShellProps) {
         <div className="ai-batch-bar">
           <span className="muted">{p.zh ? `已选 ${p.checkedIds.size} 项` : `${p.checkedIds.size} selected`}</span>
           <span className="spacer" />
-          <Button size="small" disabled={p.savingFile} loading={p.savingFile} onClick={p.onSaveConversation}>
+          <Button size="small" disabled={p.savingFile} loading={p.savingFile} onClick={() => p.onSaveConversation(Array.from(p.checkedIds))}>
             {p.zh ? '保存所选到文件' : 'Save selection'}
           </Button>
           <Button size="small" danger onClick={p.onDeleteChecked}>
@@ -151,7 +162,7 @@ export default function AIChatShell(p: AIChatShellProps) {
         zh={p.zh} value={p.inputValue} onChange={p.onInputChange}
         onSend={p.onSend} onStop={p.onStop} busy={p.busy} placeholder={p.inputPlaceholder}
         packages={p.packages} pkgId={p.pkgId} onPkgChange={p.onPkgChange} applyKind={p.applyKind}
-        cautious={p.cautious} onCautiousToggle={p.onCautiousToggle}
+        cautious={p.cautious} onCautiousToggle={p.onCautiousToggle} showCautious={p.showCautious !== false}
         attachedFiles={p.attachedFiles} onFileDetach={p.onFileDetach}
         modelSlot={p.modelSlot} togglesSlot={p.togglesSlot} skillSlot={p.skillSlot}
         extraSlot={p.extraToolbarSlot}

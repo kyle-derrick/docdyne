@@ -21,9 +21,10 @@ export interface ChatHeaderProps {
   /** 批量操作。 */
   batchMode: boolean
   onToggleBatch: () => void
-  /** 悬浮/侧栏切换。 */
+  /** 悬浮/侧栏切换（showFloat=false 时隐藏——Drawer 宿主无悬浮态）。 */
   floatMode: boolean
   onToggleFloat: () => void
+  showFloat?: boolean
   onClose: () => void
   /** 额外按钮 slot（宿主特有）。 */
   extraSlot?: React.ReactNode
@@ -34,7 +35,7 @@ export default function ChatHeader({
   onSwitchSession, onRenameSession, onDeleteSession, onNewSession,
   onExportSessions, onImportSessions,
   batchMode, onToggleBatch,
-  floatMode, onToggleFloat, onClose,
+  floatMode, onToggleFloat, showFloat = true, onClose,
   extraSlot,
 }: ChatHeaderProps) {
   const [sessOpen, setSessOpen] = useState(false)
@@ -77,10 +78,12 @@ export default function ChatHeader({
             icon={<ListChecks size={13} strokeWidth={2} />}
             onClick={() => onToggleBatch()} aria-pressed={batchMode} />
         </Tooltip>
-        <Tooltip title={floatMode ? (zh ? '切换为侧边面板' : 'Side panel') : (zh ? '切换为悬浮窗' : 'Floating window')}>
-          <Button size="small" type="text" icon={<PictureInPicture2 size={13} strokeWidth={2} />}
-            onClick={onToggleFloat} aria-pressed={floatMode} />
-        </Tooltip>
+        {showFloat && (
+          <Tooltip title={floatMode ? (zh ? '切换为侧边面板' : 'Side panel') : (zh ? '切换为悬浮窗' : 'Floating window')}>
+            <Button size="small" type="text" icon={<PictureInPicture2 size={13} strokeWidth={2} />}
+              onClick={onToggleFloat} aria-pressed={floatMode} />
+          </Tooltip>
+        )}
         <Button size="small" type="text" icon={<X size={14} strokeWidth={2} />}
           onClick={onClose} aria-label={zh ? '关闭' : 'Close'} />
       </span>
