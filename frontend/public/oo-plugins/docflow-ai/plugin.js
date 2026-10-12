@@ -38,6 +38,29 @@
     if (stick) log.scrollTop = log.scrollHeight;
   }
 
+  var planMode = false;
+  /** 只读工具判定（计划模式可用子集）。 */
+  function readonlyTool(name) { return /^(read_|search_|list_|get_|find_)/.test(String(name)); }
+  /** 会话压缩视图（pi/opencode 式滑动窗口）：超 60 条丢中段并注入说明、
+   *  尾段旧 TOOL_RESULT 截短；不改写原始 convo（「继续」仍用全量）。 */
+  function agentConvoView(convo) {
+    if (convo.length <= 60) return convo;
+    var keepTail = 36;
+    var head = convo.slice(0, 2);
+    var tail = convo.slice(-keepTail);
+    var dropped = convo.length - head.length - tail.length;
+    var out = head.slice();
+    out.push({ role: 'user', content: '（系统注：此前 ' + dropped + ' 条历史消息已压缩省略——如需早期信息请用读工具重新获取）' });
+    for (var i = 0; i < tail.length; i++) {
+      var m = tail[i];
+      if (i < 8 && m.role === 'user' && String(m.content).indexOf('TOOL_RESULT ') === 0 && String(m.content).length > 600) {
+        m = { role: 'user', content: String(m.content).slice(0, 300) + '…（已压缩，原 ' + String(m.content).length + ' 字）' };
+      }
+      out.push(m);
+    }
+    return out;
+  }
+
   /* ---- 会话记录（v7.2：服务端持久化 /api/v1/ai/conversations，
    *      source=plugin 按文件分域；本机 localStorage 仅首次迁移源）----
    * 空会话不入库；每会话截 40 条；scope 超限服务端裁最旧（30 个）。 */
@@ -1423,6 +1446,7 @@
   };
   function buildSystem() {
     var k = editorType || 'pdf';
+    if (planMode) return buildPlanSystem(k);
     var L = [
       '你是 DocFlow 内置文档编辑 Agent，运行在 OnlyOffice 编辑器侧栏中。',
       '当前编辑器类型：' + k + '。你操作的是当前打开的编辑器文档——不是平台文件系统。',
@@ -1437,6 +1461,26 @@
       '',
       '工作方式：先读（get_doc_info / read_*）了解现状再改；一次恰好一行 TOOL_CALL 调一个工具，根据结果决定下一步；失败时读错误信息调整参数或换工具；关键写入后用读工具校验；完成后以 FINAL 开头总结（改了什么、在哪个位置）。',
       '输出格式（硬性）：每轮恰好一行 TOOL_CALL {"tool":…,"args":{…}}，或以 FINAL 开头的最终答复。');
+    if (docInfo && docInfo.ok) L.push('', '【初始文档结构】' + JSON.stringify(docInfo).slice(0, 2000));
+    return L.join('\n');
+  }
+
+  /** 计划模式 system：只读工具探查 + FINAL 输出分步执行计划。 */
+  function buildPlanSystem(k) {
+    var docs = (TOOL_DOCS[k] || TOOL_DOCS.pdf).split('\n').filter(function (line) {
+      var m = /^([a-z_]+)\s*\{/.exec(line.trim());
+      return !m || readonlyTool(m[1]);
+    }).join('\n');
+    var L = [
+      '你是 DocFlow 内置文档编辑 Agent，运行在 OnlyOffice 编辑器（' + k + '）侧栏中，当前为计划模式。',
+      '计划模式：只能调用只读工具探查文档现状，不得修改；探查完成后以 FINAL 输出一份可执行的修改计划（分步骤，说明每步将使用的工具与参数要点）。',
+      '',
+      '可用工具（只读子集；每轮恰好一行 TOOL_CALL {...}，或 FINAL 给出计划）：',
+      docs,
+      '跨工具：list_files {name?} / read_file {name} → 平台文件检索/读取（参考）。',
+      '',
+      '输出格式（硬性）：每轮恰好一行 TOOL_CALL {"tool":…,"args":{…}}，或 FINAL 开头的执行计划。'
+    ];
     if (docInfo && docInfo.ok) L.push('', '【初始文档结构】' + JSON.stringify(docInfo).slice(0, 2000));
     return L.join('\n');
   }
@@ -1543,10 +1587,30 @@
       probeEditor().then(function () {});
       setBusyUI(false); controller = null;
       setHint('已完成（DS 自动保存）');
+      if (planMode && s) {
+        // 计划完成：气泡下给「按计划执行」按钮（转入执行模式重发计划全文）。
+        var lastBubble = log.querySelector('.m.a:last-child');
+        if (lastBubble) {
+          var ex = document.createElement('button');
+          ex.className = 'act';
+          ex.textContent = '按计划执行';
+          ex.style.marginTop = '8px';
+          ex.onclick = function () {
+            ex.disabled = true;
+            planMode = false;
+            editMode = true;
+            syncModeSeg();
+            q.value = '请严格按以下计划逐步执行（计划来自刚才的只读探查，执行完毕 FINAL 总结）：\n' + s;
+            send();
+          };
+          lastBubble.appendChild(document.createElement('br'));
+          lastBubble.appendChild(ex);
+        }
+      }
     }
     function finishErr(m) { settleThink(0); el('div', 'm a err', esc(m)); sessSave(); setBusyUI(false); controller = null; }
 
-    if (!editMode) {
+    if (!editMode && !planMode) {
       var acc = '', bub = null;
       chat(convo, {
         onDelta: function (d) { acc += d; if (!bub) bub = el('div', 'm a'); bub.innerHTML = mdToHtml(acc) + '<span class="caret"></span>'; stickBottom(false); },
@@ -1580,18 +1644,28 @@
       setBusyUI(false); controller = null;
       setHint('已暂停，可继续');
     }
+    var roundAttempts = 0;
     var agentLoop = function () {
       if (rounds >= MAX_ROUNDS) { showPaused('已达轮次预算（' + MAX_ROUNDS + ' 轮），已执行操作保留。'); return; }
       rounds++;
-      var acc2 = '', raw = null;
-      chat(convo, {
-        onDelta: function (d) { acc2 += d; if (!raw) raw = el('div', 'raw'); raw.textContent = acc2.slice(-300) + ' ▌'; stickBottom(false); },
-        onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
-        onDone: function () {}
-      }).then(function () {
+      roundAttempts = 0;
+      var runRound = function () {
+        var acc2 = '', raw = null;
+        chat(agentConvoView(convo), {
+          onDelta: function (d) { acc2 += d; if (!raw) raw = el('div', 'raw'); raw.textContent = acc2.slice(-300) + ' ▌'; stickBottom(false); },
+          onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
+          onDone: function () {}
+        }).then(function () {
         if (raw) raw.remove();
         var parsed = parseReply(acc2);
         if (parsed.type === 'final') { finishOk(parsed.text); return; }
+        // 计划模式只读拦截：模型请求了写工具 → 拒绝并引导回计划。
+        if (planMode && !readonlyTool(parsed.call.tool) && parsed.call.tool !== 'list_files' && parsed.call.tool !== 'read_file') {
+          convo.push({ role: 'assistant', content: 'TOOL_CALL ' + JSON.stringify(parsed.call) });
+          convo.push({ role: 'user', content: 'TOOL_RESULT {"ok":false,"error":"计划模式为只读——请继续用只读工具探查，或直接 FINAL 输出执行计划"}' });
+          agentLoop();
+          return;
+        }
         var card = toolCard(parsed.call.tool, parsed.call.args);
         setHint('执行（' + rounds + '）：' + parsed.call.tool);
         return runTool(parsed.call.tool, parsed.call.args).then(function (r) {
@@ -1611,10 +1685,18 @@
           } else { failStreak = 0; lastFailSig = ''; }
           agentLoop();
         });
-      }).catch(function (e) {
-        if (raw) raw.remove();
-        finishErr(e && e.name === 'AbortError' ? '已停止' : String(e && e.message || e));
-      });
+        }).catch(function (e) {
+          if (raw) raw.remove();
+          var aborted = e && e.name === 'AbortError';
+          if (!aborted && roundAttempts < 1) {
+            roundAttempts++;
+            window.setTimeout(runRound, 800);
+            return;
+          }
+          finishErr(aborted ? '已停止' : String(e && e.message || e));
+        });
+      };
+      runRound();
     };
     agentLoop();
   }
@@ -1624,13 +1706,20 @@
   q.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
   webBtn.onclick = function () { webOn = !webOn; webBtn.classList.toggle('on', webOn); };
   thinkBtn.onclick = function () { thinkOn = !thinkOn; thinkBtn.classList.toggle('on', thinkOn); };
+  function syncModeSeg() {
+    var bs = modeSeg.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) {
+      var v = bs[i].dataset.v;
+      bs[i].classList.toggle('on', (v === 'edit' && editMode && !planMode) || (v === 'chat' && !editMode && !planMode) || (v === 'plan' && planMode));
+    }
+    manualBar.classList.toggle('hidden', editMode || planMode);
+    q.placeholder = planMode ? '计划模式：描述目标，AI 只读探查并给出执行计划…' : editMode ? '描述要做的修改…' : '仅对话模式…';
+  }
   modeSeg.addEventListener('click', function (e) {
     var b = e.target.closest('button[data-v]'); if (!b) return;
     editMode = b.dataset.v === 'edit';
-    var bs = modeSeg.querySelectorAll('button');
-    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', bs[i] === b);
-    manualBar.classList.toggle('hidden', editMode);
-    q.placeholder = editMode ? '描述要做的修改…' : '仅对话模式…';
+    planMode = b.dataset.v === 'plan';
+    syncModeSeg();
   });
   document.getElementById('clear').onclick = function () {
     history = []; lastReply = ''; log.innerHTML = ''; thinkEl = null;

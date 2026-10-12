@@ -26,7 +26,7 @@ import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { Check, Copy, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, Sparkles, Trash2, X } from 'lucide-react'
 import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
@@ -83,8 +83,30 @@ function agentHostLabel(kind: AIApplyKind): string {
         : '文本编辑器'
 }
 
-/** 面板模式：edit=可修改（自动应用+版本保护）；chat=仅对话（纯输出）。 */
-type ChatMode = 'edit' | 'chat'
+/** 面板模式：edit=可修改（自动应用+版本保护）；chat=仅对话（纯输出）；
+ * plan=计划（opencode 式：只读工具探查并输出执行计划，一键转入执行）。 */
+type ChatMode = 'edit' | 'chat' | 'plan'
+
+/** 只读工具判定（计划模式可用的工具子集：探查类，不改文档）。 */
+const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
+
+/** Agent 会话压缩视图（pi/opencode 式滑动窗口）：超过 60 条时丢弃中段
+ *  （保留 system+首问+最近 36 条）并注入压缩说明，尾段内较旧的
+ *  TOOL_RESULT 正文截短（结构保留）。只影响发给模型的视图，不改写原始
+ *  convo（「继续」恢复仍基于全量）——300 轮预算下防上下文爆窗的关键。 */
+function agentConvoView(convo: AIMessage[]): AIMessage[] {
+  if (convo.length <= 60) return convo
+  const keepTail = 36
+  const head = convo.slice(0, 2)
+  const tail = convo.slice(-keepTail)
+  const dropped = convo.length - head.length - tail.length
+  const shrink = (m: AIMessage): AIMessage =>
+    m.role === 'user' && m.content.startsWith('TOOL_RESULT ') && m.content.length > 600
+      ? { ...m, content: `${m.content.slice(0, 300)}…（已压缩，原 ${m.content.length} 字）` }
+      : m
+  const note: AIMessage = { role: 'user', content: `（系统注：此前 ${dropped} 条历史消息已压缩省略——如需早期信息请用读工具重新获取）` }
+  return [...head, note, ...tail.slice(0, 8).map(shrink), ...tail.slice(8)]
+}
 
 /** 应用通道类型（默认 text 行为完全不变）：
  * - text：写作助手（回复=最终文本，选区替换/文末追加）；
@@ -248,6 +270,7 @@ function sanitizeSessionTurns(raw: Array<Record<string, unknown>>): ChatTurn[] {
       ...(Array.isArray(m.trace) ? { trace: m.trace as TraceStage[] } : {}),
       ...(m.agentStream ? { agentStream: true } : {}),
       ...(m.limitPaused ? { limitPaused: true } : {}),
+      ...(m.planReady ? { planReady: true } : {}),
       ...(m.applied ? { applied: m.applied as AppliedRecord } : {}),
       ...(typeof m.applyError === 'string' ? { applyError: m.applyError } : {}),
     }))
@@ -332,6 +355,8 @@ interface ChatTurn {
   agentStream?: boolean
   /** Agent 达轮次上限/连续失败熔断而暂停（会话上下文已保留，可「继续」）。 */
   limitPaused?: boolean
+  /** 计划模式完成的回合（FINAL 为执行计划，消息下给「按计划执行」按钮）。 */
+  planReady?: boolean
 }
 
 /** Agent 流式原始输出（TOOL_CALL 单行）：等宽小字 + 单行省略，点击展开
@@ -677,6 +702,20 @@ export default function AIEditChat({
       return prev.filter((x) => x.id !== asstId && x.id !== userId)
     })
   }
+  /** 重新生成：删除最后一轮问答并按当前模式重发最后一问。 */
+  const regenerate = (asstId: number) => {
+    if (busy) return
+    const idx = turns.findIndex((x) => x.id === asstId)
+    if (idx < 0) return
+    let question = ''
+    for (let i = idx - 1; i >= 0; i--) {
+      if (turns[i].role === 'user') { question = turns[i].content; break }
+    }
+    if (!question) return
+    deleteExchange(asstId)
+    void send(question)
+  }
+
   const deleteChecked = () => {
     setTurns((prev) => prev.filter((x) => !checked.has(x.id)))
     setChecked(new Set())
@@ -962,42 +1001,88 @@ export default function AIEditChat({
    *  v7.4：轮次预算 300（足够大任务），达上限/连续失败熔断时保留会话
    *  上下文并标记 limitPaused——消息下出现「继续」按钮恢复循环，等效
    *  无上限；熔断条件为同一工具+同一参数连续失败 8 次（防死循环烧钱）。 */
-  const sendAgent = async (question: string) => {
-    const tools = agentToolsRef.current ?? []
+  /** Agent system 提示构造（执行/计划共用；plan 时只列只读工具子集并要求
+   *  FINAL 输出分步执行计划）。 */
+  const buildAgentSystem = (tools: AIEditTool[], plan: boolean): string => {
     const hostLabel = agentHostLabel(applyKind)
     const extra = agentSystemExtraRef.current
-    // 用户发送 = 关注最新输出：强制恢复贴底跟随（即便此前上滚阅读）。
-    sticky.scrollToBottom()
-    const sys = [
-      `你是 DocFlow 内置文档编辑 Agent（宿主：${hostLabel}）。通过调用工具直接操作当前文档，用户只描述意图。`,
+    const list = plan ? tools.filter((t) => READONLY_TOOL_RE.test(t.name)) : tools
+    const L = [
+      `你是 DocFlow 内置文档编辑 Agent（宿主：${hostLabel}）。${plan ? '当前为计划模式：只能调用只读工具探查文档现状，不得修改；探查完成后以 FINAL 输出一份可执行的修改计划（分步骤，说明每步将使用的工具与参数要点）。' : '通过调用工具直接操作当前文档，用户只描述意图。'}`,
       '',
-      '可用工具（每次回复恰好一行 TOOL_CALL {...} 调用一个，或以 FINAL 开头给出最终答复）：',
-      ...tools.map((t) => `- ${t.name}：${t.desc}`),
+      `可用工具（每次回复恰好一行 TOOL_CALL {...} 调用一个，或以 FINAL 开头给出最终答复${plan ? '（计划）' : ''}）：`,
+      ...list.map((t) => `- ${t.name}：${t.desc}`),
       ...(extra ? ['', extra] : []),
       '',
       '输出格式（硬性要求——违反则本轮无效）：每轮回复的完整内容必须恰好是一行 TOOL_CALL {...}（单个工具、合法 JSON、前后不得有任何解释/思考/推理文字），或以 FINAL 开头的最终答复。',
-      '禁止输出 "I\'ll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。',
+      `禁止输出 "I'll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。`,
       '工作方式：先读（read_*/search_*）再改；局部修改用精确工具、不要整篇重写；一次一个工具，根据结果决定下一步；失败读错误换路径（同样的参数重试同一工具通常不会成功）；关键修改后可用读工具校验；完成后 FINAL + 简明中文总结（改了什么、在哪）。',
       'TOOL_CALL 示例：TOOL_CALL {"tool":"read_document","args":{}}',
-    ].join(String.fromCharCode(10))
+    ]
+    return L.join(String.fromCharCode(10))
+  }
+
+  /** 建立新问答回合（用户+助手骨架），返回两回合 id。 */
+  const openAgentTurn = (question: string, note?: string): [number, number] => {
     const userTurnId = ++turnIdRef.current
     const asstTurnId = ++turnIdRef.current
-    const tgt = getTargetRef.current()
     setInput('')
     setNotice('')
     setTurns((prev) => [
       ...prev,
-      {
-        id: userTurnId, role: 'user', content: question,
-        note: tgt.hasSelection ? `选区 ${tgt.text.length} 字` : '全文上下文',
-      },
+      { id: userTurnId, role: 'user', content: question, ...(note ? { note } : {}) },
       { id: asstTurnId, role: 'assistant', content: '', streaming: true, agentStream: true, trace: [] },
     ])
+    return [userTurnId, asstTurnId]
+  }
+
+  const sendAgent = async (question: string) => {
+    const tools = agentToolsRef.current ?? []
+    // 用户发送 = 关注最新输出：强制恢复贴底跟随（即便此前上滚阅读）。
+    sticky.scrollToBottom()
+    const sys = buildAgentSystem(tools, false)
+    const tgt = getTargetRef.current()
+    const [, asstTurnId] = openAgentTurn(question, tgt.hasSelection ? `选区 ${tgt.text.length} 字` : '全文上下文')
     setBusy(true)
     const controller = new AbortController()
     abortRef.current = controller
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: question }]
     await runAgentLoop(tools, convo, asstTurnId, controller)
+  }
+
+  /** 计划模式：只读工具探查 → FINAL=执行计划（标记 planReady）。 */
+  const sendAgentPlan = async (question: string) => {
+    const tools = (agentToolsRef.current ?? []).filter((t) => READONLY_TOOL_RE.test(t.name))
+    sticky.scrollToBottom()
+    const sys = buildAgentSystem(agentToolsRef.current ?? [], true)
+    const [userTurnId, asstTurnId] = openAgentTurn(question)
+    setBusy(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+    const convo: AIMessage[] = [
+      { role: 'system', content: sys },
+      { role: 'user', content: `请探查并给出执行计划：${question}` },
+    ]
+    await runAgentLoop(tools, convo, asstTurnId, controller, { plan: true })
+    void userTurnId
+  }
+
+  /** 「按计划执行」：以计划全文为私有上下文转入执行循环（可见提问保持简短）。 */
+  const executePlan = async (planText: string) => {
+    if (busy) return
+    const tools = agentToolsRef.current ?? []
+    sticky.scrollToBottom()
+    const [userTurnId, asstTurnId] = openAgentTurn('按上述计划执行')
+    setBusy(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+    const convo: AIMessage[] = [
+      { role: 'system', content: buildAgentSystem(tools, false) },
+      { role: 'user', content: `请严格按以下计划逐步执行（该计划来自刚才的只读探查，可直接依据；执行完毕 FINAL 总结）：
+${planText}` },
+    ]
+    await runAgentLoop(tools, convo, asstTurnId, controller)
+    void userTurnId
   }
 
   /** 「继续」：恢复达上限/熔断暂停的 Agent 回合（沿用原会话上下文，
@@ -1022,6 +1107,7 @@ export default function AIEditChat({
     convo: AIMessage[],
     asstTurnId: number,
     controller: AbortController,
+    opts: { plan?: boolean } = {},
   ) => {
     // 过程分段写入（trace）：think=本轮思考段（首个思考增量开段），tool=一次调用。
     let stageSeq = 0
@@ -1050,8 +1136,10 @@ export default function AIEditChat({
         let roundThink = ''
         let roundThinkStart = 0
         let thinkKey = 0
-        await aiChat(
-          { messages: convo, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined },
+        // 发送视图经压缩（防长会话爆上下文）；瞬态错误（网络/网关抖动，
+        // 非用户中止）自动重试一次，再失败按原语义终止本轮任务。
+        const roundChat = () => aiChat(
+          { messages: agentConvoView(convo), think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined },
           {
             onDelta: (chunk) => {
               acc += chunk
@@ -1072,6 +1160,13 @@ export default function AIEditChat({
           },
           controller.signal,
         )
+        try {
+          await roundChat()
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') throw err
+          await new Promise((r) => setTimeout(r, 800))
+          await roundChat()
+        }
         if (thinkKey) patchStage(thinkKey, { ms: Math.max(0, Date.now() - roundThinkStart) })
         const parsed = parseAgentReply(acc)
         if (parsed.type === 'final') {
@@ -1135,6 +1230,7 @@ export default function AIEditChat({
           streaming: false,
           agentStream: false,
           limitPaused: false,
+          planReady: opts.plan === true ? true : undefined,
         }))
       } else {
         // 未出 FINAL（达预算/熔断）：保留会话上下文，消息下给「继续」。
@@ -1255,9 +1351,11 @@ export default function AIEditChat({
     // 用户发送 = 关注最新输出：强制恢复贴底跟随（单轮/Agent 通道共用）。
     sticky.scrollToBottom()
     if (agentTools && agentTools.length > 0) {
-      // Agent 页按面板模式分流：可修改=工具循环（AI 可改文档）；仅对话=纯
-      // 问答（无编辑工具，杜绝「仅对话却被工具改动文档」）。
-      if (modeRef.current === 'edit') { await sendAgent(text); return }
+      // Agent 页按面板模式分流：可修改=工具循环（AI 可改文档）；计划=只读
+      // 工具探查产出执行计划；仅对话=纯问答（无编辑工具）。
+      const m = modeRef.current
+      if (m === 'edit') { await sendAgent(text); return }
+      if (m === 'plan') { await sendAgentPlan(text); return }
       await sendAgentChat(text); return
     }
     // 以发送时刻的模式为准（流式期间切换不影响本轮）。
@@ -1668,6 +1766,9 @@ export default function AIEditChat({
           options={[
             { label: zh ? '可修改' : 'Can edit', value: 'edit' },
             { label: zh ? '仅对话' : 'Chat only', value: 'chat' },
+            ...(agentTools && agentTools.length > 0
+              ? [{ label: zh ? '计划' : 'Plan', value: 'plan' }]
+              : []),
           ]}
         />
         {(applyKind === 'text' || applyKind === 'richtext-patch') && (
@@ -1778,6 +1879,13 @@ export default function AIEditChat({
                   {/* 外部工具调用（MCP）：Wrench 小标签逐条列出（顺序保留）。 */}
                   {turn.toolCalls && !turn.trace && <AIToolCalls toolCalls={turn.toolCalls} zh={zh} />}
                   {turn.note && <div className="ai-edit-chat-note muted">{turn.note}</div>}
+                  {turn.planReady && !turn.streaming && !batchMode && (
+                    <div className="ai-edit-chat-actions">
+                      <Button size="small" type="primary" ghost icon={<Play size={12} strokeWidth={2} />} disabled={busy} onClick={() => void executePlan(turn.content)}>
+                        {zh ? '按计划执行' : 'Execute plan'}
+                      </Button>
+                    </div>
+                  )}
                   {turn.limitPaused && !turn.streaming && (
                     <div className="ai-edit-chat-actions">
                       <Button size="small" type="primary" ghost icon={<Play size={12} strokeWidth={2} />} onClick={() => void continueAgent(turn.id)}>
@@ -1800,6 +1908,13 @@ export default function AIEditChat({
                           {zh ? '保存' : 'Save'}
                         </Button>
                       </Tooltip>
+                      {turn.id === turns[turns.length - 1].id && (
+                        <Tooltip title={zh ? '删除本轮问答并重新生成' : 'Delete and regenerate'}>
+                          <Button size="small" type="text" icon={<RotateCcw size={13} strokeWidth={2} />} disabled={busy} onClick={() => regenerate(turn.id)}>
+                            {zh ? '重新生成' : 'Retry'}
+                          </Button>
+                        </Tooltip>
+                      )}
                     </div>
                   )}
                   {/* 自动应用状态：进行中 / 修改点（可撤销）/ 已撤销 / 失败。 */}
