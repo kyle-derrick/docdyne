@@ -1643,7 +1643,7 @@ export default function AIEditChat({
             }}
           />
           <div className="chat-tools-bar">
-            {/* 左：技能 + 引用文件 + 开关组（联网/思考/MCP/我的文件）。 */}
+            {/* 左：技能 + 开关组（联网/思考/MCP/我的文件）+ 引用文件（居左组最右，与 AI 助手一致）。 */}
             <AISkillButton
               zh={zh}
               onPick={(s) => {
@@ -1654,6 +1654,20 @@ export default function AIEditChat({
                 }
                 setInput(renderSkillPrompt(s.prompt, { selection, file: fileName }))
               }}
+            />
+            <AIChatToggleBar
+              zh={zh}
+              web={toggles.web}
+              think={toggles.think}
+              thinkBlocked={toggles.thinkBlocked}
+              mcp={toggles.mcp}
+              mcpAvailable={toggles.mcpAvailable}
+              docs={toggles.docs}
+              docsAvailable={toggles.docsAvailable}
+              onWeb={toggles.setWeb}
+              onThink={toggles.setThink}
+              onMcp={toggles.setMcp}
+              onDocs={toggles.setDocs}
             />
             {/* 引用文件（v3.9）：其它文件全文注入上下文（context.fileIds）。 */}
             <Popover
@@ -1702,20 +1716,6 @@ export default function AIEditChat({
                 <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
               </Button>
             </Popover>
-            <AIChatToggleBar
-              zh={zh}
-              web={toggles.web}
-              think={toggles.think}
-              thinkBlocked={toggles.thinkBlocked}
-              mcp={toggles.mcp}
-              mcpAvailable={toggles.mcpAvailable}
-              docs={toggles.docs}
-              docsAvailable={toggles.docsAvailable}
-              onWeb={toggles.setWeb}
-              onThink={toggles.setThink}
-              onMcp={toggles.setMcp}
-              onDocs={toggles.setDocs}
-            />
             {/* 右：模型选择 + 发送/停止（最右端，与 AI 助理/创作同款样式）。 */}
             <div className="chat-tools-right">
               {models.length > 0 && (
