@@ -22,6 +22,7 @@ import { Check, ChevronDown, Copy, Globe, Brain, RotateCcw, Save, Sparkles, Tras
 import AIMarkdown from './AIMarkdown'
 import { AIModelOption, AI_MODEL_STORAGE_KEY, AI_THINK_STORAGE_KEY, AI_WEB_STORAGE_KEY, defaultAIModelKey, getAIModels, readAIFlag, writeAIFlag } from './AIAssistant'
 import { AIChatThinking, AIToolChain, applyToolResult, toolEntryFrom } from './aichat'
+import { useStickyScroll } from './aichat/useStickyScroll'
 import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './aichat/icons'
 import type { AIToolCallEntry } from './aichat'
 import {
@@ -326,7 +327,6 @@ export default function ViewerAIWidget({
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const seqRef = useRef(0)
-  const listRef = useRef<HTMLDivElement | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
   // 模型选择（默认模型 + 下拉，选择记忆与全局助手共用同一 localStorage key）。
   const [models, setModels] = useState<AIModelOption[]>([])
@@ -346,6 +346,11 @@ export default function ViewerAIWidget({
 
   // ---- 摘要（/ai/summarize 流式）----
   const [summary, setSummary] = useState<{ loading: boolean; text: string; error: string; thinking?: string; thinkingMS?: number }>({ loading: false, text: '', error: '' })
+  // 贴底跟随（用户上滚阅读历史时不被流式输出顶回底部，同全局助手）；
+  // dep 覆盖对话回合与摘要两条输出流。
+  const sticky = useStickyScroll(
+    `${turns.length}:${turns.length > 0 ? (turns[turns.length - 1].content ?? '').length : 0}:${summary.text.length}`,
+  )
   const sumBusyRef = useRef(false)
   const sumAbortRef = useRef<AbortController | null>(null)
 
@@ -386,6 +391,8 @@ export default function ViewerAIWidget({
   const send = async (question: string) => {
     const text = question.trim()
     if (!text || busyRef.current) return
+    // 用户发送 = 关注最新输出：强制恢复贴底跟随。
+    sticky.scrollToBottom()
     busyRef.current = true
     setBusy(true)
     setInput('')
@@ -442,6 +449,8 @@ export default function ViewerAIWidget({
   /** 生成/重新生成摘要（流式；think 且模型支持时附思考折叠区）。 */
   const runSummary = async () => {
     if (sumBusyRef.current) return
+    // 用户主动触发摘要 = 关注输出：强制恢复贴底跟随。
+    sticky.scrollToBottom()
     sumBusyRef.current = true
     setSummary({ loading: true, text: '', error: '' })
     const startedAt = Date.now()
@@ -528,10 +537,7 @@ export default function ViewerAIWidget({
     setSavedIds(new Set())
   }, [fileId])
 
-  // 新回合/流式更新时滚动到底部。
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
-  }, [turns, summary.text])
+  // 新回合/流式更新时的滚动由 useStickyScroll 承担（贴底才跟随）。
 
   /** 复制回答（短暂 ✓ 反馈）。 */
   const copyTurn = (turn: WidgetTurn) => {
@@ -641,7 +647,7 @@ export default function ViewerAIWidget({
             />
           </div>
           {/* 内容区（对话/摘要共用滚动容器）。 */}
-          <div className="viewer-aiw-body" ref={listRef}>
+          <div className="viewer-aiw-body" ref={sticky.wrapRef} onScroll={sticky.onScroll}>
             {tab === 'chat' ? (
               <>
                 {turns.length === 0 && (

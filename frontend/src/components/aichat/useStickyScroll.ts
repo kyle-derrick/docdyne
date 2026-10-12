@@ -31,6 +31,16 @@ export function useStickyScroll(dep: unknown) {
     stickRef.current = box.scrollHeight - box.scrollTop - box.clientHeight < BOTTOM_THRESHOLD
   }
 
+  /** 强制回到跟随态并贴底（force=false 仅在当前仍贴底时滚动）。
+   *  注意滚动容器是内部 scroll-box 而非外层 wrap——直接滚 wrap 是空操作
+   *  （v3.9 助手「打开不贴底」的根因）。 */
+  const scrollToBottom = (force = true) => {
+    if (force) stickRef.current = true
+    const box = boxRef.current ?? resolveBox()
+    boxRef.current = box
+    if (box) box.scrollTop = box.scrollHeight
+  }
+
   useEffect(() => {
     const box = boxRef.current ?? resolveBox()
     boxRef.current = box
@@ -47,5 +57,5 @@ export function useStickyScroll(dep: unknown) {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  return { wrapRef, onScroll }
+  return { wrapRef, onScroll, scrollToBottom }
 }
