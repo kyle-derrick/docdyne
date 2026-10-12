@@ -21,7 +21,15 @@ export interface TraceStage {
   status?: 'running' | 'success' | 'error'
 }
 
-export default function TraceView({ stages, running, zh }: { stages: TraceStage[]; running: boolean; zh: boolean }) {
+/** 用量汇总（runAgentLoop 聚合，SSE done usage 逐轮累计）。 */
+export interface TraceUsage {
+  rounds: number
+  promptTokens: number
+  completionTokens: number
+  durationMS: number
+}
+
+export default function TraceView({ stages, running, zh, usage }: { stages: TraceStage[]; running: boolean; zh: boolean; usage?: TraceUsage }) {
   // 整块：运行中展开、完成自动折叠（用户可再点开）。
   const [open, setOpen] = useState(running)
   useEffect(() => { setOpen(running) }, [running])
@@ -44,8 +52,8 @@ export default function TraceView({ stages, running, zh }: { stages: TraceStage[
         <span className="ai-trace-title">{zh ? '思考与操作过程' : 'Process'}</span>
         <span className="ai-trace-meta">
           {zh
-            ? `${thinkCount} 段思考 · ${toolCount} 次操作${totalMS ? ` · ${(totalMS / 1000).toFixed(1)}s` : ''}`
-            : `${thinkCount} thoughts · ${toolCount} tools${totalMS ? ` · ${(totalMS / 1000).toFixed(1)}s` : ''}`}
+            ? `${thinkCount} 段思考 · ${toolCount} 次操作${totalMS ? ` · ${(totalMS / 1000).toFixed(1)}s` : ''}${usage ? ` · ${usage.rounds} 轮 · ${usage.promptTokens + usage.completionTokens} tok${usage.durationMS ? ` · ${(usage.durationMS / 1000).toFixed(1)}s` : ''}` : ''}`
+            : `${thinkCount} thoughts · ${toolCount} tools${totalMS ? ` · ${(totalMS / 1000).toFixed(1)}s` : ''}${usage ? ` · ${usage.rounds} rounds · ${usage.promptTokens + usage.completionTokens} tok` : ''}`}
         </span>
         {running && <span className="ai-trace-spin" aria-hidden="true" />}
       </button>

@@ -39,6 +39,12 @@
   }
 
   var planMode = false;
+  // 谨慎模式（B1）：破坏性工具执行前 window.confirm，默认开（localStorage 记忆）。
+  var cautious = true;
+  try { cautious = window.localStorage.getItem('docflow.ai.agent.cautious') !== '0'; } catch (e) {}
+  function destructiveTool(name) {
+    return /^(delete_|clear_)/.test(String(name)) || name === 'replace_diagram' || name === 'write_document';
+  }
   /** 只读工具判定（计划模式可用子集）。 */
   function readonlyTool(name) { return /^(read_|search_|list_|get_|find_)/.test(String(name)); }
   /** 会话压缩视图（pi/opencode 式滑动窗口）：超 60 条丢中段并注入说明、
@@ -1549,7 +1555,7 @@
               if (n === 'delta' && p.text) ev.onDelta(p.text);
               else if (n === 'thinking' && p.text) ev.onThinking(p.text);
               else if (n === 'error') throw new Error(p.error || 'AI 请求失败');
-              else if (n === 'done') { ev.onDone(); return; }
+              else if (n === 'done') { ev.onDone(p.usage); return; }
             }
             return pump();
           });
@@ -1586,7 +1592,7 @@
       sessSave();
       probeEditor().then(function () {});
       setBusyUI(false); controller = null;
-      setHint('已完成（DS 自动保存）');
+      setHint('已完成（DS 自动保存' + (totalTok ? ' · ' + totalTok + ' tok' : '') + '）');
       if (planMode && s) {
         // 计划完成：气泡下给「按计划执行」按钮（转入执行模式重发计划全文）。
         var lastBubble = log.querySelector('.m.a:last-child');
@@ -1620,7 +1626,7 @@
         .catch(function (e) { finishErr(String(e && e.message || e)); });
       return;
     }
-    var failStreak = 0, lastFailSig = '';
+    var failStreak = 0, lastFailSig = '', totalTok = 0;
     /** 暂停（达预算/熔断）：保留 convo，气泡内给「继续」按钮恢复循环。 */
     function showPaused(text) {
       settleThink(thinkStart ? Date.now() - thinkStart : 0);
@@ -1654,7 +1660,7 @@
         chat(agentConvoView(convo), {
           onDelta: function (d) { acc2 += d; if (!raw) raw = el('div', 'raw'); raw.textContent = acc2.slice(-300) + ' ▌'; stickBottom(false); },
           onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
-          onDone: function () {}
+          onDone: function (u) { if (u && typeof u === 'object') totalTok += (u.prompt_tokens || 0) + (u.completion_tokens || 0); }
         }).then(function () {
         if (raw) raw.remove();
         var parsed = parseReply(acc2);
@@ -1668,7 +1674,13 @@
         }
         var card = toolCard(parsed.call.tool, parsed.call.args);
         setHint('执行（' + rounds + '）：' + parsed.call.tool);
-        return runTool(parsed.call.tool, parsed.call.args).then(function (r) {
+        var doRun = function () { return runTool(parsed.call.tool, parsed.call.args); };
+        if (cautious && destructiveTool(parsed.call.tool)) {
+          if (!window.confirm('谨慎模式：确认执行「' + parsed.call.tool + '」？该操作会删除或替换内容。\n（可在工具栏关闭谨慎模式）')) {
+            doRun = function () { return Promise.resolve({ ok: false, error: '用户在谨慎模式下跳过了该操作' }); };
+          }
+        }
+        return doRun().then(function (r) {
           toolDone(card, !!(r && r.ok), r);
           convo.push({ role: 'assistant', content: 'TOOL_CALL ' + JSON.stringify(parsed.call) });
           convo.push({ role: 'user', content: 'TOOL_RESULT ' + JSON.stringify(r).slice(0, 3000) });
@@ -1706,6 +1718,15 @@
   q.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
   webBtn.onclick = function () { webOn = !webOn; webBtn.classList.toggle('on', webOn); };
   thinkBtn.onclick = function () { thinkOn = !thinkOn; thinkBtn.classList.toggle('on', thinkOn); };
+  var cautiousBtn = document.getElementById('cautious');
+  if (cautiousBtn) {
+    cautiousBtn.classList.toggle('on', cautious);
+    cautiousBtn.onclick = function () {
+      cautious = !cautious;
+      cautiousBtn.classList.toggle('on', cautious);
+      try { window.localStorage.setItem('docflow.ai.agent.cautious', cautious ? '1' : '0'); } catch (e) {}
+    };
+  }
   function syncModeSeg() {
     var bs = modeSeg.querySelectorAll('button');
     for (var i = 0; i < bs.length; i++) {

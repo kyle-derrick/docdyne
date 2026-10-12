@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### 变更
+- **Agent 强化 P1（TODO-agent.md）**：①谨慎模式（默认开，可关）——破坏性工具（delete_*/clear_*/replace_diagram/write_document/delete_block 等）执行前确认，取消=跳过并回喂模型自适应（编辑页 antd confirm + 插件 ?v=15 confirm，状态 localStorage 记忆）；②用量可见性——SSE usage 逐轮聚合到回合，TraceView 头部显示「N 轮 · N tok · Ns」，插件完成提示带 token；③会话导入导出——编辑页头部按钮，本文件域全部会话（含过程 trace）.json 导出/合并导入；④后端双循环（openai/anthropic）接入同参连败熔断（8 次，df_* JSON 结果可判定时）
 - **Agent 体系强化 P0（对标 pi/opencode 设计，TODO-agent.md）**：①上下文压缩（pi/opencode 式滑动窗口——超 60 条丢中段+注入压缩说明、旧工具结果截短，300 轮预算下防上下文爆窗；不改写原始会话，「继续」仍用全量）；②瞬态错误自动重试（网络/网关抖动重试 1 次）；③最后一条 AI 消息「重新生成」（删本轮问答对并按当前模式重发）；④**计划模式**（opencode plan agent 式）：编辑页面板与 Office 插件新增「计划」档——只读工具子集探查并产出分步执行计划（模型请求写工具会被拦截引导），一键「按计划执行」转入执行循环（插件 ?v=14）
 - **AI 会话记录服务端持久化（v7.2）**：新增 ai_conversations 表（migration 053）与 /api/v1/ai/conversations CRUD（openapi 同步）；全局助手、编辑页面板（按文件）、OnlyOffice 插件三处会话统一落服务端（source=assistant/editor/plugin 分域，每域保留最近 **300** 个，写入裁最旧）——跨设备一致；本机 localStorage 旧记录首载自动迁移上服务端，插件离线时本机只读回退。会话选择器统一为共用 ConvoPicker 组件（新建 + **标题搜索**（本地即时过滤）+ 切换 + 重命名 + 删除 + 计数脚注），全局助手与编辑页同源渲染、插件为同款原生实现
 - 修复全局助手「打开抽屉不在最新行」根因：项目样式由外层 .aic-list-wrap 接管滚动（内部 scroll-box overflow:visible），此前贴底逻辑滚的是不可滚动的内部元素（空操作）；useStickyScroll 改为探测真实可滚动容器（内部 scroll-box → 包裹层 → 父级），打开/发送/切会话/摘要均经 scrollToBottom 生效

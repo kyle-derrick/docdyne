@@ -26,7 +26,7 @@ import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
@@ -34,7 +34,7 @@ import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STO
 import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
 import ConvoPicker from './aichat/ConvoPicker'
 import TraceView from './aichat/TraceView'
-import type { TraceStage } from './aichat/TraceView'
+import type { TraceStage, TraceUsage } from './aichat/TraceView'
 import { useStickyScroll } from './aichat/useStickyScroll'
 import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './aichat/icons'
 import type { AIAttachFile } from './aichat'
@@ -58,6 +58,8 @@ export interface AIEditTool {
   desc: string
   /** 参数摘要展示（工具链 UI 的 label）。 */
   label: (args: Record<string, unknown>) => string
+  /** 破坏性操作（删除/整篇替换等）：谨慎模式开启时执行前弹确认。 */
+  destructive?: boolean
   exec: (args: Record<string, unknown>) => Promise<{ ok: boolean; data?: unknown; error?: string }>
 }
 
@@ -271,6 +273,7 @@ function sanitizeSessionTurns(raw: Array<Record<string, unknown>>): ChatTurn[] {
       ...(m.agentStream ? { agentStream: true } : {}),
       ...(m.limitPaused ? { limitPaused: true } : {}),
       ...(m.planReady ? { planReady: true } : {}),
+      ...(m.usage ? { usage: m.usage as TraceUsage } : {}),
       ...(m.applied ? { applied: m.applied as AppliedRecord } : {}),
       ...(typeof m.applyError === 'string' ? { applyError: m.applyError } : {}),
     }))
@@ -357,6 +360,8 @@ interface ChatTurn {
   limitPaused?: boolean
   /** 计划模式完成的回合（FINAL 为执行计划，消息下给「按计划执行」按钮）。 */
   planReady?: boolean
+  /** Agent 用量汇总（轮次/输入输出 token/总耗时；SSE done usage 逐轮累计）。 */
+  usage?: TraceUsage
 }
 
 /** Agent 流式原始输出（TOOL_CALL 单行）：等宽小字 + 单行省略，点击展开
@@ -531,7 +536,7 @@ export default function AIEditChat({
   const locale = useLocale()
   const zh = locale === 'zh-CN'
   const aiOn = useAIEnabled()
-  const { message } = AntdApp.useApp()
+  const { message, modal } = AntdApp.useApp()
   const [turns, setTurns] = useState<ChatTurn[]>([])
   // ---- 多会话（v7.2：服务端持久化 /ai/conversations，source=editor，
   //      按文件分域；本机 localStorage 仅作首次迁移源）----
@@ -672,6 +677,33 @@ export default function AIEditChat({
     void aiUpdateConversation(editing.id, { title: editing.draft.trim().slice(0, 60) }).catch(() => { /* 服务端失败静默 */ })
     setSessEditing(null)
   }
+
+  // ---- 谨慎模式（B1）：破坏性工具执行前确认，默认开启（localStorage 记忆）----
+  const [cautious, setCautious] = useState(() => {
+    try { return window.localStorage.getItem('docflow.ai.agent.cautious') !== '0' } catch { return true }
+  })
+  const cautiousRef = useRef(cautious)
+  cautiousRef.current = cautious
+  const toggleCautious = () => {
+    setCautious((v) => {
+      const next = !v
+      cautiousRef.current = next
+      try { window.localStorage.setItem('docflow.ai.agent.cautious', next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }
+  /** 破坏性工具确认（antd confirm，Promise 化；取消=跳过该次调用）。 */
+  const confirmDestructive = (label: string) => new Promise<boolean>((resolve) => {
+    modal.confirm({
+      title: zh ? `确认执行「${label}」？` : `Confirm "${label}"?`,
+      content: zh ? '谨慎模式：该操作会删除或整篇替换内容。' : 'Cautious mode: this operation deletes or replaces content.',
+      okText: zh ? '执行' : 'Execute',
+      okButtonProps: { danger: true },
+      cancelText: zh ? '跳过' : 'Skip',
+      onOk: () => resolve(true),
+      onCancel: () => resolve(false),
+    })
+  })
 
   // ---- 消息级操作（v7.3：复制/删除问答对/保存到文件 + 批量多选）----
   const [batchMode, setBatchMode] = useState(false)
@@ -1085,6 +1117,58 @@ ${planText}` },
     void userTurnId
   }
 
+  /** 会话导入 input 引用。 */
+  const importInputRef = useRef<HTMLInputElement | null>(null)
+  /** 导出本文件域全部会话为 JSON（含 messages/trace；逐会话拉正文）。 */
+  const exportSessionsFile = async () => {
+    if (!fileId || sessions.length === 0) return
+    try {
+      const rows = []
+      for (const s of sessionsRef.current) {
+        try {
+          const row = await aiGetConversation(s.id)
+          rows.push({ title: s.title, updatedAt: s.updatedAt, messages: row.messages })
+        } catch { /* 单会话失败跳过 */ }
+      }
+      const payload = { version: 1, kind: 'docflow-ai-sessions', file_id: fileId, exported_at: new Date().toISOString(), sessions: rows }
+      const stamp = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const name = `AI会话备份-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`
+      const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+      void message.success(zh ? `已导出 ${rows.length} 个会话` : `Exported ${rows.length} sessions`)
+    } catch (err) {
+      void message.error(err instanceof Error ? err.message : (zh ? '导出失败' : 'Export failed'))
+    }
+  }
+  /** 导入会话备份：逐会话创建到服务端（合并语义）并刷新列表。 */
+  const importSessionsFile = async (file: File | null) => {
+    if (!fileId || !file) return
+    try {
+      const parsed = JSON.parse(await file.text()) as { sessions?: Array<{ title?: unknown; messages?: unknown }> }
+      const list = Array.isArray(parsed.sessions) ? parsed.sessions : []
+      if (!list.length) { void message.warning(zh ? '备份中没有会话' : 'No sessions in the backup'); return }
+      let imported = 0
+      for (const it of list) {
+        const title = typeof it?.title === 'string' ? it.title : (zh ? '导入的会话' : 'Imported')
+        const messages = Array.isArray(it?.messages) ? (it.messages as Array<Record<string, unknown>>) : []
+        if (!messages.length) continue
+        const row = await aiCreateConversation(convoScope, title)
+        await aiUpdateConversation(row.id, { messages: messages.slice(-40) })
+        imported++
+      }
+      const metas = await aiListConversations(convoScope)
+      await restoreSessions(metas)
+      void message.success(zh ? `已导入 ${imported} 个会话` : `Imported ${imported} sessions`)
+    } catch (err) {
+      void message.error(err instanceof Error ? err.message : (zh ? '导入失败（文件格式不正确？）' : 'Import failed (invalid file?)'))
+    }
+  }
+
   /** 「继续」：恢复达上限/熔断暂停的 Agent 回合（沿用原会话上下文，
    *  追加一条系统提示告知模型从中断处继续；再获一轮完整预算）。 */
   const continueAgent = async (asstTurnId: number) => {
@@ -1129,6 +1213,12 @@ ${planText}` },
     let failStreak = 0
     let lastFailSig = ''
     let pausedNote = ''
+    // 用量聚合（SSE done usage 逐轮累计；结束写入回合供 TraceView 头部展示）。
+    const runStart = Date.now()
+    let uRounds = 0
+    let uPrompt = 0
+    let uCompletion = 0
+    const usagePatch = () => ({ usage: { rounds: uRounds, promptTokens: uPrompt, completionTokens: uCompletion, durationMS: Date.now() - runStart } as TraceUsage })
     try {
       let finalText = ''
       for (let round = 1; round <= MAX_ROUNDS; round++) {
@@ -1161,11 +1251,15 @@ ${planText}` },
           controller.signal,
         )
         try {
-          await roundChat()
+          const r = await roundChat()
+          uRounds++
+          if (r.usage) { uPrompt += r.usage.prompt_tokens; uCompletion += r.usage.completion_tokens }
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') throw err
           await new Promise((r) => setTimeout(r, 800))
-          await roundChat()
+          const r = await roundChat()
+          uRounds++
+          if (r.usage) { uPrompt += r.usage.prompt_tokens; uCompletion += r.usage.completion_tokens }
         }
         if (thinkKey) patchStage(thinkKey, { ms: Math.max(0, Date.now() - roundThinkStart) })
         const parsed = parseAgentReply(acc)
@@ -1195,6 +1289,10 @@ ${planText}` },
         let result: { ok: boolean; data?: unknown; error?: string }
         if (!def) {
           result = { ok: false, error: `未知工具 ${tool}（可用：${tools.map((t) => t.name).join(', ')}）` }
+        } else if (def.destructive && cautiousRef.current) {
+          // 谨慎模式：破坏性工具执行前确认；取消=跳过（结果回喂，模型自适应）。
+          const ok = await confirmDestructive(def.label(args))
+          result = ok ? await def.exec(args).catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) })) : { ok: false, error: '用户在谨慎模式下跳过了该操作' }
         } else {
           try {
             result = await def.exec(args)
@@ -1231,6 +1329,7 @@ ${planText}` },
           agentStream: false,
           limitPaused: false,
           planReady: opts.plan === true ? true : undefined,
+          ...usagePatch(),
         }))
       } else {
         // 未出 FINAL（达预算/熔断）：保留会话上下文，消息下给「继续」。
@@ -1241,6 +1340,7 @@ ${planText}` },
           agentStream: false,
           limitPaused: true,
           note: pausedNote || '已暂停，可点击「继续」接着执行',
+          ...usagePatch(),
         }))
       }
     } catch (err) {
@@ -1250,6 +1350,7 @@ ${planText}` },
         agentStream: false,
         note: aborted ? '已停止（已执行操作保留）' : undefined,
         error: aborted ? undefined : (err instanceof Error ? err.message : t(locale, 'aiAssistantErr')),
+        ...usagePatch(),
       }))
     } finally {
       abortRef.current = null
@@ -1725,6 +1826,33 @@ ${planText}` },
               />
             </Tooltip>
           </Popover>
+          {/* 会话导入/导出（B3）：整个文件域的会话 JSON 互导（含过程 trace）。 */}
+          <Tooltip title={zh ? '导出本文件全部会话（.json）' : 'Export all sessions (.json)'}>
+            <Button
+              size="small"
+              type="text"
+              icon={<Download size={13} strokeWidth={2} />}
+              disabled={sessions.length === 0}
+              onClick={() => void exportSessionsFile()}
+              aria-label={zh ? '导出会话' : 'Export sessions'}
+            />
+          </Tooltip>
+          <Tooltip title={zh ? '导入会话备份（.json，合并到本文件）' : 'Import session backup (.json)'}>
+            <Button
+              size="small"
+              type="text"
+              icon={<Upload size={13} strokeWidth={2} />}
+              onClick={() => importInputRef.current?.click()}
+              aria-label={zh ? '导入会话' : 'Import sessions'}
+            />
+          </Tooltip>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={(e) => { void importSessionsFile(e.target.files?.[0] ?? null); e.target.value = '' }}
+          />
           {/* 批量操作：多选消息 → 批量删除 / 保存所选到文件。 */}
           <Tooltip title={zh ? '批量操作消息（多选删除/保存）' : 'Batch message actions (multi-select delete/save)'}>
             <Button
@@ -1844,7 +1972,7 @@ ${planText}` },
                   {/* 过程追踪（v7.3 Agent 轮次）：思考段与工具调用分阶段折叠；
                       非 agent 轮次回落单段思考折叠区。 */}
                   {turn.trace && turn.trace.length > 0 ? (
-                    <TraceView stages={turn.trace} running={!!turn.streaming} zh={zh} />
+                    <TraceView stages={turn.trace} running={!!turn.streaming} zh={zh} usage={turn.usage} />
                   ) : (
                     <AIChatThinking text={turn.thinking ?? ''} streaming={turn.streaming} thinkingMS={turn.thinkingMS} zh={zh} />
                   )}
@@ -2020,6 +2148,19 @@ ${planText}` },
                 setInput(renderSkillPrompt(s.prompt, { selection, file: fileName }))
               }}
             />
+            <Tooltip title={cautious
+              ? (zh ? '谨慎模式开：删除/整篇替换等破坏性工具执行前确认' : 'Cautious mode on: confirm before destructive tools')
+              : (zh ? '谨慎模式关：破坏性工具直接执行' : 'Cautious mode off')}>
+              <Button
+                size="small"
+                type="text"
+                className={`ai-attach-btn${cautious ? ' cautious-on' : ''}`}
+                icon={<ShieldAlert size={14} strokeWidth={2} aria-hidden="true" />}
+                onClick={toggleCautious}
+                aria-label={zh ? '谨慎模式' : 'Cautious mode'}
+                aria-pressed={cautious}
+              />
+            </Tooltip>
             <AIChatToggleBar
               zh={zh}
               web={toggles.web}

@@ -633,6 +633,7 @@ export default function ExcalidrawPage({
       },
       {
         name: 'delete_elements',
+        destructive: true,
         desc: '{ids:[…]} → 删除元素（连带其标签与绑定连线一并清理，避免悬空引用）。',
         label: (a: Record<string, unknown>) => `删除 ${Array.isArray(a.ids) ? a.ids.length : '?'} 元素`,
         exec: async (a: Record<string, unknown>) => {

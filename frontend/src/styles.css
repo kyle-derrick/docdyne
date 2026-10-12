@@ -7564,3 +7564,6 @@ kbd {
 .ai-batch-bar .spacer { flex: 1; }
 .ai-edit-chat-actions.user-ops { justify-content: flex-end; }
 .ai-edit-chat-head-ops .batch-on { color: var(--primary); background: var(--hover, rgba(127, 127, 127, .1)); }
+
+/* 谨慎模式开关开启态（B1）。 */
+.ai-attach-btn.cautious-on { color: var(--warning, #d48806); }

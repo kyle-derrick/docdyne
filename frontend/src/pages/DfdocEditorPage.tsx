@@ -615,6 +615,7 @@ export default function DfdocEditorPage({
       },
       {
         name: 'delete_block',
+        destructive: true,
         desc: '{find} → 删除 find 所在的整个块（段落/标题/列表项/表格行所在块等）。',
         label: (a: Record<string, unknown>) => `删块 ${String(a.find ?? '').slice(0, 12)}`,
         exec: async (a: Record<string, unknown>) => {
@@ -632,6 +633,7 @@ export default function DfdocEditorPage({
       },
       {
         name: 'write_document',
+        destructive: true,
         desc: '{md} → 整篇重写（仅当改动覆盖大半文档时使用；md 中的 [DocFlow-Embed/Image/File] 占位行必须逐字保留）。',
         label: () => '整篇重写',
         exec: async (a: Record<string, unknown>) => {

@@ -608,6 +608,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       },
       {
         name: 'delete_cells',
+        destructive: true,
         desc: '{ids:[…]} → 删除单元格（引用它们的连线一并删除，避免悬空）。',
         label: (a: Record<string, unknown>) => `删除 ${Array.isArray(a.ids) ? a.ids.length : '?'} 单元格`,
         exec: async (a: Record<string, unknown>) => {
@@ -640,6 +641,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       },
       {
         name: 'replace_diagram',
+        destructive: true,
         desc: '{xml} → 整图替换（仅当重排全图/从零新建时使用；改动少数元素优先 insert_cells/update_cells）。',
         label: () => '整图替换',
         exec: async (a: Record<string, unknown>) => {

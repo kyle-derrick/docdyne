@@ -910,7 +910,29 @@ const (
 	mcpToolFnNameMax = 64
 	// mcpToolFnPrefix 归一化工具名前缀（防与上游 Provider 原生函数名冲突）。
 	mcpToolFnPrefix = "mcp_"
+	// toolFailStreakLimit 同一工具+同一参数连续失败的熔断阈值（v7.4：
+	// 与前端 Agent 一致的死循环防护——模型未消化错误反复重试时停止循环）。
+	toolFailStreakLimit = 8
 )
+
+// toolFailProbe 判定一次工具结果是否失败并给出熔断键（name+args）。
+// df_* 平台工具结果为 JSON（ok:false 即失败）；MCP 工具错误经 execMCPTool
+// 包装为文本，此处不识别（保守：只对可判定的 JSON 结果熔断）。
+func toolFailProbe(name string, args json.RawMessage, content string) (string, bool) {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "{") {
+		return "", false
+	}
+	var probe struct {
+		OK      *bool `json:"ok"`
+		IsError bool  `json:"isError"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &probe); err != nil {
+		return "", false
+	}
+	failed := (probe.OK != nil && !*probe.OK) || probe.IsError
+	return name + "|" + string(args), failed
+}
 
 // ToolCallStatus 工具调用事件阶段。
 const (
@@ -1305,6 +1327,8 @@ func (s *Service) chatOpenAITools(ctx context.Context, p settings.AIProvider, mo
 			onDelta(text)
 		}
 	}
+	failStreak := 0
+	var lastFailKey string
 	for execs := 0; ; {
 		round, err := s.openAIToolRound(ctx, p, model, req, temperature, maxTokens, msgs, tools, emit)
 		if err != nil {
@@ -1341,7 +1365,23 @@ func (s *Service) chatOpenAITools(ctx context.Context, p settings.AIProvider, mo
 			if len(args) == 0 || !json.Valid(args) {
 				args = json.RawMessage("{}")
 			}
-			msgs = append(msgs, map[string]any{"role": "tool", "tool_call_id": tc.ID, "content": s.execTool(ctx, set, tc.Name, args, req.OnTool)})
+			out := s.execTool(ctx, set, tc.Name, args, req.OnTool)
+			msgs = append(msgs, map[string]any{"role": "tool", "tool_call_id": tc.ID, "content": out})
+			// 同参连败熔断：模型未消化错误、以相同参数反复重试时停止循环。
+			if key, failed := toolFailProbe(tc.Name, args, out); failed {
+				if key == lastFailKey {
+					failStreak++
+					if failStreak >= toolFailStreakLimit {
+						emit(fmt.Sprintf("\n（连续 %d 次以相同参数调用 %s 失败，已自动停止工具循环——请调整指令或换用其它方式后重试）", toolFailStreakLimit, tc.Name))
+						res.Content = strings.TrimSpace(content.String())
+						return res, nil
+					}
+				} else {
+					failStreak, lastFailKey = 1, key
+				}
+			} else {
+				failStreak, lastFailKey = 0, ""
+			}
 		}
 	}
 }
@@ -1548,6 +1588,8 @@ func (s *Service) chatAnthropicTools(ctx context.Context, p settings.AIProvider,
 			onDelta(text)
 		}
 	}
+	failStreak := 0
+	var lastFailKey string
 	for execs := 0; ; {
 		round, err := s.anthropicToolRound(ctx, p, model, req, temperature, maxTokens, msgs, tools, emit)
 		if err != nil {
@@ -1591,11 +1633,27 @@ func (s *Service) chatAnthropicTools(ctx context.Context, p settings.AIProvider,
 			if len(args) == 0 || !json.Valid(args) {
 				args = json.RawMessage("{}")
 			}
+			out := s.execTool(ctx, set, tb.Name, args, req.OnTool)
 			results = append(results, map[string]any{
 				"type":        "tool_result",
 				"tool_use_id": tb.ID,
-				"content":     s.execTool(ctx, set, tb.Name, args, req.OnTool),
+				"content":     out,
 			})
+			// 同参连败熔断（与 openai 循环一致）。
+			if key, failed := toolFailProbe(tb.Name, args, out); failed {
+				if key == lastFailKey {
+					failStreak++
+					if failStreak >= toolFailStreakLimit {
+						emit(fmt.Sprintf("\n（连续 %d 次以相同参数调用 %s 失败，已自动停止工具循环——请调整指令或换用其它方式后重试）", toolFailStreakLimit, tb.Name))
+						res.Content = strings.TrimSpace(content.String())
+						return res, nil
+					}
+				} else {
+					failStreak, lastFailKey = 1, key
+				}
+			} else {
+				failStreak, lastFailKey = 0, ""
+			}
 		}
 		msgs = append(msgs, map[string]any{"role": "user", "content": results})
 	}
