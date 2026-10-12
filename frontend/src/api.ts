@@ -3496,6 +3496,66 @@ export async function deleteAIMemory(id: string): Promise<void> {
   await api(`/api/v1/ai/memory/${id}`, { method: 'DELETE' })
 }
 
+// ---------- AI 会话记录（/ai/conversations，服务端持久化，本人维度） ----------
+
+/** 会话来源：assistant=全局助手 / editor=编辑页面板 / plugin=OnlyOffice 插件。 */
+export type AIConvoSource = 'assistant' | 'editor' | 'plugin'
+
+/** 会话元信息（列表条目，不含 messages 正文）。 */
+export interface AIConvoMeta {
+  id: string
+  file_id: string | null
+  source: AIConvoSource
+  title: string
+  message_count: number
+  updated_at: string
+}
+
+/** 会话完整内容（含 messages 正文；条目结构由调用方定义，整存整取）。 */
+export interface AIConvoRow extends AIConvoMeta {
+  messages: Array<Record<string, unknown>>
+}
+
+/** 会话 scope（编辑页/插件传 fileId；全局助手不传）。 */
+export interface AIConvoScope {
+  source: AIConvoSource
+  fileId?: string | null
+}
+
+/** 列出 scope 内最近会话（updated_at 倒序，≤30 条）。 */
+export async function aiListConversations(scope: AIConvoScope): Promise<AIConvoMeta[]> {
+  const params = new URLSearchParams({ source: scope.source })
+  if (scope.fileId) params.set('file_id', scope.fileId)
+  const data = await api<{ conversations: AIConvoMeta[] }>(`/api/v1/ai/conversations?${params.toString()}`)
+  return data.conversations ?? []
+}
+
+/** 新建空会话（服务端生成 id；scope 超限自动裁最旧）。 */
+export async function aiCreateConversation(scope: AIConvoScope, title = ''): Promise<AIConvoRow> {
+  const data = await api<{ conversation: AIConvoRow }>('/api/v1/ai/conversations', jsonInit('POST', {
+    source: scope.source,
+    ...(scope.fileId ? { file_id: scope.fileId } : {}),
+    title,
+  }))
+  return data.conversation
+}
+
+/** 读取单个会话（含 messages；不存在/非本人 404）。 */
+export async function aiGetConversation(id: string): Promise<AIConvoRow> {
+  const data = await api<{ conversation: AIConvoRow }>(`/api/v1/ai/conversations/${id}`)
+  return data.conversation
+}
+
+/** 更新会话（title 与/或 messages 整体替换；messages ≤64 条 / ≤256KB）。 */
+export async function aiUpdateConversation(id: string, body: { title?: string; messages?: Array<Record<string, unknown>> }): Promise<void> {
+  await api(`/api/v1/ai/conversations/${id}`, jsonInit('PUT', body))
+}
+
+/** 删除会话（不存在/非本人 404）。 */
+export async function aiDeleteConversation(id: string): Promise<void> {
+  await api(`/api/v1/ai/conversations/${id}`, { method: 'DELETE' })
+}
+
 // ---------- 平台 AI 设置扩展（OCR / 平台人设 / 技能模板 / 记忆编辑） ----------
 
 /** 图片 OCR 设置（GET/PUT /admin/settings/ai 的 ocr 块）。 */

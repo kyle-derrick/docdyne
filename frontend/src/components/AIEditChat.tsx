@@ -20,13 +20,16 @@
 //   v3.9：OnlyOffice 编辑页不再挂本面板（Office 的 AI 入口 = 编辑器内
 //   DocFlow AI 插件，见 frontend/public/oo-plugins/docflow-ai）；本面板
 //   仅服务有落盘通道的宿主页（Monaco/Tiptap/白板/图表）。
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntdApp, Button, Input, Popover, Segmented, Tooltip } from 'antd'
+import { Conversations } from '@ant-design/x'
+import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, FileText, HelpCircle, History, MessageSquare, Paperclip, Plus, Sparkles, Trash2, X } from 'lucide-react'
-import { aiChat, getFileMeta, listFiles, restoreVersion, searchFiles } from '../api'
+import { Check, Copy, FileText, HelpCircle, MessagesSquare, Paperclip, Plus, Sparkles, X } from 'lucide-react'
+import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles } from '../api'
+import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
 import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
@@ -214,17 +217,64 @@ export type AIQuickCommand =
   | { kind: 'send'; instruction: string; editMode: boolean }
   | { kind: 'focus' }
 
-/** 编辑会话（按文件维度的历史记录条目；v7.1 多会话）。 */
+/** 编辑会话条目（服务端会话的本地镜像；turns 按需拉取）。 */
 interface EditSession {
   id: string
   title: string
   updatedAt: number
+  messageCount?: number
   turns: ChatTurn[]
 }
 
-/** 新会话 id。 */
-function newEditSessionId(): string {
-  return `es-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+/** 服务端 messages → ChatTurn[]（宽松净化：损坏/缺 id 条目补 id）。 */
+function sanitizeSessionTurns(raw: Array<Record<string, unknown>>): ChatTurn[] {
+  if (!Array.isArray(raw)) return []
+  let seq = Date.now()
+  return raw
+    .filter((m) => m && typeof m === 'object' && (m.role === 'user' || m.role === 'assistant'))
+    .map((m) => ({
+      id: typeof m.id === 'number' ? m.id : ++seq,
+      role: m.role as 'user' | 'assistant',
+      content: String(m.content ?? ''),
+      ...(typeof m.note === 'string' ? { note: m.note } : {}),
+      ...(typeof m.error === 'string' ? { error: m.error } : {}),
+      ...(Array.isArray(m.files) ? { files: m.files as AIAttachFile[] } : {}),
+      ...(typeof m.thinking === 'string' ? { thinking: m.thinking } : {}),
+      ...(typeof m.thinkingMS === 'number' ? { thinkingMS: m.thinkingMS } : {}),
+      ...(Array.isArray(m.webSources) ? { webSources: m.webSources as AIWebSource[] } : {}),
+      ...(Array.isArray(m.toolCalls) ? { toolCalls: m.toolCalls as AIToolCallEntry[] } : {}),
+      ...(m.applied ? { applied: m.applied as AppliedRecord } : {}),
+      ...(typeof m.applyError === 'string' ? { applyError: m.applyError } : {}),
+    }))
+}
+
+/** 读取 v7.1 本机会话记录（迁移源：多会话 key 优先，回退更早的单会话 key）。 */
+function readLegacySessions(convsKey: string, convKey: string): EditSession[] {
+  const out: EditSession[] = []
+  const pushTurns = (title: string, turns: ChatTurn[]) => {
+    if (turns.length > 0) out.push({ id: `legacy-${out.length}`, title: title || sessionTitleOf(turns) || '历史会话', updatedAt: Date.now() - out.length * 1000, turns: turns.slice(-40) })
+  }
+  try {
+    const raw = window.localStorage.getItem(convsKey)
+    if (raw) {
+      const parsed = JSON.parse(raw) as { list?: EditSession[] }
+      if (Array.isArray(parsed.list)) {
+        for (const s of parsed.list) {
+          if (s && Array.isArray(s.turns)) pushTurns(String(s.title ?? ''), sanitizeSessionTurns(s.turns as unknown as Array<Record<string, unknown>>))
+        }
+      }
+    } else {
+      const legacy = window.localStorage.getItem(convKey)
+      if (legacy) {
+        const saved = sanitizeSessionTurns(JSON.parse(legacy) as Array<Record<string, unknown>>)
+        pushTurns('', saved)
+      }
+    }
+  } catch {
+    /* 损坏忽略 */
+  }
+  out.sort((a, b) => b.updatedAt - a.updatedAt)
+  return out
 }
 
 /** 会话标题：首条用户消息前 18 字（空白折叠）。 */
@@ -233,13 +283,18 @@ function sessionTitleOf(list: ChatTurn[]): string {
   return first ? first.content.trim().replace(/\s+/g, ' ').slice(0, 18) : ''
 }
 
-/** 会话列表相对时间（刚刚/N 分钟前/N 小时前/N 天前）。 */
+/** 会话列表相对时间（与全局助手同款文案：刚刚 / N 分钟前 / N 小时前 / N 天前 / 日期）。 */
 function fmtSessionTime(ts: number, zh: boolean): string {
+  if (!ts) return ''
   const diff = Date.now() - ts
-  if (diff < 60_000) return zh ? '刚刚' : 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}${zh ? ' 分钟前' : 'm ago'}`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}${zh ? ' 小时前' : 'h ago'}`
-  return `${Math.floor(diff / 86_400_000)}${zh ? ' 天前' : 'd ago'}`
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return zh ? '刚刚' : 'just now'
+  if (m < 60) return zh ? `${m} 分钟前` : `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return zh ? `${h} 小时前` : `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 30) return zh ? `${d} 天前` : `${d}d ago`
+  return new Date(ts).toLocaleDateString()
 }
 
 /** 单条已应用回复的「修改点」记录（撤销回退锚点）。 */
@@ -436,14 +491,15 @@ export default function AIEditChat({
   const aiOn = useAIEnabled()
   const { message } = AntdApp.useApp()
   const [turns, setTurns] = useState<ChatTurn[]>([])
-  // ---- 多会话持久化（v7.1：按文件维度的会话列表 + 切换/新建/删除）----
-  // 存储 docflow.ai.edit.convs.{fileId} = {list: EditSession[], activeId}；
-  // 旧单会话 key docflow.ai.edit.conv.{fileId}（ChatTurn[]）首次读取时迁移
-  // 包成一个会话。空会话不入库；每会话截 40 条、每文件最多 30 个会话。
-  const convsKey = fileId ? `docflow.ai.edit.convs.${fileId}` : ''
+  // ---- 多会话（v7.2：服务端持久化 /ai/conversations，source=editor，
+  //      按文件分域；本机 localStorage 仅作首次迁移源）----
+  const convoScope = useMemo(() => ({ source: 'editor' as const, fileId }), [fileId])
+  const legacyConvsKey = fileId ? `docflow.ai.edit.convs.${fileId}` : ''
   const legacyConvKey = fileId ? `docflow.ai.edit.conv.${fileId}` : ''
   const [sessions, setSessions] = useState<EditSession[]>([])
   const [activeSessId, setActiveSessId] = useState('')
+  // 重命名中条目（Modal 输入新标题；与全局助手同款交互）。
+  const [sessEditing, setSessEditing] = useState<{ id: string; draft: string } | null>(null)
   // 命令式访问器（保存/切换/删除在事件回调中读最新值，避免闭包陈旧）。
   const sessionsRef = useRef<EditSession[]>([])
   sessionsRef.current = sessions
@@ -451,100 +507,143 @@ export default function AIEditChat({
   activeSessIdRef.current = activeSessId
   const turnsRef = useRef(turns)
   turnsRef.current = turns
-  useEffect(() => {
-    if (!convsKey) return
-    let list: EditSession[] = []
-    let activeId = ''
-    try {
-      const raw = window.localStorage.getItem(convsKey)
-      if (raw) {
-        const parsed = JSON.parse(raw) as { list?: unknown; activeId?: unknown }
-        if (Array.isArray(parsed.list)) {
-          list = (parsed.list as EditSession[]).filter((s) => s && typeof s.id === 'string' && Array.isArray(s.turns))
-        }
-        activeId = typeof parsed.activeId === 'string' ? parsed.activeId : ''
-      } else {
-        // 旧单会话记录迁移：包成一个会话（旧 key 保留不动，避免来回降级）。
-        const legacy = legacyConvKey ? window.localStorage.getItem(legacyConvKey) : null
-        if (legacy) {
-          const saved = JSON.parse(legacy) as ChatTurn[]
-          if (Array.isArray(saved) && saved.length > 0) {
-            const s: EditSession = { id: newEditSessionId(), title: sessionTitleOf(saved) || '历史会话', updatedAt: Date.now(), turns: saved.slice(-40) }
-            list = [s]
-            activeId = s.id
-          }
-        }
-      }
-    } catch {
-      /* 损坏的记录忽略 */
-    }
-    list.sort((a, b) => b.updatedAt - a.updatedAt)
+  /** 恢复会话：置列表元信息并拉取最近一条正文。 */
+  const restoreSessions = async (metas: AIConvoMeta[]) => {
+    const list: EditSession[] = metas.map((m) => ({
+      id: m.id, title: m.title, updatedAt: new Date(m.updated_at).getTime(),
+      messageCount: m.message_count, turns: [],
+    }))
     sessionsRef.current = list
     setSessions(list)
-    // 活跃会话缺失（新建未发言/被删）回落最近一个；全空开新空白。
-    const active = list.find((x) => x.id === activeId) ?? list[0]
-    if (active) { activeSessIdRef.current = active.id; setActiveSessId(active.id); setTurns(active.turns) }
-    else { const id = newEditSessionId(); activeSessIdRef.current = id; setActiveSessId(id); setTurns([]) }
-    // 仅挂载时恢复一次（convsKey 变化=切换文件场景，恢复该文件的会话）。
-  }, [convsKey, legacyConvKey])
-  /** 会话集合同步落盘。 */
-  const persistSessions = (list: EditSession[], activeId: string) => {
-    if (!convsKey) return
-    try {
-      window.localStorage.setItem(convsKey, JSON.stringify({ list: list.slice(0, 30), activeId }))
-    } catch {
-      /* 配额/序列化失败忽略 */
+    if (list[0]) {
+      activeSessIdRef.current = list[0].id
+      setActiveSessId(list[0].id)
+      try {
+        const row = await aiGetConversation(list[0].id)
+        const saved = sanitizeSessionTurns(row.messages)
+        list[0] = { ...list[0], turns: saved }
+        sessionsRef.current = [...list]
+        setTurns(saved)
+      } catch {
+        /* 正文拉取失败按空会话处理 */
+      }
     }
   }
   useEffect(() => {
-    if (!convsKey) return
+    if (!fileId) return
+    let alive = true
+    void (async () => {
+      try {
+        let metas = await aiListConversations(convoScope)
+        if (metas.length === 0 && legacyConvsKey) {
+          // 首次迁移：v7.1 本机多会话（或更早的单会话）一次性上迁后重取。
+          const local = readLegacySessions(legacyConvsKey, legacyConvKey)
+          if (local.length > 0) {
+            for (const s of [...local].reverse()) {
+              if (!s.turns.length) continue
+              const row = await aiCreateConversation(convoScope, s.title || '历史会话')
+              await aiUpdateConversation(row.id, { messages: s.turns as unknown as Array<Record<string, unknown>> })
+            }
+            try {
+              window.localStorage.removeItem(legacyConvsKey)
+              window.localStorage.removeItem(legacyConvKey)
+            } catch { /* ignore */ }
+            metas = await aiListConversations(convoScope)
+          }
+        }
+        if (!alive) return
+        await restoreSessions(metas)
+      } catch {
+        // 服务端不可达：保持空白会话（不阻塞编辑对话）。
+      }
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileId])
+  useEffect(() => {
+    if (!fileId) return
     // 进行中的回合（流式/应用中）不落盘，等完成后下一次更新再存。
     if (turns.some((x) => x.streaming || x.applying)) return
     const persist = turns.slice(-40).map((x) => ({ ...x, streaming: undefined, applying: undefined }))
-    const prev = sessionsRef.current
-    const others = prev.filter((s) => s.id !== activeSessId)
-    // 空会话不入库（新建未发言的活跃会话不占历史条目）。
-    const next = persist.length === 0
-      ? others
-      : [...others, {
-          id: activeSessId,
-          title: prev.find((s) => s.id === activeSessId)?.title || sessionTitleOf(persist) || '新会话',
-          updatedAt: Date.now(),
-          turns: persist,
-        }].sort((a, b) => b.updatedAt - a.updatedAt)
-    sessionsRef.current = next
-    setSessions(next)
-    persistSessions(next, activeSessId)
-  }, [convsKey, turns, activeSessId])
-  /** 切换会话（当前会话已由保存 effect 落盘；流式中切换则该轮不保存）。 */
+    if (persist.length === 0) return
+    const id = activeSessIdRef.current
+    const prev = sessionsRef.current.find((s) => s.id === id)
+    const title = prev?.title || sessionTitleOf(persist) || (zh ? '新会话' : 'New session')
+    void (async () => {
+      try {
+        let cid = id
+        if (!cid || !prev) {
+          const row = await aiCreateConversation(convoScope, title)
+          cid = row.id
+          activeSessIdRef.current = cid
+          setActiveSessId(cid)
+        }
+        await aiUpdateConversation(cid, { messages: persist as unknown as Array<Record<string, unknown>> })
+        const rest = [
+          { id: cid, title, updatedAt: Date.now(), messageCount: persist.length, turns: persist },
+          ...sessionsRef.current.filter((s) => s.id !== cid),
+        ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30)
+        sessionsRef.current = rest
+        setSessions(rest)
+      } catch {
+        /* 服务端写失败静默（下一轮重试） */
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileId, turns])
+  /** 切换会话（正文按需拉取；贴底显示最新）。 */
   const switchSession = (id: string) => {
     const target = sessionsRef.current.find((s) => s.id === id)
     if (!target || id === activeSessIdRef.current) return
-    setTurns(target.turns)
+    activeSessIdRef.current = id
     setActiveSessId(id)
     setNotice('')
     sticky.scrollToBottom()
+    if (target.turns.length > 0) { setTurns(target.turns); return }
+    void aiGetConversation(id)
+      .then((row) => {
+        if (activeSessIdRef.current !== id) return
+        const saved = sanitizeSessionTurns(row.messages)
+        sessionsRef.current = sessionsRef.current.map((s) => (s.id === id ? { ...s, turns: saved } : s))
+        setSessions([...sessionsRef.current])
+        setTurns(saved)
+      })
+      .catch(() => {
+        if (activeSessIdRef.current === id) setNotice(zh ? '会话内容加载失败' : 'Failed to load session')
+      })
   }
-  /** 新建会话（当前会话保留在历史列表）。 */
+  /** 新建会话（当前会话保留在服务端历史）。 */
   const newSession = () => {
-    const id = newEditSessionId()
-    activeSessIdRef.current = id
-    setActiveSessId(id)
+    activeSessIdRef.current = ''
+    setActiveSessId('')
     setTurns([])
     setNotice('')
     setSessOpen(false)
   }
-  /** 删除会话；删的是当前会话则切到最近一个，否则开新空白。 */
+  /** 重命名会话（Modal 输入；空标题忽略；与全局助手同款交互）。 */
+  const renameSession = () => {
+    const editing = sessEditing
+    if (!editing || !editing.draft.trim()) return
+    const list = sessionsRef.current.map((s) => (s.id === editing.id ? { ...s, title: editing.draft.trim().slice(0, 60) } : s))
+    sessionsRef.current = list
+    setSessions(list)
+    void aiUpdateConversation(editing.id, { title: editing.draft.trim().slice(0, 60) }).catch(() => { /* 服务端失败静默 */ })
+    setSessEditing(null)
+  }
+
+  /** 删除会话（确认后）；删的是当前会话则切到最近一个，无则开新空白。 */
   const deleteSession = (id: string) => {
+    const target = sessionsRef.current.find((s) => s.id === id)
+    if (!target) return
+    const label = target.title || (zh ? '未命名会话' : 'Untitled')
+    if (!window.confirm(zh ? `删除会话「${label}」？删除后不可恢复。` : `Delete session "${label}"? This cannot be undone.`)) return
     const next = sessionsRef.current.filter((s) => s.id !== id)
     sessionsRef.current = next
     setSessions(next)
+    void aiDeleteConversation(id).catch(() => { /* 服务端失败静默 */ })
     if (id === activeSessIdRef.current) {
-      if (next[0]) { setActiveSessId(next[0].id); setTurns(next[0].turns) }
-      else { const nid = newEditSessionId(); activeSessIdRef.current = nid; setActiveSessId(nid); setTurns([]) }
-      persistSessions(next, next[0]?.id ?? '')
-    } else {
-      persistSessions(next, activeSessIdRef.current)
+      if (next[0]) switchSession(next[0].id)
+      else newSession()
     }
   }
   const [input, setInput] = useState('')
@@ -1322,59 +1421,74 @@ export default function AIEditChat({
         <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
         <span className="ai-edit-chat-title">{zh ? 'AI 对话' : 'AI chat'}</span>
         <span className="ai-edit-chat-head-ops">
-          {/* 历史会话（v7.1：本文件维度的会话列表 + 切换/删除）。 */}
+          {/* 历史会话（服务端持久化；Conversations 组件与全局助手同款交互：
+              切换 + ⋯ 菜单重命名/删除）。 */}
           <Popover
             trigger="click"
             placement="bottomLeft"
             arrow={false}
             open={sessOpen}
-            onOpenChange={setSessOpen}
+            onOpenChange={(next) => {
+              // 重命名弹窗打开期间忽略外点关闭（Modal 挂载于 body）。
+              if (!next && sessEditing) return
+              setSessOpen(next)
+            }}
             content={
-              <div className="ai-edit-sessions">
-                <div className="ai-edit-sessions-list">
-                  {sessions.length === 0 && (
-                    <div className="ai-edit-sessions-empty muted">{zh ? '暂无历史会话' : 'No sessions yet'}</div>
-                  )}
-                  {sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className={`ai-edit-session-item${s.id === activeSessId ? ' active' : ''}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => { switchSession(s.id); setSessOpen(false) }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { switchSession(s.id); setSessOpen(false) } }}
-                    >
-                      <MessageSquare size={13} strokeWidth={2} aria-hidden="true" className="ai-edit-session-icon" />
-                      <span className="ai-edit-session-title" title={s.title}>{s.title || (zh ? '（未命名）' : '(untitled)')}</span>
-                      <span className="ai-edit-session-time">{fmtSessionTime(s.updatedAt, zh)}</span>
-                      <Button
-                        size="small"
-                        type="text"
-                        className="ai-edit-session-del"
-                        icon={<Trash2 size={12} strokeWidth={2} />}
-                        aria-label={zh ? '删除会话' : 'Delete session'}
-                        onClick={(e) => { e.stopPropagation(); deleteSession(s.id) }}
-                      />
-                    </div>
-                  ))}
+              <div className="aiax-conv-pop">
+                <button type="button" className="aiax-conv-new" onClick={() => { setSessOpen(false); newSession() }}>
+                  <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                  <span>{zh ? '新会话' : 'New conversation'}</span>
+                </button>
+                {sessions.length === 0 ? (
+                  <div className="ai-attach-state muted">{zh ? '暂无历史会话' : 'No sessions yet'}</div>
+                ) : (
+                  <Conversations
+                    className="aiax-conv-list"
+                    items={sessions.map((s) => ({
+                      key: s.id,
+                      label: (
+                        <span className="aiax-conv-label" title={s.title}>
+                          <span className="t">{s.title || (zh ? '未命名会话' : 'Untitled')}</span>
+                          <span className="time muted">{fmtSessionTime(s.updatedAt, zh)}</span>
+                        </span>
+                      ),
+                    }))}
+                    activeKey={activeSessId || undefined}
+                    onActiveChange={(key) => { setSessOpen(false); switchSession(key) }}
+                    menu={(info) => ({
+                      items: [
+                        { key: 'rename', label: zh ? '重命名' : 'Rename' },
+                        { key: 'delete', label: zh ? '删除' : 'Delete', danger: true },
+                      ],
+                      onClick: ({ key: op }) => {
+                        const id = String(info.key)
+                        if (op === 'rename') {
+                          const cur = sessions.find((s) => s.id === id)
+                          if (cur) setSessEditing({ id: cur.id, draft: cur.title })
+                        } else if (op === 'delete') {
+                          deleteSession(id)
+                        }
+                      },
+                    })}
+                  />
+                )}
+                <div className="ai-attach-state muted">
+                  {zh ? '会话保存在服务端（最近 30 个，跨设备同步）' : 'Stored on the server (latest 30, synced across devices)'}
                 </div>
-                <Button size="small" block type="dashed" icon={<Plus size={13} strokeWidth={2} />} className="ai-edit-session-new" onClick={newSession}>
-                  {zh ? '新建会话' : 'New session'}
-                </Button>
               </div>
             }
           >
-            <Tooltip title={zh ? '历史会话' : 'Sessions'}>
+            <Tooltip title={zh ? '历史会话（切换 / 重命名 / 删除）' : 'Session history (switch / rename / delete)'}>
               <Button
                 size="small"
                 type="text"
-                icon={<History size={13} strokeWidth={2} />}
+                icon={<MessagesSquare size={13} strokeWidth={2} />}
                 disabled={sessions.length === 0 && turns.length === 0}
-                aria-label={zh ? '历史会话' : 'Sessions'}
+                aria-label={zh ? '历史会话' : 'Session history'}
               />
             </Tooltip>
           </Popover>
-          {/* 新建会话（当前会话自动存入历史）。 */}
+          {/* 新建会话（当前会话自动存入服务端历史）。 */}
           <Tooltip title={zh ? '新建会话' : 'New session'}>
             <Button
               size="small"
@@ -1674,6 +1788,24 @@ export default function AIEditChat({
           </div>
         </div>
       </div>
+      {/* 会话重命名弹窗（与全局助手同款交互）。 */}
+      {sessEditing && (
+        <Modal title={zh ? '重命名会话' : 'Rename session'} onClose={() => setSessEditing(null)}>
+          <Input
+            value={sessEditing.draft}
+            maxLength={60}
+            onChange={(e) => setSessEditing((cur) => (cur ? { ...cur, draft: e.target.value } : cur))}
+            onPressEnter={renameSession}
+            placeholder={zh ? '输入新的会话标题' : 'Enter a new title'}
+          />
+          <div className="modal-actions">
+            <Button type="primary" disabled={!sessEditing.draft.trim()} onClick={renameSession}>
+              {zh ? '确定' : 'OK'}
+            </Button>
+            <Button onClick={() => setSessEditing(null)}>{zh ? '取消' : 'Cancel'}</Button>
+          </div>
+        </Modal>
+      )}
     </aside>
   )
 }

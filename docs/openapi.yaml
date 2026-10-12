@@ -5282,6 +5282,188 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /ai/conversations:
+    get:
+      tags: [AI]
+      operationId: aiConversationsList
+      summary: AI 会话记录列表（服务端持久化）
+      description: >-
+        返回 scope 内最近会话（updated_at 倒序，≤30 条，不含 messages
+        正文）。scope 由 query 决定：source（assistant=全局助手缺省 /
+        editor=编辑页面板 / plugin=OnlyOffice 插件）与 file_id（编辑页/
+        插件传对应文件 id；全局助手不传即 NULL 域）。本人维度。
+      parameters:
+        - name: source
+          in: query
+          required: false
+          schema: { type: string, enum: [assistant, editor, plugin], default: assistant }
+        - name: file_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 会话元信息列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        file_id: { type: string, format: uuid, nullable: true }
+                        source: { type: string }
+                        title: { type: string }
+                        message_count: { type: integer }
+                        updated_at: { type: string, format: date-time }
+        '400':
+          description: source/file_id 非法（code=INVALID_AI_CONVERSATION）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: 会话存储未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [AI]
+      operationId: aiConversationsCreate
+      summary: 新建空会话
+      description: >-
+        新建空会话（messages=[]，返回完整行）；scope 同列表（source 缺省
+        assistant）。每 (用户, file_id, source) 保留最近 30 个，超出自动
+        裁最旧。title ≤120 字符可空。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_id: { type: string, format: uuid, description: 编辑页/插件传对应文件；全局助手不传 }
+                source: { type: string, enum: [assistant, editor, plugin], default: assistant }
+                title: { type: string, description: ≤120 字符，可空 }
+      responses:
+        '201':
+          description: 已创建（回显会话行，messages=[]）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/AIConversation' }
+        '400':
+          description: 载荷非法（code=INVALID_AI_CONVERSATION）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: 会话存储未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /ai/conversations/{id}:
+    get:
+      tags: [AI]
+      operationId: aiConversationsGet
+      summary: 读取单个会话（含 messages 正文）
+      description: 不存在/非本人 404（不区分，避免越权探测）。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 会话完整内容
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation: { $ref: '#/components/schemas/AIConversation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 会话存储未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      tags: [AI]
+      operationId: aiConversationsUpdate
+      summary: 更新会话（title 与/或 messages 整体替换）
+      description: >-
+        messages 为前端回合结构数组整体替换（≤64 条、原始 JSON ≤256KB，
+        服务端不逐条解释）；title 可选（≤120 字符）；两字段至少其一。
+        更新刷新 updated_at（列表排序基准）。不存在/非本人 404。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: title / messages 至少其一
+              properties:
+                title: { type: string }
+                messages:
+                  type: array
+                  description: 前端回合结构数组（整段替换）
+                  items: { type: object }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '400':
+          description: 载荷非法（code=INVALID_AI_CONVERSATION）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 会话存储未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [AI]
+      operationId: aiConversationsDelete
+      summary: 删除会话
+      description: 不存在/非本人 404（不区分，避免越权探测）。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 已删除 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 会话存储未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /ai/status:
     get:
       tags: [AI]
@@ -7371,6 +7553,20 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    AIConversation:
+      type: object
+      description: AI 会话记录（ai_conversations 行；messages 为前端回合结构数组，服务端不逐条解释）
+      properties:
+        id: { type: string, format: uuid }
+        file_id: { type: string, format: uuid, nullable: true, description: 空=全局助手会话；编辑页/插件=对应文件 }
+        source: { type: string, enum: [assistant, editor, plugin] }
+        title: { type: string }
+        messages:
+          type: array
+          description: 前端回合结构数组（整存整取，≤64 条 / ≤256KB）
+          items: { type: object }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     Error:
     OpenWithPreference:
       type: object

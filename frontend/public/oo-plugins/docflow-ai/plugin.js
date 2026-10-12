@@ -1,8 +1,9 @@
-/* DocFlow AI OnlyOffice 插件 v7.1 — 按编辑器类型的工具套装
+/* DocFlow AI OnlyOffice 插件 v7.2 — 按编辑器类型的工具套装
  *
- * v7.1 增量（会话与滚动）：
- * - 会话记录：按文件维度持久化（localStorage docflow.ai.plugin.convs.{fileId}，
- *   宿主页 EditorPage 写入 docflow.ai.editor.file），支持历史列表/切换/新建/删除；
+ * v7.2 增量：会话记录上服务端（/api/v1/ai/conversations，source=plugin 按文件
+ * 分域；本机 v7.1 localStorage 记录首次自动迁移，离线时本机只读回退）。
+ *
+ * v7.1 增量（滚动与输入）：
  * - 贴底跟随：用户上滚阅读历史时不被流式输出顶回底部，回到底部自动恢复，
  *   发送/切换会话强制贴底（与主应用各对话面板一致）；
  * - 输入框自适应加高：默认约 2 行，最高约 5 行（超出滚动）。
@@ -37,49 +38,146 @@
     if (stick) log.scrollTop = log.scrollHeight;
   }
 
-  /* ---- 会话记录（v7.1：按文件维度持久化 + 切换/新建/删除）----
-   * 存储键 docflow.ai.plugin.convs.{fileId}（宿主页 EditorPage 经
-   * localStorage docflow.ai.editor.file 提供文件标识；缺省 default）。
-   * 结构 {list:[{id,title,updatedAt,messages}], activeId}；空会话不入库，
-   * 每会话截 40 条、每文件最多 30 个会话。 */
+  /* ---- 会话记录（v7.2：服务端持久化 /api/v1/ai/conversations，
+   *      source=plugin 按文件分域；本机 localStorage 仅首次迁移源）----
+   * 空会话不入库；每会话截 40 条；scope 超限服务端裁最旧（30 个）。 */
   var fileKey = 'docflow.ai.plugin.convs.default';
   try {
     var fj = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
     if (fj && fj.id) fileKey = 'docflow.ai.plugin.convs.' + fj.id;
   } catch (e) {}
-  var sessions = [];
+  var sessions = [];   // [{id,title,updatedAt}] 服务端元信息镜像
   var activeId = '';
-  function newSessId() { return 'ps-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
+  /** 带鉴权 JSON 请求（401 自动 refresh 重试一次）。 */
+  function apiJSON(path, opts) {
+    opts = opts || {};
+    var send = function () {
+      var h = { Authorization: 'Bearer ' + token };
+      if (opts.body) h['Content-Type'] = 'application/json';
+      return fetch(path, { method: opts.method || 'GET', headers: h, body: opts.body });
+    };
+    return send().then(function (r) {
+      if (r.status === 401) {
+        return refresh().then(function () { return send(); });
+      }
+      return r;
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.status === 204 ? null : r.json();
+    });
+  }
+  function sessQuery() {
+    try {
+      var fj2 = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
+      if (fj2 && fj2.id) return 'source=plugin&file_id=' + encodeURIComponent(fj2.id);
+    } catch (e) {}
+    return 'source=plugin';
+  }
   function sessTitleOf(msgs) {
     for (var i = 0; i < msgs.length; i++) if (msgs[i].role === 'user') return String(msgs[i].content).replace(/\s+/g, ' ').slice(0, 18);
     return '';
   }
-  function sessLoad() {
-    try {
-      var raw = window.localStorage.getItem(fileKey);
-      var parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && Array.isArray(parsed.list)) sessions = parsed.list.filter(function (s) { return s && typeof s.id === 'string' && Array.isArray(s.messages); });
-    } catch (e) { sessions = []; }
+  function normalizeMsgs(arr) {
+    var out = [];
+    if (Array.isArray(arr)) {
+      for (var i = 0; i < arr.length; i++) {
+        var m = arr[i];
+        if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content) {
+          out.push({ role: m.role, content: m.content });
+        }
+      }
+    }
+    return out;
+  }
+  /** 服务端列表 → 本地 metas；恢复最近一条正文。 */
+  function sessApplyMetas(metas) {
+    sessions = [];
+    for (var i = 0; i < metas.length; i++) {
+      sessions.push({ id: String(metas[i].id), title: String(metas[i].title || ''), updatedAt: new Date(metas[i].updated_at).getTime() || Date.now() });
+    }
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-    activeId = (sessions[0] && sessions[0].id) || newSessId();
-    history = sessMsgs(activeId).slice();
+    activeId = (sessions[0] && sessions[0].id) || '';
+    if (!activeId) { history = []; renderHistory(); return Promise.resolve(); }
+    return apiJSON('/api/v1/ai/conversations/' + activeId).then(function (d) {
+      history = normalizeMsgs(d && d.conversation && d.conversation.messages).slice(0, 40);
+      renderHistory();
+    });
   }
-  function sessMsgs(id) {
-    for (var i = 0; i < sessions.length; i++) if (sessions[i].id === id) return sessions[i].messages;
-    return [];
+  /** 本机 v7.1 记录一次性迁移上服务端（成功后清本机 key）。 */
+  function sessMigrateLocal() {
+    var local = [];
+    try {
+      var parsed = JSON.parse(window.localStorage.getItem(fileKey) || 'null');
+      if (parsed && Array.isArray(parsed.list)) local = parsed.list;
+    } catch (e) { local = []; }
+    if (!local.length) return Promise.resolve(false);
+    var chain = Promise.resolve();
+    var oldest = local.slice().reverse();
+    for (var i = 0; i < oldest.length; i++) {
+      (function (s) {
+        chain = chain.then(function () {
+          var msgs = normalizeMsgs(s.messages).slice(0, 40);
+          if (!msgs.length) return null;
+          return apiJSON('/api/v1/ai/conversations', { method: 'POST', body: JSON.stringify({ source: 'plugin', title: s.title || sessTitleOf(msgs) || '历史会话' }) })
+            .then(function (d) { return apiJSON('/api/v1/ai/conversations/' + d.conversation.id, { method: 'PUT', body: JSON.stringify({ messages: msgs }) }); });
+        });
+      })(oldest[i]);
+    }
+    return chain.then(function () {
+      try { window.localStorage.removeItem(fileKey); } catch (e) {}
+      return true;
+    }).catch(function () { return false; });
   }
+  /** 载入：服务端列表（空则先迁移本机）→ 恢复最近一条；失败回退本机只读。 */
+  function sessLoad() {
+    return apiJSON('/api/v1/ai/conversations?' + sessQuery())
+      .then(function (d) {
+        var metas = (d && d.conversations) || [];
+        if (metas.length === 0) {
+          return sessMigrateLocal().then(function () { return apiJSON('/api/v1/ai/conversations?' + sessQuery()); });
+        }
+        return d;
+      })
+      .then(function (d) { return sessApplyMetas((d && d.conversations) || []); })
+      .catch(function () {
+        // 离线/服务端不可达：本机只读回退（仅展示，不写回）。
+        var local = [];
+        try { var parsed = JSON.parse(window.localStorage.getItem(fileKey) || 'null'); if (parsed && Array.isArray(parsed.list)) local = parsed.list; } catch (e) {}
+        sessions = [];
+        activeId = '';
+        history = [];
+        if (local.length) {
+          sessions = local.map(function (s) { return { id: s.id, title: s.title || '', updatedAt: s.updatedAt || Date.now() }; });
+          activeId = sessions[0].id;
+          history = normalizeMsgs(local[0].messages).slice(0, 40);
+        }
+        renderHistory();
+      });
+  }
+  /** 保存：当前 history → 活跃会话（无则先创建）；更新本地 metas。 */
   function sessSave() {
     var persist = history.slice(-40);
-    var others = sessions.filter(function (s) { return s.id !== activeId; });
-    if (persist.length) {
-      var cur = null;
-      for (var i = 0; i < sessions.length; i++) if (sessions[i].id === activeId) cur = sessions[i];
-      others.push({ id: activeId, title: (cur && cur.title) || sessTitleOf(persist) || '新会话', updatedAt: Date.now(), messages: persist });
+    if (!persist.length) { renderSessions(); return; }
+    var cur = null;
+    for (var i = 0; i < sessions.length; i++) if (sessions[i].id === activeId) cur = sessions[i];
+    var title = (cur && cur.title) || sessTitleOf(persist) || '新会话';
+    var run = (activeId && cur)
+      ? Promise.resolve(activeId)
+      : apiJSON('/api/v1/ai/conversations', { method: 'POST', body: JSON.stringify({ source: 'plugin', title: title }) }).then(function (d) {
+          activeId = d.conversation.id;
+          return activeId;
+        });
+    run.then(function (cid) {
+      return apiJSON('/api/v1/ai/conversations/' + cid, { method: 'PUT', body: JSON.stringify({ messages: persist }) });
+    }).then(function () {
+      var others = sessions.filter(function (s) { return s.id !== activeId; });
+      others.push({ id: activeId, title: title, updatedAt: Date.now() });
       others.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-    }
-    sessions = others.slice(0, 30);
-    try { window.localStorage.setItem(fileKey, JSON.stringify({ list: sessions, activeId: activeId })); } catch (e) {}
-    renderSessions();
+      sessions = others.slice(0, 30);
+      renderSessions();
+    }).catch(function () {
+      setHint('会话保存失败（服务端不可达）');
+    });
   }
   /** 把 history 回放为消息气泡（切换/恢复会话时重建 log）。 */
   function renderHistory() {
@@ -117,24 +215,23 @@
         var del = document.createElement('button'); del.className = 'del'; del.title = '删除会话'; del.textContent = '✕';
         del.onclick = function (ev) {
           ev.stopPropagation();
+          apiJSON('/api/v1/ai/conversations/' + s.id, { method: 'DELETE' }).catch(function () {});
           sessions = sessions.filter(function (x) { return x.id !== s.id; });
-          try { window.localStorage.setItem(fileKey, JSON.stringify({ list: sessions, activeId: s.id === activeId ? (sessions[0] ? sessions[0].id : '') : activeId })); } catch (e) {}
           if (s.id === activeId) {
-            activeId = sessions[0] ? sessions[0].id : newSessId();
-            history = sessMsgs(activeId).slice();
-            renderHistory();
+            if (sessions[0]) { activeId = sessions[0].id; history = []; renderHistory(); void loadSessionBody(activeId); }
+            else { activeId = ''; history = []; renderHistory(); }
           }
           renderSessions();
         };
         row.appendChild(t); row.appendChild(tm); row.appendChild(del);
         row.onclick = function () {
           if (s.id === activeId) { sessPanel.style.display = 'none'; return; }
-          sessSave();
           activeId = s.id;
-          history = sessMsgs(activeId).slice();
+          history = [];
           renderHistory();
           sessPanel.style.display = 'none';
-          setHint('已切换会话');
+          setHint('加载会话…');
+          void loadSessionBody(activeId);
         };
         sessPanel.appendChild(row);
       })(sessions[i]);
@@ -143,14 +240,24 @@
     nb.className = 'sess-new';
     nb.textContent = '＋ 新建会话';
     nb.onclick = function () {
-      sessSave();
-      activeId = newSessId();
+      activeId = '';
       history = [];
       renderHistory();
       sessPanel.style.display = 'none';
       setHint('已新建会话');
     };
     sessPanel.appendChild(nb);
+  }
+  /** 拉取会话正文 → 回放（切换/删除当前后接管）。 */
+  function loadSessionBody(id) {
+    return apiJSON('/api/v1/ai/conversations/' + id).then(function (d) {
+      if (activeId !== id) return;
+      history = normalizeMsgs(d && d.conversation && d.conversation.messages).slice(0, 40);
+      renderHistory();
+      setHint('已切换会话');
+    }).catch(function () {
+      setHint('会话加载失败');
+    });
   }
   if (sessBtn && sessPanel) {
     sessBtn.onclick = function (e) {
@@ -1477,29 +1584,28 @@
     reg = true;
     window.Asc.plugin.init = function () {
       editorType = readEditorKind();
-      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.1');
+      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.2');
       void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () { setHint('初始化失败'); });
     };
     window.Asc.plugin.onMethodReturn = function () {};
     window.Asc.plugin.button = function () {};
   }
-  // 会话恢复（文件标识可能晚于插件装载写入——稍候再读一次）。
-  sessLoad();
-  renderHistory();
+  // 会话恢复（服务端拉取；文件标识可能晚于插件装载写入——稍候再读一次）。
+  void sessLoad();
   window.setTimeout(function () {
     var key2 = 'docflow.ai.plugin.convs.default';
     try {
-      var fj = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
-      if (fj && fj.id) key2 = 'docflow.ai.plugin.convs.' + fj.id;
+      var fj3 = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
+      if (fj3 && fj3.id) key2 = 'docflow.ai.plugin.convs.' + fj3.id;
     } catch (e) {}
-    if (key2 !== fileKey) { fileKey = key2; sessLoad(); renderHistory(); }
+    if (key2 !== fileKey) { fileKey = key2; void sessLoad(); }
   }, 800);
   if (window.Asc && window.Asc.plugin) { register(); }
   else {
     var n = 0, p = setInterval(function () {
       n++;
       if (window.Asc && window.Asc.plugin) { clearInterval(p); register(); if (window.Asc.plugin.init) window.Asc.plugin.init(); return; }
-      if (n >= 20) { clearInterval(p); setHint('调试模式 · v7.1'); }
+      if (n >= 20) { clearInterval(p); setHint('调试模式 · v7.2'); }
     }, 500);
     void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () {});
   }

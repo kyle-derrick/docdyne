@@ -282,7 +282,11 @@ type Handler struct {
 	// NewHandler 以 *auth.UserStore 装配，接口化便于单测注入内存实现）；
 	// 未注入时 /ai/memory 端点 503、chat 的 include_memory 静默跳过。
 	aiMemory     aiMemoryStore
-	webdav       *davHandler
+	// aiConversations 为用户 AI 会话记录存取（ai_conversations 表，
+	// migration 053，本人维度；NewHandler 以 *auth.UserStore 装配）；
+	// 未注入时 /ai/conversations 端点 503。
+	aiConversations aiConvoStore
+	webdav          *davHandler
 	webdavTokens *auth.WebDAVStore
 	commentsDB   *gorm.DB
 }
@@ -296,6 +300,7 @@ func NewHandler(authService *auth.Service, users *auth.UserStore, fileStore *fil
 		h.openWith = users
 		h.aiPrefs = users
 		h.aiMemory = users
+		h.aiConversations = users
 	}
 	return h
 }
@@ -655,6 +660,13 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	api.POST("/ai/memory", h.aiMemoryCreate)
 	api.DELETE("/ai/memory/:id", h.aiMemoryDelete)
 	api.PUT("/ai/memory/:id", h.aiMemoryUpdate)
+	// 用户 AI 会话记录（ai_conversations，migration 053，本人维度：全局
+	// 助手 file_id=NULL + 编辑页面板/OnlyOffice 插件按 file_id 分域）。
+	api.GET("/ai/conversations", h.aiConvoList)
+	api.POST("/ai/conversations", h.aiConvoCreate)
+	api.GET("/ai/conversations/:id", h.aiConvoGet)
+	api.PUT("/ai/conversations/:id", h.aiConvoUpdate)
+	api.DELETE("/ai/conversations/:id", h.aiConvoDelete)
 	api.POST("/ai/chat", auth.RequireScope(auth.ScopeAIChat), h.aiChat)
 	api.POST("/ai/summarize", auth.RequireScope(auth.ScopeAIChat), h.aiSummarize)
 	// 文件版本管理：版本列表与 current_version 回滚（新版本经上传链路 file_id 写入）。

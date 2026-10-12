@@ -55,7 +55,12 @@ import {
   AIMessage,
   AIPersonalPrefsView,
   aiChat,
+  aiCreateConversation,
+  aiDeleteConversation,
+  aiGetConversation,
+  aiListConversations,
   aiSummarizeFileStream,
+  aiUpdateConversation,
   authFetch,
   createAIMemory,
   currentUserId,
@@ -1044,7 +1049,10 @@ interface ChatTurn extends AIChatTurnData {
   usage?: AIUsage | null
 }
 
-// ---------- 多会话（历史会话；localStorage docflow.ai.convos.{uid}） ----------
+// ---------- 多会话（历史会话；服务端 ai_conversations 持久化） ----------
+// v7.2 起会话存服务端（/api/v1/ai/conversations，source=assistant，
+// 跨设备一致）；localStorage docflow.ai.convos.{uid} 仅作首次迁移源
+//（服务端为空且本机有历史时一次性上迁）。
 
 /** 会话内持久化消息（仅 role/content/ts；附件/来源等展示态不入库）。 */
 export interface AIConvoMessage {
@@ -1053,7 +1061,7 @@ export interface AIConvoMessage {
   ts: number
 }
 
-/** 历史会话条目（≤30 个，超出裁最旧；单会话消息 ≤50 条，超出裁最旧）。 */
+/** 历史会话条目（≤30 个，超出服务端裁最旧；单会话消息 ≤50 条）。 */
 export interface AIConvo {
   id: string
   title: string
@@ -1061,14 +1069,14 @@ export interface AIConvo {
   messages: AIConvoMessage[]
 }
 
-/** 会话数量 / 单会话消息数上限（超出裁最旧）。 */
+/** 会话数量 / 单会话消息数上限。 */
 const AI_CONVO_MAX = 30
 const AI_CONVO_MSG_MAX = 50
 
-/** 会话列表持久化 key（按用户维度）。 */
+/** 旧本机存储 key（仅迁移源）。 */
 const aiConvosKey = (uid: string) => `docflow.ai.convos.${uid}`
 
-/** 读取历史会话（宽松解析；损坏条目跳过；按 updatedAt 降序）。 */
+/** 读取本机历史会话（迁移源；宽松解析，损坏条目跳过，按 updatedAt 降序）。 */
 function loadAIConvos(uid: string): AIConvo[] {
   try {
     const raw = window.localStorage.getItem(aiConvosKey(uid))
@@ -1101,15 +1109,6 @@ function loadAIConvos(uid: string): AIConvo[] {
     return out
   } catch {
     return []
-  }
-}
-
-/** 保存历史会话（失败静默）。 */
-function saveAIConvos(uid: string, convos: AIConvo[]): void {
-  try {
-    window.localStorage.setItem(aiConvosKey(uid), JSON.stringify(convos))
-  } catch {
-    /* ignore */
   }
 }
 
@@ -1374,25 +1373,61 @@ useEffect(() => {
     setBusy(value)
   }
 
-  // ---- 多会话：uid 就绪后载入历史会话并恢复最近一条 ----
+  // ---- 多会话：uid 就绪后从服务端载入（空则迁移本机历史）并恢复最近一条 ----
   useEffect(() => {
     if (!aiUid) return
-    const list = loadAIConvos(aiUid)
-    convosRef.current = list
-    setConvos(list)
-    const top = list[0]
-    if (top) {
-      convoIdRef.current = top.id
-      setConvoId(top.id)
-      applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+    let alive = true
+    const restore = (list: AIConvo[]) => {
+      if (!alive) return
+      convosRef.current = list
+      setConvos(list)
+      const top = list[0]
+      if (top && top.messages.length > 0) {
+        convoIdRef.current = top.id
+        setConvoId(top.id)
+        applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+      }
     }
+    void (async () => {
+      try {
+        let metas = await aiListConversations({ source: 'assistant' })
+        // 首次迁移：服务端为空且本机有旧 localStorage 历史时一次性上迁
+        //（最旧→最新创建，保持 updatedAt 顺序），随后重取列表。
+        if (metas.length === 0) {
+          const local = loadAIConvos(aiUid)
+          if (local.length > 0) {
+            for (const c of [...local].reverse()) {
+              if (!c.messages.length) continue
+              const row = await aiCreateConversation({ source: 'assistant' }, c.title || (zh ? '历史会话' : 'Imported'))
+              await aiUpdateConversation(row.id, { messages: c.messages.slice(-AI_CONVO_MSG_MAX) as unknown as Array<Record<string, unknown>> })
+            }
+            try { window.localStorage.removeItem(aiConvosKey(aiUid)) } catch { /* ignore */ }
+            metas = await aiListConversations({ source: 'assistant' })
+          }
+        }
+        // 列表无正文：恢复最近一条需拉取 messages。
+        const list: AIConvo[] = metas.map((m) => ({
+          id: m.id, title: m.title, updatedAt: new Date(m.updated_at).getTime(), messages: [],
+        }))
+        if (list[0]) {
+          try {
+            const row = await aiGetConversation(list[0].id)
+            list[0] = { ...list[0], messages: (row.messages as unknown as AIConvoMessage[]).filter((m) => m && typeof m.content === 'string') }
+          } catch { /* 正文拉取失败按空处理 */ }
+        }
+        restore(list)
+      } catch {
+        // 服务端不可达：保持空会话（不打断助手使用）。
+      }
+    })()
+    return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiUid])
 
-  // 会话写回：turns 变化 400ms 防抖（流式逐 token 期间持续重置，done 后
-  // 落盘）→ 当前会话更新/创建（标题 = 首条用户消息前 16 字，重命名优先），
-  // 裁剪单会话 ≤50 条 / 总数 ≤30 个（超出裁最旧）；清空（0 条）的会话从
-  // 列表移除。
+  // 会话写回（服务端）：turns 变化 400ms 防抖（流式逐 token 期间持续重置，
+  // done 后落盘）→ 当前会话 PUT messages（无活跃会话先 POST 创建；标题 =
+  // 首条用户消息前 16 字，重命名优先）；失败静默（下一轮重试）。列表 metas
+  // 本地同步维护（≤30 个），切换时按需拉取正文。
   useEffect(() => {
     if (!aiUid) return
     const timer = window.setTimeout(() => {
@@ -1400,29 +1435,38 @@ useEffect(() => {
       const msgs: AIConvoMessage[] = turns
         .filter((x) => !x.error && x.content.trim())
         .map((x) => ({ role: x.role, content: x.content, ts: now }))
-      let id = convoIdRef.current
-      let rest = convosRef.current.filter((c) => c.id !== id)
-      if (msgs.length > 0) {
-        if (!id) {
-          id = crypto.randomUUID()
-          convoIdRef.current = id
-          setConvoId(id)
+      if (msgs.length === 0) return
+      const id = convoIdRef.current
+      const prev = convosRef.current.find((c) => c.id === id)
+      const title = prev?.title || aiConvoTitleFrom(turns) || (zh ? '新对话' : 'New chat')
+      const persist = msgs.slice(-AI_CONVO_MSG_MAX)
+      void (async () => {
+        try {
+          let cid = id
+          if (!cid || !prev) {
+            const row = await aiCreateConversation({ source: 'assistant' }, title)
+            cid = row.id
+            convoIdRef.current = cid
+            setConvoId(cid)
+          }
+          await aiUpdateConversation(cid, { messages: persist as unknown as Array<Record<string, unknown>> })
+          const rest = [
+            { id: cid, title, updatedAt: now, messages: persist },
+            ...convosRef.current.filter((c) => c.id !== cid),
+          ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, AI_CONVO_MAX)
+          convosRef.current = rest
+          setConvos(rest)
+        } catch {
+          /* 服务端写失败静默（下一轮重试） */
         }
-        const prev = convosRef.current.find((c) => c.id === id)
-        const title = prev?.title || aiConvoTitleFrom(turns) || (zh ? '新对话' : 'New chat')
-        rest = [{ id, title, updatedAt: now, messages: msgs.slice(-AI_CONVO_MSG_MAX) }, ...rest]
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .slice(0, AI_CONVO_MAX)
-      }
-      convosRef.current = rest
-      setConvos(rest)
-      saveAIConvos(aiUid, rest)
+      })()
     }, 400)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns, aiUid])
 
-  /** 切换会话：中断进行中的流式请求并恢复目标会话消息（贴底显示最新）。 */
+  /** 切换会话：中断进行中的流式请求并恢复目标会话消息（贴底显示最新）；
+   *  正文按需从服务端拉取（列表只带元信息）。 */
   const switchConvo = (id: string) => {
     const target = convosRef.current.find((c) => c.id === id)
     if (!target || id === convoIdRef.current) return
@@ -1434,7 +1478,20 @@ useEffect(() => {
     setLastQuestion('')
     setInput('')
     setAttached([])
-    applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+    const apply = (msgs: AIConvoMessage[]) => {
+      applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+    }
+    if (target.messages.length > 0) { apply(target.messages); return }
+    void aiGetConversation(id)
+      .then((row) => {
+        if (convoIdRef.current !== id) return
+        const msgs = (row.messages as unknown as AIConvoMessage[]).filter((m) => m && typeof m.content === 'string')
+        convosRef.current = convosRef.current.map((c) => (c.id === id ? { ...c, messages: msgs } : c))
+        apply(msgs)
+      })
+      .catch(() => {
+        if (convoIdRef.current === id) setNotice(zh ? '会话内容加载失败' : 'Failed to load conversation')
+      })
   }
 
   /** 重命名会话（Modal 输入；空标题忽略）。 */
@@ -1444,7 +1501,7 @@ useEffect(() => {
     const list = convosRef.current.map((c) => (c.id === editing.id ? { ...c, title: editing.draft.trim().slice(0, 60) } : c))
     convosRef.current = list
     setConvos(list)
-    if (aiUid) saveAIConvos(aiUid, list)
+    void aiUpdateConversation(editing.id, { title: editing.draft.trim().slice(0, 60) }).catch(() => { /* 服务端失败静默 */ })
     setConvoEditing(null)
   }
 
@@ -1457,7 +1514,7 @@ useEffect(() => {
     const list = convosRef.current.filter((c) => c.id !== id)
     convosRef.current = list
     setConvos(list)
-    if (aiUid) saveAIConvos(aiUid, list)
+    void aiDeleteConversation(id).catch(() => { /* 服务端失败静默 */ })
     if (convoIdRef.current === id) {
       const top = list[0]
       if (top) switchConvo(top.id)
@@ -2089,7 +2146,7 @@ useEffect(() => {
                   />
                 )}
                 <div className="ai-attach-state muted">
-                  {zh ? '会话保存在本机（最近 30 个）' : 'Conversations are stored locally (latest 30)'}
+                  {zh ? '会话保存在服务端（最近 30 个，跨设备同步）' : 'Stored on the server (latest 30, synced across devices)'}
                 </div>
               </div>
             }
