@@ -612,6 +612,7 @@ export default function AIEditChat({
     })
   }
   /** 破坏性工具确认（antd confirm，Promise 化；取消=跳过该次调用）。 */
+  /** 破坏性工具确认：antd Modal（z-index 默认 1000 > 浮层 950），永不静默跳过。 */
   const confirmDestructive = (label: string) => new Promise<boolean>((resolve) => {
     modal.confirm({
       title: zh ? `确认执行「${label}」？` : `Confirm "${label}"?`,
@@ -1211,7 +1212,8 @@ ${planText}` },
     return tools.filter((t) => allow.has(t.name))
   }
 
-  /** 元工具：deep_search（单目标深查）与 parallel_scan（≤3 并发）——
+  /** 元工具：deep_search（单目标深查）与 parallel_scan（≤3 并发）；
+   *  subAgentTools 在循环入口调用一次并传引用——循环期间不再重建；
    *  大范围检索派发给独立上下文，主循环只拿摘要。 */
   const subAgentTools = (hostTools: AIEditTool[]): AIEditTool[] => [
     ...applyPackageTools(hostTools),
@@ -1242,7 +1244,8 @@ ${planText}` },
     },
   ]
 
-  /** Agent 工具循环主体（send 与「继续」共用）。 */
+  /** Agent 工具循环主体（send 与「继续」共用）。执行期间锁定 package（防止
+   *  mid-loop 用户切包导致工具集突变引发「未知工具」）。 */
   const runAgentLoop = async (
     tools: AIEditTool[],
     convo: AIMessage[],
@@ -1346,11 +1349,13 @@ ${planText}` },
         })
         let result: { ok: boolean; data?: unknown; error?: string }
         if (!def) {
-          result = { ok: false, error: `未知工具 ${tool}（可用：${tools.map((t) => t.name).join(', ')}）` }
+          result = { ok: false, error: `未知工具 ${tool}（可用：${tools.map((t) => t.name).join(', ')}；技能包=${pkgIdRef.current}）` }
         } else if (def.destructive && cautiousRef.current) {
           // 谨慎模式：破坏性工具执行前确认；取消=跳过（结果回喂，模型自适应）。
           const ok = await confirmDestructive(def.label(args))
-          result = ok ? await def.exec(args).catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) })) : { ok: false, error: '用户在谨慎模式下跳过了该操作' }
+          result = ok
+            ? await def.exec(args).catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+            : { ok: false, error: '用户在确认弹窗中选择了「跳过」——这不是技术错误，请换一种方式达成目标（如用非破坏性工具），或直接 FINAL 说明原因' }
         } else {
           try {
             result = await def.exec(args)
