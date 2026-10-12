@@ -1,79 +1,181 @@
-// AIChatShell：统一 AI 对话壳组件（阶段二骨架）。
-// 目标：AI 助手 / 编辑页 AI / 查看页 AI 共用同一套 UI，仅通过 props
-// 区分场景差异（hostType + 能力 slots）。当前为骨架——各宿主逐步迁移。
+// AIChatShell：统一 AI 对话壳组件（S6 组装完成版）。
+// 纯渲染层——宿主（AIEditChat/AIAssistant/ViewerAIWidget）管理状态与业务
+// 逻辑，Shell 负责统一 UI（头部/消息流/输入区/悬浮窗/批量操作）。
 //
-// 架构：
-//   AIChatShell
-//   ├── ChatHeader   头部按钮组（会话/导入导出/多选/悬浮切换/关闭）
-//   ├── ChatThread   消息流（气泡+TraceView+操作行）
-//   ├── ChatInput    输入区（工具栏+技能包+开关+发送）
-//   └── 场景 slots   assistant（空间/RAG/记忆/人设）、editor（宿主工具）、viewer（摘要）
-//
-// 迁移策略：先提取共享子组件到 aichat/，再逐宿主替换内部实现为 Shell。
-import type { ReactNode } from 'react'
+// 架构：Shell = ChatHeader + ChatThread + ChatInput + 模式段 + 悬浮窗/侧栏
+// 宿主通过 props 注入全部状态与回调，Shell 不持有业务状态。
+import { Button, Segmented, Tooltip } from 'antd'
+import { HelpCircle } from 'lucide-react'
+import { useState, type ReactNode, type Ref } from 'react'
+import { createPortal } from 'react-dom'
+import ChatHeader from './ChatHeader'
+import ChatThread from './ChatThread'
+import type { ChatMessage } from './ChatThread'
+import ChatInput from './ChatInput'
+import type { SkillPackage } from './ChatInput'
 
-/** 场景类型：决定注入哪些能力与上下文。 */
 export type ChatHostType = 'assistant' | 'editor' | 'viewer'
+export type ChatMode = 'edit' | 'chat'
 
-/** 统一 AI 对话 Shell Props（渐进式——宿主迁移过程中逐项从可选变为必填）。 */
 export interface AIChatShellProps {
+  // ---- 必填 ----
+  zh: boolean
   hostType: ChatHostType
-  /** editor/viewer 必填：文件 id（会话分域键 + 上下文注入）。 */
-  fileId?: string
-  /** editor：宿主编辑工具集（Agent 工具循环用）。 */
-  agentTools?: Array<{ name: string; desc: string; destructive?: boolean; label: (a: Record<string, unknown>) => string; exec: (a: Record<string, unknown>) => Promise<{ ok: boolean; data?: unknown; error?: string }> }>
-  /** editor：宿主规范注入（追加到 Agent system）。 */
-  agentSystemExtra?: string
-  /** editor：applyKind 标识（影响技能包自动选择）。 */
-  applyKind?: string
-
-  // ---- assistant 特有 ----
-  /** assistant：RAG 知识库开关。 */
-  ragEnabled?: boolean
-  /** assistant：人设 slot（Select 组件等）。 */
-  personaSlot?: ReactNode
-  /** assistant：工作目录 slot。 */
-  workdirSlot?: ReactNode
-  /** assistant：长期记忆管理 slot。 */
-  memorySlot?: ReactNode
-
-  // ---- viewer 特有 ----
-  /** viewer：摘要 Tab slot。 */
-  summarySlot?: ReactNode
-  /** viewer：查看的文件 id（上下文注入——与 fileId 同值时省略）。 */
-  contextFileId?: string
-
-  // ---- 通用 slots ----
-  /** 额外工具栏按钮（追加到工具栏右侧）。 */
-  extraToolbarSlot?: ReactNode
-  /** 额外头部按钮（追加到头部 ops 区）。 */
+  title: string
+  open: boolean
+  onClose: () => void
+  // 消息流
+  messages: ChatMessage[]
+  emptyHint: string
+  generatingLabel: string
+  // 输入
+  inputValue: string
+  onInputChange: (v: string) => void
+  onSend: () => void
+  onStop: () => void
+  busy: boolean
+  inputPlaceholder: string
+  // 贴底滚动
+  wrapRef: Ref<HTMLDivElement>
+  onScroll: (e: { target: EventTarget | null }) => void
+  // ---- 头部 ----
+  sessions: Array<{ id: string; title: string; updatedAt: number }>
+  activeSessionId: string
+  onSwitchSession: (id: string) => void
+  onRenameSession: (id: string) => void
+  onDeleteSession: (id: string) => void
+  onNewSession: () => void
+  onExportSessions: () => void
+  onImportSessions: () => void
+  // ---- 消息操作 ----
+  onCopy: (content: string) => void
+  onDeleteExchange: (asstId: number) => void
+  onSaveConversation: () => void
+  onRegenerate: (asstId: number) => void
+  onContinue: (asstId: number) => void
+  onExecutePlan: (planText: string) => void
+  savingFile: boolean
+  // ---- 模式 ----
+  mode: ChatMode
+  onModeChange: (m: ChatMode) => void
+  modeHint: string
+  modeTip: string
+  showModeSegment: boolean
+  // ---- 悬浮窗 ----
+  floatMode: boolean
+  onToggleFloat: () => void
+  panelRef: Ref<HTMLElement>
+  onHeadPointerDown?: (e: React.PointerEvent) => void
+  // ---- 批量 ----
+  batchMode: boolean
+  onToggleBatch: () => void
+  checkedIds: Set<number>
+  onToggleChecked: (id: number) => void
+  onDeleteChecked: () => void
+  // ---- 工具栏 ----
+  packages: SkillPackage[]
+  pkgId: string
+  onPkgChange: (id: string) => void
+  applyKind: string
+  cautious: boolean
+  onCautiousToggle: () => void
+  attachedFiles: Array<{ fileId: string; fileName: string }>
+  onFileDetach: (fileId: string) => void
+  modelSlot?: ReactNode
+  togglesSlot?: ReactNode
+  skillSlot?: ReactNode
+  // ---- 宿主特有 slot ----
   extraHeaderSlot?: ReactNode
+  extraToolbarSlot?: ReactNode
+  extraAboveInputSlot?: ReactNode
 }
 
-/**
- * AIChatShell 骨架——当前仅导出接口与工具函数，宿主尚未迁移。
- * 完整实现见 TODO-agent.md 阶段二至五。
- */
-export default function AIChatShell(_props: AIChatShellProps) {
-  // 骨架：宿主暂不使用此组件，等阶段一共享子组件就绪后组装。
-  return null
+export default function AIChatShell(p: AIChatShellProps) {
+  if (!p.open) return null
+  const [modeTipOpen, setModeTipOpen] = useState(false)
+  const panel = (
+    <aside
+      ref={p.panelRef}
+      className={`ai-edit-chat-panel${p.floatMode ? ' floating' : ''}`}
+      aria-label={p.zh ? 'AI 对话' : 'AI chat'}
+    >
+      <ChatHeader
+        zh={p.zh} title={p.title}
+        sessions={p.sessions} activeSessionId={p.activeSessionId}
+        onSwitchSession={p.onSwitchSession} onRenameSession={p.onRenameSession}
+        onDeleteSession={p.onDeleteSession} onNewSession={p.onNewSession}
+        onExportSessions={p.onExportSessions} onImportSessions={p.onImportSessions}
+        batchMode={p.batchMode} onToggleBatch={p.onToggleBatch}
+        floatMode={p.floatMode} onToggleFloat={p.onToggleFloat} onClose={p.onClose}
+        extraSlot={p.extraHeaderSlot}
+      />
+      {p.showModeSegment && (
+        <div className="ai-edit-chat-mode">
+          <Segmented size="small" value={p.mode} onChange={(v) => p.onModeChange(v as ChatMode)}
+            options={[
+              { label: p.zh ? '可修改' : 'Can edit', value: 'edit' },
+              { label: p.zh ? '仅对话' : 'Chat only', value: 'chat' },
+            ]}
+          />
+          <Tooltip title={p.modeTip} open={modeTipOpen} onOpenChange={setModeTipOpen} placement="topRight">
+            <span className="ai-edit-chat-mode-hint" role="button" tabIndex={0} aria-label={p.modeHint}>
+              <HelpCircle size={14} />
+            </span>
+          </Tooltip>
+        </div>
+      )}
+      <ChatThread
+        zh={p.zh} messages={p.messages} emptyHint={p.emptyHint} generatingLabel={p.generatingLabel}
+        onCopy={p.onCopy} onDeleteExchange={p.onDeleteExchange}
+        onSaveConversation={p.onSaveConversation} onRegenerate={p.onRegenerate}
+        onContinue={p.onContinue} onExecutePlan={p.onExecutePlan}
+        busy={p.busy} batchMode={p.batchMode} savingFile={p.savingFile}
+        checkedIds={p.checkedIds} onToggleChecked={p.onToggleChecked}
+        wrapRef={p.wrapRef} onScroll={p.onScroll}
+      />
+      {p.batchMode && p.checkedIds.size > 0 && (
+        <div className="ai-batch-bar">
+          <span className="muted">{p.zh ? `已选 ${p.checkedIds.size} 项` : `${p.checkedIds.size} selected`}</span>
+          <span className="spacer" />
+          <Button size="small" disabled={p.savingFile} loading={p.savingFile} onClick={p.onSaveConversation}>
+            {p.zh ? '保存所选到文件' : 'Save selection'}
+          </Button>
+          <Button size="small" danger onClick={p.onDeleteChecked}>
+            {p.zh ? '删除所选' : 'Delete'}
+          </Button>
+          <Button size="small" type="text" onClick={p.onToggleBatch}>{p.zh ? '退出' : 'Exit'}</Button>
+        </div>
+      )}
+      {p.extraAboveInputSlot}
+      <ChatInput
+        zh={p.zh} value={p.inputValue} onChange={p.onInputChange}
+        onSend={p.onSend} onStop={p.onStop} busy={p.busy} placeholder={p.inputPlaceholder}
+        packages={p.packages} pkgId={p.pkgId} onPkgChange={p.onPkgChange} applyKind={p.applyKind}
+        cautious={p.cautious} onCautiousToggle={p.onCautiousToggle}
+        attachedFiles={p.attachedFiles} onFileDetach={p.onFileDetach}
+        modelSlot={p.modelSlot} togglesSlot={p.togglesSlot} skillSlot={p.skillSlot}
+        extraSlot={p.extraToolbarSlot}
+      />
+    </aside>
+  )
+  return p.floatMode ? createPortal(panel, document.body) : panel
 }
 
-/** 场景能力矩阵（供各宿主与子组件查询当前场景应启用的功能）。 */
+/** 场景能力矩阵。 */
 export function hostCapabilities(hostType: ChatHostType) {
   return {
     hasAgentTools: hostType === 'editor',
-    hasSessionPersistence: hostType !== 'viewer' || true, // 三处都会话持久化
-    hasFloatingMode: hostType !== 'viewer', // 查看页本身是悬浮球
-    hasPlanMode: hostType === 'editor', // 仅编辑页（已从 UI 移除，保留逻辑）
-    hasCautiousMode: hostType === 'editor', // 仅编辑页有破坏性工具
+    hasFloatingMode: hostType !== 'viewer',
+    hasCautiousMode: hostType === 'editor',
     hasBatchActions: true,
     hasImportExport: true,
-    hasSkillPackages: hostType === 'editor', // 仅编辑页（助手走 df_* 服务端工具）
-    hasFileContext: hostType !== 'assistant', // 助手不带文件上下文
+    hasSkillPackages: hostType === 'editor',
+    hasFileContext: hostType !== 'assistant',
     hasSummary: hostType === 'viewer',
     hasRAG: hostType === 'assistant',
     hasMemory: hostType === 'assistant',
     hasPersona: hostType === 'assistant',
+    hasModeSegment: hostType === 'editor',
+    hasSessionManagement: hostType !== 'viewer',
   }
 }
