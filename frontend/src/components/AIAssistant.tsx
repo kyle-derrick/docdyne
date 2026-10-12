@@ -2030,7 +2030,7 @@ useEffect(() => {
           ))}
         </span>
       )}
-      <div className="aic-msg-actions" onClick={(e) => e.stopPropagation()}>
+      <div className="aic-msg-actions" style={{ justifyContent: 'flex-end', marginTop: 2 }} onClick={(e) => e.stopPropagation()}>
         <Tooltip title={zh ? '复制' : 'Copy'}>
           <button type="button" className="aic-msg-action" aria-label={zh ? '复制' : 'Copy'}
             onClick={() => { void navigator.clipboard.writeText(turn.content) }}>

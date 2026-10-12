@@ -7583,7 +7583,7 @@ kbd {
   width: 480px;
   height: min(72vh, 680px);
   max-width: none;
-  z-index: 1200;
+  z-index: 950;
   box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
   resize: both;
   min-width: 360px;
@@ -7595,3 +7595,6 @@ kbd {
 .ai-pkg-btn.pkg-on { color: var(--primary); background: var(--hover, rgba(127,127,127,.1)); }
 .ai-pkg-menu { min-width: 200px; }
 .ai-pkg-menu .pkg-desc { font-size: 11px; color: var(--muted); white-space: normal; }
+
+/* 用户消息操作行：气泡内底部右对齐（非右侧竖排）。 */
+.aiax-user-msg .aic-msg-actions { display: flex; justify-content: flex-end; gap: 2px; margin-top: 2px; }

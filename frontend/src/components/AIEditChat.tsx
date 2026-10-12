@@ -671,9 +671,28 @@ export default function AIEditChat({
     setTurns((prev) => prev.filter((x) => !checked.has(x.id)))
     setChecked(new Set())
   }
-  /** 把会话（或所选子集）导出为 Markdown 新文件，落在当前文件所在目录。 */
-  const saveConversationFile = async (ids?: number[]) => {
-    if (!fileId || savingFile) return
+  /** 保存弹窗状态：{open, fileName, parentId}（默认同目录+自动文件名）。 */
+  const [saveDialog, setSaveDialog] = useState<{ open: boolean; fileName: string; parentId: string | null; ids?: number[] } | null>(null)
+  /** 打开保存弹窗（预填默认目录与文件名）。 */
+  const openSaveDialog = async (ids?: number[]) => {
+    if (!fileId) return
+    const sel = ids ?? turns.map((x) => x.id)
+    const list = turns.filter((x) => sel.includes(x.id) && x.content.trim())
+    if (!list.length) return
+    const title = sessionTitleOf(turns) || fileName || (zh ? 'AI 会话' : 'AI conversation')
+    const stamp = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const stampStr = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}`
+    const safe = title.replace(/[^\w\u4e00-\u9fa5-]+/g, '-').slice(0, 30)
+    const defaultName = `${zh ? 'AI会话' : 'AI-conversation'}-${safe || 'session'}-${stampStr}.md`
+    let parent: string | null = null
+    try { parent = (await getFileMeta(fileId)).parent_id ?? null } catch { parent = null }
+    setSaveDialog({ open: true, fileName: defaultName, parentId: parent, ids: sel })
+  }
+  /** 确认保存（弹窗内确认后调用）。 */
+  const confirmSaveFile = async () => {
+    if (!saveDialog || !fileId || savingFile) return
+    const { ids } = saveDialog
     const sel = ids ?? turns.map((x) => x.id)
     const list = turns.filter((x) => sel.includes(x.id) && x.content.trim())
     if (!list.length) return
@@ -681,8 +700,6 @@ export default function AIEditChat({
     try {
       const title = sessionTitleOf(turns) || fileName || (zh ? 'AI 会话' : 'AI conversation')
       const stamp = new Date()
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const stampStr = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}`
       const lines: string[] = [
         `# ${zh ? 'AI 会话' : 'AI conversation'}：${title}`,
         '',
@@ -695,10 +712,9 @@ export default function AIEditChat({
         lines.push(x.content.trim())
         lines.push('')
       }
-      const safe = title.replace(/[\/:*?"<>|\s]+/g, '-').slice(0, 30)
-      const name = `${zh ? 'AI会话' : 'AI-conversation'}-${safe || 'session'}-${stampStr}.md`
-      const parent = (await getFileMeta(fileId).catch(() => null))?.parent_id ?? null
-      await uploadFile(new File([lines.join('\n')], name, { type: 'text/markdown' }), parent, () => {})
+      const name = saveDialog.fileName.trim()
+      await uploadFile(new File([lines.join('\n')], name, { type: 'text/markdown' }), saveDialog.parentId, () => {})
+      setSaveDialog(null)
       void message.success(zh ? `已保存为 ${name}` : `Saved as ${name}`)
     } catch (err) {
       void message.error(err instanceof Error ? err.message : (zh ? '保存失败' : 'Save failed'))
@@ -821,6 +837,9 @@ export default function AIEditChat({
   // 拖动头部（悬浮态）：pointer 事件移动 fixed 面板。
   const onHeadPointerDown = (e: ReactPointerEvent) => {
     if (!floatMode || e.button !== 0) return
+    // 按钮等交互元素不触发拖动（pointer capture 会吃掉它们的 click）
+    const target = e.target as HTMLElement
+    if (target.closest('button, a, input, select, .ant-segmented, .ant-dropdown-trigger, .ant-popover-open')) return
     const el = panelRef.current
     if (!el) return
     const startX = e.clientX
@@ -1662,9 +1681,6 @@ ${planText}` },
           options={[
             { label: zh ? '可修改' : 'Can edit', value: 'edit' },
             { label: zh ? '仅对话' : 'Chat only', value: 'chat' },
-            ...(agentTools && agentTools.length > 0
-              ? [{ label: zh ? '计划' : 'Plan', value: 'plan' }]
-              : []),
           ]}
         />
         {/* 模式说明收起为悬浮图标（hover 显示完整说明），避免平铺文案占用输入区空间。 */}
@@ -1772,7 +1788,7 @@ ${planText}` },
                         </Button>
                       </Tooltip>
                       <Tooltip title={zh ? '把当前会话导出为 Markdown 文件（当前文件所在目录）' : 'Export this conversation as a Markdown file (same folder)'}>
-                        <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => void saveConversationFile()}>
+                        <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => void openSaveDialog()}>
                           {zh ? '保存' : 'Save'}
                         </Button>
                       </Tooltip>
@@ -1812,7 +1828,7 @@ ${planText}` },
           <div className="ai-batch-bar">
             <span className="muted">{zh ? `已选 ${checked.size} 项` : `${checked.size} selected`}</span>
             <span className="spacer" />
-            <Button size="small" icon={<Save size={12} strokeWidth={2} />} disabled={checked.size === 0 || savingFile} loading={savingFile} onClick={() => void saveConversationFile([...checked])}>
+            <Button size="small" icon={<Save size={12} strokeWidth={2} />} disabled={checked.size === 0 || savingFile} loading={savingFile} onClick={() => void openSaveDialog([...checked])}>
               {zh ? '保存所选到文件' : 'Save selection'}
             </Button>
             <Button size="small" danger disabled={checked.size === 0} icon={<Trash2 size={12} strokeWidth={2} />} onClick={deleteChecked}>
@@ -1988,6 +2004,28 @@ ${planText}` },
           </div>
         </div>
       </div>
+      {/* 保存会话到文件弹窗（默认同目录+自动文件名，用户可改）。 */}
+      {saveDialog?.open && (
+        <Modal title={zh ? '保存会话到文件' : 'Save conversation to file'} onClose={() => setSaveDialog(null)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{zh ? '文件名' : 'File name'}</div>
+              <Input value={saveDialog.fileName} onChange={(e) => setSaveDialog({ ...saveDialog, fileName: e.target.value })} placeholder={zh ? '输入文件名（含 .md 扩展名）' : 'File name (with .md)'} />
+            </div>
+            <div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
+                {zh ? '保存目录' : 'Save to folder'}：{saveDialog.parentId ? (zh ? '当前文件所在目录' : "Current file's folder") : (zh ? '根目录' : 'Root folder')}
+              </div>
+            </div>
+          </div>
+          <div className="modal-actions">
+            <Button type="primary" disabled={!saveDialog.fileName.trim()} loading={savingFile} onClick={() => void confirmSaveFile()}>
+              {zh ? '保存' : 'Save'}
+            </Button>
+            <Button onClick={() => setSaveDialog(null)}>{zh ? '取消' : 'Cancel'}</Button>
+          </div>
+        </Modal>
+      )}
       {/* 会话重命名弹窗（与全局助手同款交互）。 */}
       {sessEditing && (
         <Modal title={zh ? '重命名会话' : 'Rename session'} onClose={() => setSessEditing(null)}>
