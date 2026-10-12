@@ -107,11 +107,6 @@ export default function ConvoPicker({
           })}
         />
       )}
-      <div className="ai-attach-state muted">
-        {zh
-          ? `共 ${items.length} 个会话 · 保存在服务端（最近 300 个，跨设备同步）`
-          : `${items.length} conversations · stored on the server (latest 300, synced across devices)`}
-      </div>
     </div>
   )
 }

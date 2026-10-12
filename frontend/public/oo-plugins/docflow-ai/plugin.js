@@ -191,7 +191,7 @@
   }
   /** 会话浮层：骨架只建一次（搜索框常驻——重建会丢输入焦点），列表随
    *  过滤词与会话集局部重绘；标题本地即时过滤（300 条量级零延迟）。 */
-  var sessFilterEl = null, sessListEl = null, sessFootEl = null, sessFilter = '';
+  var sessFilterEl = null, sessListEl = null, sessFilter = '';
   function initSessionsPanel() {
     if (!sessPanel || sessListEl) return;
     var nb = document.createElement('button');
@@ -212,12 +212,9 @@
     sessFilterEl.oninput = function () { sessFilter = sessFilterEl.value.trim().toLowerCase(); renderSessionList(); };
     sessListEl = document.createElement('div');
     sessListEl.className = 'sess-list';
-    sessFootEl = document.createElement('div');
-    sessFootEl.className = 'sess-foot';
     sessPanel.appendChild(nb);
     sessPanel.appendChild(sessFilterEl);
     sessPanel.appendChild(sessListEl);
-    sessPanel.appendChild(sessFootEl);
   }
   function renderSessionList() {
     if (!sessListEl) return;
@@ -267,9 +264,6 @@
       nm.className = 'sess-empty';
       nm.textContent = '没有匹配的会话';
       sessListEl.appendChild(nm);
-    }
-    if (sessFootEl) {
-      sessFootEl.textContent = '共 ' + sessions.length + ' 个会话 · 保存在服务端（最近 300 个）';
     }
   }
   function renderSessions() {
