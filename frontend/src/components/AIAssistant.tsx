@@ -48,7 +48,7 @@ import antdEnUS from 'antd/locale/en_US'
 import { Sender, XProvider } from '@ant-design/x'
 import xZhCN from '@ant-design/x/es/locale/zh_CN'
 import xEnUS from '@ant-design/x/es/locale/en_US'
-import { Sparkles, Trash2, FileText, Globe, RotateCcw, Copy, Plus, Check, Paperclip, Brain, Pencil, PencilLine, Pin, BookMarked, Wrench, Zap, FolderCog, FolderOpen, MessagesSquare, Crosshair, FileSearch, Search } from 'lucide-react'
+import { Sparkles, Trash2, FileText, Globe, RotateCcw, Copy, Plus, Check, Paperclip, Brain, Pencil, PencilLine, Pin, BookMarked, Wrench, Zap, FolderCog, FolderOpen, MessagesSquare, Crosshair, FileSearch, Search, Download } from 'lucide-react'
 import {
   AISkillDef,
   AIUsage,
@@ -1430,7 +1430,19 @@ useEffect(() => {
         .map((x) => ({ role: x.role, content: x.content, ts: now }))
       const synced = convoSyncedLenRef.current
       const persist = msgs.slice(-AI_CONVO_MSG_MAX)
-      if (persist.length <= synced) return
+      if (persist.length < synced) {
+        const cid = convoIdRef.current
+        if (cid && persist.length > 0) {
+          void aiAppendConversation(cid, 'snapshot', persist as unknown as Array<Record<string, unknown>>)
+            .then(() => { convoSyncedLenRef.current = persist.length })
+            .catch(() => { /* 静默重试 */ })
+        } else if (cid && persist.length === 0) {
+          void aiDeleteConversation(cid).catch(() => { /* 静默 */ })
+          convoSyncedLenRef.current = 0
+        }
+        return
+      }
+      if (persist.length === synced) return
       const id = convoIdRef.current
       const prev = convosRef.current.find((c) => c.id === id)
       const title = prev?.title || aiConvoTitleFrom(turns) || (zh ? '新对话' : 'New chat')
@@ -1460,6 +1472,49 @@ useEffect(() => {
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns, aiUid])
+
+  /** 删除本轮问答（user 与其后首个 assistant 一并删）；服务端以快照同步。 */
+  const deleteExchangeTurn = (userId: number | string) => {
+    if (busyRef.current) return
+    applyTurns((prev) => {
+      const idx = prev.findIndex((x) => x.id === userId)
+      if (idx < 0) return prev
+      let asstId: number | string | null = null
+      for (let i = idx + 1; i < prev.length; i++) {
+        if (prev[i].role === 'assistant') { asstId = prev[i].id; break }
+      }
+      return prev.filter((x) => x.id !== userId && x.id !== asstId)
+    })
+  }
+
+  /** 导出当前会话为 Markdown（本地下载）。 */
+  const exportConvoMarkdown = () => {
+    const list = turnsRef.current.filter((x) => !x.error && x.content.trim())
+    if (!list.length) return
+    const title = aiConvoTitleFrom(turnsRef.current) || (zh ? 'AI 会话' : 'AI conversation')
+    const stamp = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const lines = [
+      '# ' + (zh ? 'AI 会话' : 'AI conversation') + '：' + title,
+      '',
+      '> ' + stamp.toLocaleString() + ' · DocFlow',
+      '',
+    ]
+    for (const x of list) {
+      lines.push(x.role === 'user' ? '## 🧑 ' + (zh ? '用户' : 'User') : '## 🤖 ' + (zh ? 'AI' : 'AI'))
+      lines.push('')
+      lines.push(x.content.trim())
+      lines.push('')
+    }
+    const safe = title.replace(/[^\w\u4e00-\u9fa5-]+/g, '-').slice(0, 30) || 'session'
+    const name = (zh ? 'AI会话-' : 'AI-conversation-') + safe + '-' + stamp.getFullYear() + pad(stamp.getMonth() + 1) + pad(stamp.getDate()) + '-' + pad(stamp.getHours()) + pad(stamp.getMinutes()) + '.md'
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   /** 切换会话：中断进行中的流式请求并恢复目标会话消息（贴底显示最新）；
    *  正文按需从服务端拉取（列表只带元信息）。 */
@@ -1975,6 +2030,20 @@ useEffect(() => {
           ))}
         </span>
       )}
+      <div className="aic-msg-actions" onClick={(e) => e.stopPropagation()}>
+        <Tooltip title={zh ? '复制' : 'Copy'}>
+          <button type="button" className="aic-msg-action" aria-label={zh ? '复制' : 'Copy'}
+            onClick={() => { void navigator.clipboard.writeText(turn.content) }}>
+            <Copy size={13} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </Tooltip>
+        <Tooltip title={zh ? '删除本轮问答（输入+输出）' : 'Delete this exchange'}>
+          <button type="button" className="aic-msg-action" aria-label={zh ? '删除本轮问答' : 'Delete exchange'}
+            onClick={() => deleteExchangeTurn(turn.id)}>
+            <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </Tooltip>
+      </div>
     </div>
   )
 
@@ -2125,6 +2194,11 @@ useEffect(() => {
               </Button>
             </Tooltip>
           </Popover>
+          <Tooltip title={zh ? '导出当前会话为 Markdown' : 'Export this conversation as Markdown'}>
+            <Button size="small" type="text" className="aiax-head-btn" aria-label={zh ? '导出会话' : 'Export conversation'} onClick={exportConvoMarkdown}>
+              <Download size={14} strokeWidth={2} aria-hidden="true" />
+            </Button>
+          </Tooltip>
           <Tooltip title={t(locale, 'aiAssistantNewChat')}>
             <Button size="small" type="text" className="aiax-head-btn" aria-label={t(locale, 'aiAssistantNewChat')} onClick={newChat}>
               <Plus size={14} strokeWidth={2} aria-hidden="true" />

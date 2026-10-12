@@ -8,12 +8,14 @@
 //   持久化（按文件分域，ConvoPicker 统一选择器：搜索/切换/重命名/删除）；
 // - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { App as AntdApp, Button, Checkbox, Input, Popover, Segmented, Select, Tooltip } from 'antd'
+import type { PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { App as AntdApp, Button, Checkbox, Dropdown, Input, Popover, Segmented, Tooltip } from 'antd'
 import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Package, Paperclip, PictureInPicture2, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { aiAppendConversation, getAIModelsRaw, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
@@ -732,7 +734,7 @@ export default function AIEditChat({
   const [models, setModels] = useState<AIModelOption[]>([])
   // 技能包（C2）：/ai/models.agent_packages（内置 + 平台定义）。
   const [agentPackages, setAgentPackages] = useState<Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[] }>>([])
-  const [pkgId, setPkgId] = useState('')
+  const [pkgId, setPkgId] = useState('auto')
   const pkgIdRef = useRef('')
   pkgIdRef.current = pkgId
   const [modelKey, setModelKey] = useState(() => {
@@ -797,6 +799,50 @@ export default function AIEditChat({
   )
   // 会话历史浮层展开态。
   const [sessOpen, setSessOpen] = useState(false)
+  // 悬浮窗模式（v7.5）：fixed 浮层 + 可拖动头部；偏好 localStorage 记忆。
+  const [floatMode, setFloatMode] = useState(() => {
+    try { return window.localStorage.getItem('docflow.ai.edit.floatMode') === '1' } catch { return false }
+  })
+  const panelRef = useRef<HTMLElement | null>(null)
+  const toggleFloatMode = () => {
+    setFloatMode((v) => {
+      const next = !v
+      try { window.localStorage.setItem('docflow.ai.edit.floatMode', next ? '1' : '0') } catch { /* ignore */ }
+      if (!next && panelRef.current) {
+        // 复位拖动位移（回到 fixed 默认右下角）
+        panelRef.current.style.left = ''
+        panelRef.current.style.top = ''
+        panelRef.current.style.right = '24px'
+        panelRef.current.style.bottom = '24px'
+      }
+      return next
+    })
+  }
+  // 拖动头部（悬浮态）：pointer 事件移动 fixed 面板。
+  const onHeadPointerDown = (e: ReactPointerEvent) => {
+    if (!floatMode || e.button !== 0) return
+    const el = panelRef.current
+    if (!el) return
+    const startX = e.clientX
+    const startY = e.clientY
+    const rect = el.getBoundingClientRect()
+    const startL = rect.left
+    const startT = rect.top
+    el.setPointerCapture(e.pointerId)
+    const onMove = (ev: PointerEvent) => {
+      el.style.left = `${Math.max(0, startL + ev.clientX - startX)}px`
+      el.style.top = `${Math.max(0, startT + ev.clientY - startY)}px`
+      el.style.right = 'auto'
+      el.style.bottom = 'auto'
+    }
+    const onUp = () => {
+      el.releasePointerCapture(e.pointerId)
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }
   // 命令式访问器经 ref 取（宿主每渲染重建函数，避免 effect 反复重挂）。
   const getTargetRef = useRef(getTarget)
   getTargetRef.current = getTarget
@@ -931,7 +977,7 @@ export default function AIEditChat({
   const buildAgentSystem = (tools: AIEditTool[], plan: boolean): string => {
     const hostLabel = agentHostLabel(applyKind)
     const extra = agentSystemExtraRef.current
-    const pkg = agentPackages.find((x) => x.id === pkgIdRef.current)
+    const pkg = resolveAgentPackage()
     const pkgExtra = pkg?.system_extra ? `【技能包：${pkg.name}】\n${pkg.system_extra}` : ''
     const list = plan ? tools.filter((t) => READONLY_TOOL_RE.test(t.name)) : tools
     const L = [
@@ -1130,9 +1176,17 @@ ${planText}` },
     }
   }
 
+  /** 技能包解析：auto = 程序按 applyKind 自动选第一个适用内置包；
+   *  ''（无）= 不注入；其余按 id。 */
+  const resolveAgentPackage = () => {
+    const cur = pkgIdRef.current
+    if (cur !== 'auto') return agentPackages.find((x) => x.id === cur)
+    return agentPackages.find((x) => x.id.startsWith('builtin-')
+      && (!Array.isArray(x.kinds) || x.kinds.length === 0 || x.kinds.includes(applyKind)))
+  }
   /** 技能包应用：工具白名单过滤（元工具 deep_search/parallel_scan 恒留）。 */
   const applyPackageTools = (tools: AIEditTool[]): AIEditTool[] => {
-    const pkg = agentPackages.find((x) => x.id === pkgIdRef.current)
+    const pkg = resolveAgentPackage()
     if (!pkg || !Array.isArray(pkg.tools) || pkg.tools.length === 0) return tools
     const allow = new Set([...pkg.tools, 'deep_search', 'parallel_scan'])
     return tools.filter((t) => allow.has(t.name))
@@ -1480,9 +1534,13 @@ ${planText}` },
     ? '描述要做的修改——AI 会先读文档再逐步编辑并校验；复杂目标可切「计划」模式。'
     : 'Describe the change — the AI reads first, edits step by step, and verifies. Use Plan mode for complex goals.'
 
-  return (
-    <aside className="ai-edit-chat-panel" aria-label={zh ? 'AI 对话' : 'AI chat'}>
-      <div className="ai-edit-chat-head">
+  const panel = (
+    <aside
+      ref={panelRef}
+      className={`ai-edit-chat-panel${floatMode ? ' floating' : ''}`}
+      aria-label={zh ? 'AI 对话' : 'AI chat'}
+    >
+      <div className="ai-edit-chat-head" onPointerDown={onHeadPointerDown}>
         <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
         <span className="ai-edit-chat-title">{zh ? 'AI 对话' : 'AI chat'}</span>
         <span className="ai-edit-chat-head-ops">
@@ -1570,6 +1628,19 @@ ${planText}` },
               icon={<Plus size={14} strokeWidth={2} />}
               onClick={newSession}
               aria-label={zh ? '新建会话' : 'New session'}
+            />
+          </Tooltip>
+          {/* 悬浮窗/侧栏切换（偏好记忆）。 */}
+          <Tooltip title={floatMode
+            ? (zh ? '切换为侧边面板' : 'Switch to side panel')
+            : (zh ? '切换为悬浮窗（可拖动、可缩放）' : 'Switch to floating window (draggable & resizable)')}>
+            <Button
+              size="small"
+              type="text"
+              icon={<PictureInPicture2 size={13} strokeWidth={2} />}
+              onClick={toggleFloatMode}
+              aria-label={zh ? '悬浮窗/侧栏切换' : 'Toggle floating window'}
+              aria-pressed={floatMode}
             />
           </Tooltip>
           <Button
@@ -1852,21 +1923,41 @@ ${planText}` },
                 <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
               </Button>
             </Popover>
-            {/* 技能包选择（C2）：内置 + 平台定义；选择后注入附加规范并按白名单过滤工具。 */}
+            {/* 技能包（C2）：图标下拉（默认「自动」——程序按编辑类型选内置
+                专家包；可选「无」或指定包）。 */}
             {agentPackages.length > 0 && (
-              <Select
-                size="small"
-                value={pkgId}
-                onChange={(v) => setPkgId(v)}
-                className="ai-pkg-select"
-                aria-label={zh ? '技能包' : 'Skill package'}
-                options={[
-                  { value: '', label: zh ? '技能包：默认' : 'Package: default' },
-                  ...agentPackages
-                    .filter((x) => !Array.isArray(x.kinds) || x.kinds.length === 0 || x.kinds.includes(applyKind))
-                    .map((x) => ({ value: x.id, label: `${zh ? '技能包' : 'Package'}：${x.name}` })),
-                ]}
-              />
+              <Dropdown
+                trigger={['click']}
+                placement="topLeft"
+                menu={{
+                  selectable: true,
+                  selectedKeys: [pkgId],
+                  className: 'ai-pkg-menu',
+                  items: [
+                    { key: 'auto', label: <span>{zh ? '自动（按文档类型选内置专家包）' : 'Auto (built-in by doc type)'}</span> },
+                    { key: 'none', label: <span>{zh ? '无' : 'None'}</span> },
+                    { type: 'divider' as const },
+                    ...agentPackages
+                      .filter((x) => !Array.isArray(x.kinds) || x.kinds.length === 0 || x.kinds.includes(applyKind))
+                      .map((x) => ({ key: x.id, label: (
+                        <span>
+                          <div>{x.name}</div>
+                          {x.description && <div className="pkg-desc muted">{x.description}</div>}
+                        </span>
+                      ) })),
+                  ],
+                  onClick: ({ key }) => setPkgId(key === 'none' ? '' : String(key)),
+                }}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  className={`ai-pkg-btn${pkgId !== '' ? ' pkg-on' : ''}`}
+                  icon={<Package size={14} strokeWidth={2} aria-hidden="true" />}
+                  aria-label={zh ? '技能包' : 'Skill package'}
+                  title={zh ? `技能包：${pkgId === 'auto' ? '自动' : pkgId === '' ? '无' : agentPackages.find((x) => x.id === pkgId)?.name ?? ''}` : 'Skill package'}
+                />
+              </Dropdown>
             )}
             {/* 右：模型选择 + 发送/停止（最右端，与 AI 助理/创作同款样式）。 */}
             <div className="chat-tools-right">
@@ -1917,4 +2008,5 @@ ${planText}` },
       )}
     </aside>
   )
+  return floatMode ? createPortal(panel, document.body) : panel
 }

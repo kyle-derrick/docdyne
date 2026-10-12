@@ -6381,8 +6381,8 @@ kbd {
   gap: 12px;
 }
 .ai-edit-chat-panel {
-  width: 400px;
-  max-width: 50%;
+  width: 460px;
+  max-width: 62%;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -7402,12 +7402,14 @@ kbd {
   overflow: hidden;
 }
 .chat-input-box:focus-within { border-color: var(--primary); }
-/* 输入区（Sender/TextArea 共用）：自身边框/阴影去除。 */
+/* 输入区（Sender/TextArea 共用）：自身边框/阴影/圆角全部去除——圆角由
+   外层 .chat-input-box 统一持有；内层元素设圆角会裁剪光标（首行边缘
+   光标显示不全的根因）。 */
 .chat-input-box .ant-sender {
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  border-radius: 14px 14px 0 0;
+  border-radius: 0 !important;
 }
 /* 隐藏 Sender 内置发送按钮（发送/停止在 chat-tools-bar 最右端）。内置按钮
    必须保持挂载——@ant-design/x v2 的 submitDisabled 状态仅由其 effect 驱动，
@@ -7416,11 +7418,12 @@ kbd {
    类名。 */
 .chat-input-box .ant-sender .ant-sender-actions,
 .chat-input-box .ant-sender .ant-sender-actions-list { display: none !important; }
-.chat-input-box .ant-input {
+.chat-input-box .ant-input,
+.chat-input-box .ant-input:focus {
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  border-radius: 14px 14px 0 0;
+  border-radius: 0 !important;
   resize: none;
 }
 /* 单行工具栏：左=引用/技能/开关，右=模型选择。 */
@@ -7570,3 +7573,25 @@ kbd {
 
 /* 技能包选择器（C2）。 */
 .ai-pkg-select { min-width: 132px; max-width: 160px; font-size: 12px; }
+
+/* 悬浮窗模式（v7.5）：AIEditChat 以 fixed 浮层使用（可拖动头部 + 原生
+   右下角缩放；偏好记忆 localStorage docflow.ai.edit.floatMode）。 */
+.ai-edit-chat-panel.floating {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 480px;
+  height: min(72vh, 680px);
+  max-width: none;
+  z-index: 1200;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
+  resize: both;
+  min-width: 360px;
+  min-height: 420px;
+}
+.ai-edit-chat-panel.floating .ai-edit-chat-head { cursor: move; user-select: none; }
+/* 技能包图标下拉按钮（紧凑化，替代宽下拉）。 */
+.ai-pkg-btn { flex-shrink: 0; }
+.ai-pkg-btn.pkg-on { color: var(--primary); background: var(--hover, rgba(127,127,127,.1)); }
+.ai-pkg-menu { min-width: 200px; }
+.ai-pkg-menu .pkg-desc { font-size: 11px; color: var(--muted); white-space: normal; }
