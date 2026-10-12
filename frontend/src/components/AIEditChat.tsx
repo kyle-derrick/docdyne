@@ -26,7 +26,7 @@ import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Plus, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { Check, Copy, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, Save, Sparkles, Trash2, X } from 'lucide-react'
 import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
@@ -247,6 +247,7 @@ function sanitizeSessionTurns(raw: Array<Record<string, unknown>>): ChatTurn[] {
       ...(Array.isArray(m.toolCalls) ? { toolCalls: m.toolCalls as AIToolCallEntry[] } : {}),
       ...(Array.isArray(m.trace) ? { trace: m.trace as TraceStage[] } : {}),
       ...(m.agentStream ? { agentStream: true } : {}),
+      ...(m.limitPaused ? { limitPaused: true } : {}),
       ...(m.applied ? { applied: m.applied as AppliedRecord } : {}),
       ...(typeof m.applyError === 'string' ? { applyError: m.applyError } : {}),
     }))
@@ -329,6 +330,8 @@ interface ChatTurn {
   trace?: TraceStage[]
   /** Agent 轮次标记：流式期间的内容为原始 TOOL_CALL 行，紧凑样式展示。 */
   agentStream?: boolean
+  /** Agent 达轮次上限/连续失败熔断而暂停（会话上下文已保留，可「继续」）。 */
+  limitPaused?: boolean
 }
 
 /** Agent 流式原始输出（TOOL_CALL 单行）：等宽小字 + 单行省略，点击展开
@@ -953,9 +956,12 @@ export default function AIEditChat({
     setTurns((prev) => prev.map((x) => (x.id === turnId ? { ...x, ...patch(x) } : x)))
   }
 
-  /** Agent 模式发送：工具循环 + FINAL；过程以 trace 分段写入助手回合
-   *  （v7.3：每轮思考段与工具调用交织为独立折叠条目；流式期间的原始
-   *  TOOL_CALL 行由 AgentRawLine 紧凑展示）。仅「可修改」模式进入。 */
+  /** Agent 会话上下文暂停保留（达上限/熔断的回合 → 「继续」恢复）。 */
+  const pendingConvosRef = useRef<Map<number, AIMessage[]>>(new Map())
+  /** Agent 模式：工具循环 + FINAL；过程以 trace 分段写入助手回合（v7.3）。
+   *  v7.4：轮次预算 300（足够大任务），达上限/连续失败熔断时保留会话
+   *  上下文并标记 limitPaused——消息下出现「继续」按钮恢复循环，等效
+   *  无上限；熔断条件为同一工具+同一参数连续失败 8 次（防死循环烧钱）。 */
   const sendAgent = async (question: string) => {
     const tools = agentToolsRef.current ?? []
     const hostLabel = agentHostLabel(applyKind)
@@ -971,7 +977,7 @@ export default function AIEditChat({
       '',
       '输出格式（硬性要求——违反则本轮无效）：每轮回复的完整内容必须恰好是一行 TOOL_CALL {...}（单个工具、合法 JSON、前后不得有任何解释/思考/推理文字），或以 FINAL 开头的最终答复。',
       '禁止输出 "I\'ll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。',
-      '工作方式：先读（read_*/search_*）再改；局部修改用精确工具、不要整篇重写；一次一个工具，根据结果决定下一步；失败读错误换路径；关键修改后可用读工具校验；完成后 FINAL + 简明中文总结（改了什么、在哪）。',
+      '工作方式：先读（read_*/search_*）再改；局部修改用精确工具、不要整篇重写；一次一个工具，根据结果决定下一步；失败读错误换路径（同样的参数重试同一工具通常不会成功）；关键修改后可用读工具校验；完成后 FINAL + 简明中文总结（改了什么、在哪）。',
       'TOOL_CALL 示例：TOOL_CALL {"tool":"read_document","args":{}}',
     ].join(String.fromCharCode(10))
     const userTurnId = ++turnIdRef.current
@@ -991,12 +997,37 @@ export default function AIEditChat({
     const controller = new AbortController()
     abortRef.current = controller
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: question }]
-    // 白板/图表多元素插入 + 读校验轮次较多（Office 插件侧为 50）
-    const MAX_ROUNDS = 24
+    await runAgentLoop(tools, convo, asstTurnId, controller)
+  }
+
+  /** 「继续」：恢复达上限/熔断暂停的 Agent 回合（沿用原会话上下文，
+   *  追加一条系统提示告知模型从中断处继续；再获一轮完整预算）。 */
+  const continueAgent = async (asstTurnId: number) => {
+    if (busy) return
+    const convo = pendingConvosRef.current.get(asstTurnId)
+    if (!convo) return
+    pendingConvosRef.current.delete(asstTurnId)
+    sticky.scrollToBottom()
+    patchLastTurn(asstTurnId, () => ({ streaming: true, limitPaused: false, note: undefined, content: '' }))
+    setBusy(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+    convo.push({ role: 'user', content: '继续（从中断处接着执行，保持同样的输出协议）。' })
+    await runAgentLoop(agentToolsRef.current ?? [], convo, asstTurnId, controller)
+  }
+
+  /** Agent 工具循环主体（send 与「继续」共用）。 */
+  const runAgentLoop = async (
+    tools: AIEditTool[],
+    convo: AIMessage[],
+    asstTurnId: number,
+    controller: AbortController,
+  ) => {
     // 过程分段写入（trace）：think=本轮思考段（首个思考增量开段），tool=一次调用。
     let stageSeq = 0
     const pushStage = (stage: Omit<TraceStage, 'key'>): number => {
-      const key = ++stageSeq
+      stageSeq++
+      const key = Date.now() * 1000 + (stageSeq % 1000)
       patchLastTurn(asstTurnId, (x) => ({ trace: [...(x.trace ?? []), { ...stage, key }] }))
       return key
     }
@@ -1005,6 +1036,13 @@ export default function AIEditChat({
         trace: (x.trace ?? []).map((st) => (st.key === key ? { ...st, ...patch } : st)),
       }))
     }
+    // 轮次预算：大任务（多元素图/整表/批量改）几百轮也够；真正的防失控靠
+    // 连续失败熔断（同工具同参连败 8 次）而非低轮次硬顶；达上限仍可「继续」。
+    const MAX_ROUNDS = 300
+    const FAIL_STREAK_LIMIT = 8
+    let failStreak = 0
+    let lastFailSig = ''
+    let pausedNote = ''
     try {
       let finalText = ''
       for (let round = 1; round <= MAX_ROUNDS; round++) {
@@ -1046,6 +1084,10 @@ export default function AIEditChat({
           finalText = parsed.text
           break
         }
+        if (round >= MAX_ROUNDS) {
+          pausedNote = `已达轮次预算（${MAX_ROUNDS} 轮），已执行操作保留——可点击「继续」接着执行`
+          break
+        }
         const tool = parsed.call.tool
         const args = parsed.call.args
         const def = tools.find((t) => t.name === tool)
@@ -1069,15 +1111,42 @@ export default function AIEditChat({
           status: result.ok ? 'success' : 'error',
           output: (result.ok ? JSON.stringify(result.data ?? { ok: true }) : (result.error ?? '失败')).slice(0, 600),
         })
+        // 熔断：同一工具+同一参数连续失败 → 大概率死循环（模型未消化错误）。
+        const sig = result.ok ? '' : `${tool}:${JSON.stringify(args)}`
+        if (result.ok) {
+          failStreak = 0
+          lastFailSig = ''
+        } else if (sig === lastFailSig) {
+          failStreak++
+          if (failStreak >= FAIL_STREAK_LIMIT) {
+            pausedNote = `连续 ${FAIL_STREAK_LIMIT} 次以相同参数调用 ${tool} 失败，已自动暂停——可「继续」换路径，或调整指令`
+            break
+          }
+        } else {
+          failStreak = 1
+          lastFailSig = sig
+        }
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify({ tool, args })}` })
         convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 3000)}` })
       }
-      patchLastTurn(asstTurnId, () => ({
-        content: finalText || '（未产生最终答复）',
-        streaming: false,
-        agentStream: false,
-        note: finalText ? undefined : '已达工具轮次上限，已执行操作保留',
-      }))
+      if (finalText) {
+        patchLastTurn(asstTurnId, () => ({
+          content: finalText,
+          streaming: false,
+          agentStream: false,
+          limitPaused: false,
+        }))
+      } else {
+        // 未出 FINAL（达预算/熔断）：保留会话上下文，消息下给「继续」。
+        pendingConvosRef.current.set(asstTurnId, convo)
+        patchLastTurn(asstTurnId, () => ({
+          content: '（已暂停，操作已保留）',
+          streaming: false,
+          agentStream: false,
+          limitPaused: true,
+          note: pausedNote || '已暂停，可点击「继续」接着执行',
+        }))
+      }
     } catch (err) {
       const aborted = err instanceof Error && err.name === 'AbortError'
       patchLastTurn(asstTurnId, () => ({
@@ -1709,6 +1778,13 @@ export default function AIEditChat({
                   {/* 外部工具调用（MCP）：Wrench 小标签逐条列出（顺序保留）。 */}
                   {turn.toolCalls && !turn.trace && <AIToolCalls toolCalls={turn.toolCalls} zh={zh} />}
                   {turn.note && <div className="ai-edit-chat-note muted">{turn.note}</div>}
+                  {turn.limitPaused && !turn.streaming && (
+                    <div className="ai-edit-chat-actions">
+                      <Button size="small" type="primary" ghost icon={<Play size={12} strokeWidth={2} />} onClick={() => void continueAgent(turn.id)}>
+                        {zh ? '继续' : 'Continue'}
+                      </Button>
+                    </div>
+                  )}
                   {!turn.streaming && turn.content && !batchMode && (
                     <div className="ai-edit-chat-actions">
                       <Button size="small" type="text" icon={<Copy size={13} strokeWidth={2} />} onClick={() => copy(turn.content)}>

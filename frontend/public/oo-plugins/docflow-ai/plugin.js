@@ -1474,7 +1474,10 @@
     return c || { type: 'final', text: t };
   }
 
-  var MAX_ROUNDS = 50;
+  // 轮次预算（v7.4）：300 轮足够大任务；达预算/熔断时保留会话上下文并给
+  // 「继续」按钮恢复循环（等效无上限）；防失控靠连续失败熔断而非低硬顶。
+  var MAX_ROUNDS = 300;
+  var FAIL_STREAK = 8;
   function setBusyUI(b) { busy = b; sendBtn.style.display = b ? 'none' : 'inline-flex'; stopBtn.style.display = b ? 'inline-flex' : 'none'; }
 
   function chatOnce(messages, ev) {
@@ -1553,8 +1556,32 @@
         .catch(function (e) { finishErr(String(e && e.message || e)); });
       return;
     }
-    (function loop() {
-      if (rounds >= MAX_ROUNDS) { finishErr('轮次上限'); return; }
+    var failStreak = 0, lastFailSig = '';
+    /** 暂停（达预算/熔断）：保留 convo，气泡内给「继续」按钮恢复循环。 */
+    function showPaused(text) {
+      settleThink(thinkStart ? Date.now() - thinkStart : 0);
+      sessSave();
+      var wrap = el('div', 'm a', esc(text));
+      var btn = document.createElement('button');
+      btn.className = 'act';
+      btn.textContent = '继续';
+      btn.style.marginTop = '8px';
+      btn.onclick = function () {
+        btn.disabled = true;
+        btn.textContent = '继续中…';
+        convo.push({ role: 'user', content: '继续（从中断处接着执行，保持同样的输出协议）。' });
+        rounds = 0; failStreak = 0; lastFailSig = ''; thinkStart = 0;
+        setBusyUI(true);
+        controller = new AbortController();
+        agentLoop();
+      };
+      wrap.appendChild(document.createElement('br'));
+      wrap.appendChild(btn);
+      setBusyUI(false); controller = null;
+      setHint('已暂停，可继续');
+    }
+    var agentLoop = function () {
+      if (rounds >= MAX_ROUNDS) { showPaused('已达轮次预算（' + MAX_ROUNDS + ' 轮），已执行操作保留。'); return; }
       rounds++;
       var acc2 = '', raw = null;
       chat(convo, {
@@ -1571,13 +1598,25 @@
           toolDone(card, !!(r && r.ok), r);
           convo.push({ role: 'assistant', content: 'TOOL_CALL ' + JSON.stringify(parsed.call) });
           convo.push({ role: 'user', content: 'TOOL_RESULT ' + JSON.stringify(r).slice(0, 3000) });
-          loop();
+          // 熔断：同一工具+同一参数连续失败 → 大概率死循环，暂停可「继续」。
+          var sig = (r && r.ok) ? '' : parsed.call.tool + ':' + JSON.stringify(parsed.call.args);
+          if (!r || !r.ok) {
+            if (sig === lastFailSig) {
+              failStreak++;
+              if (failStreak >= FAIL_STREAK) {
+                showPaused('连续 ' + FAIL_STREAK + ' 次以相同参数调用 ' + parsed.call.tool + ' 失败，已自动暂停。可「继续」换路径，或调整指令。');
+                return;
+              }
+            } else { failStreak = 1; lastFailSig = sig; }
+          } else { failStreak = 0; lastFailSig = ''; }
+          agentLoop();
         });
       }).catch(function (e) {
         if (raw) raw.remove();
         finishErr(e && e.name === 'AbortError' ? '已停止' : String(e && e.message || e));
       });
-    })();
+    };
+    agentLoop();
   }
 
   sendBtn.onclick = send;

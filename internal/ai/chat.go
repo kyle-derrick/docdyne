@@ -898,9 +898,10 @@ const (
 	MCPToolMaxRounds = 8
 	// FilesToolMaxRounds 平台文件创作（use_files 工作目录，AI 直接读写项目
 	// 目录）的轮次上限：多步创作任务（建目录→写多文件→改写→读校验）常见
-	// 十几轮，5-8 轮会中途截断（表现为「AI 莫名停止」）；仍保留硬上限防
-	// 死循环。
-	FilesToolMaxRounds = 24
+	// 十几轮，5-8 轮会中途截断（表现为「AI 莫名停止」）；v7.4 从 24 提至
+	// 100——大项目（整站/多文档）几十轮不罕见，仍保留硬上限防死循环烧配额
+	//（前端编辑 Agent 为 300 + 可「继续」，见 AIEditChat/plugin.js）。
+	FilesToolMaxRounds = 100
 	// MCPToolResultMaxRunes 单次工具结果注入对话的长度上限（rune 计，
 	// 超长截断尾注）。
 	MCPToolResultMaxRunes = 8000
