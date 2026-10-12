@@ -9,28 +9,24 @@
 // - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { createPortal } from 'react-dom'
-import { App as AntdApp, Button, Checkbox, Dropdown, Input, Popover, Segmented, Tooltip } from 'antd'
+import { App as AntdApp, Button, Input } from 'antd'
 import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Package, Paperclip, PictureInPicture2, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
-import { aiAppendConversation, getAIModelsRaw, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
+import { Sparkles } from 'lucide-react'
+import { aiAppendConversation, getAIModelsRaw, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
-import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
-import { AIChatThinking } from './aichat'
-import ConvoPicker from './aichat/ConvoPicker'
-import TraceView from './aichat/TraceView'
+import { AIChatToggleBar, AISkillButton, normalizeWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
 import type { TraceStage, TraceUsage } from './aichat/TraceView'
 import { useStickyScroll } from './aichat/useStickyScroll'
-import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './aichat/icons'
+import AIChatShell from './aichat/AIChatShell'
+import type { ChatMessage } from './aichat/ChatThread'
 import type { AIAttachFile } from './aichat'
 import type { AIToolCallEntry } from './aichat'
 import type { AIModelOption, AIWebSource } from './AIAssistant'
 import AIModelSelect from './AIModelSelect'
-import AIMarkdown from './AIMarkdown'
 import { useAIEnabled } from '../aiFeature'
 import { t, useLocale } from '../i18n'
 /** 选区描述（无选区 = 全文模式；原独立 AIEdit.tsx 移除后迁此）。 */
@@ -277,24 +273,6 @@ interface ChatTurn {
   usage?: TraceUsage
 }
 
-/** Agent 流式原始输出（TOOL_CALL 单行）：等宽小字 + 单行省略，点击展开
- *  原文（悬停 title 亦可看全文）——替代裸 markdown 渲染整段 JSON。 */
-function AgentRawLine({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div
-      className={`ai-agent-raw${open ? ' open' : ''}`}
-      role="button"
-      tabIndex={0}
-      aria-expanded={open}
-      title={open ? undefined : text}
-      onClick={() => setOpen((v) => !v)}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) } }}
-    >
-      {text}
-    </div>
-  )
-}
 
 /** 编辑器页头部「AI 对话」按钮（主点击开面板；下拉=并入的 AIEditMenu 快捷
  * 指令，AI 未启用不渲染）。kind 定制下拉指令（默认 text 保持原文案）：
@@ -584,7 +562,6 @@ export default function AIEditChat({
     syncedLenRef.current = 0
     setTurns([])
     setNotice('')
-    setSessOpen(false)
   }
   /** 重命名会话（Modal 输入；空标题忽略；与全局助手同款交互）。 */
   const renameSession = () => {
@@ -741,7 +718,7 @@ export default function AIEditChat({
   }
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState('')
+  const [, setNotice] = useState('')
   /** 面板模式：可修改（默认）/仅对话（ref 供快捷指令立即生效）。 */
   const [mode, setMode] = useState<ChatMode>('edit')
   const modeRef = useRef<ChatMode>('edit')
@@ -773,37 +750,6 @@ export default function AIEditChat({
   // 文件引用（v3.9）：随指令附带其它文件全文（context.fileIds 注入 system
   // 上下文；当前文档本身已是主上下文，引用的是「其它」文件）。
   const [attached, setAttached] = useState<AIAttachFile[]>([])
-  const [attachOpen, setAttachOpen] = useState(false)
-  const [attachQuery, setAttachQuery] = useState('')
-  const [attachItems, setAttachItems] = useState<Array<{ id: string; name: string }>>([])
-  const [attachLoading, setAttachLoading] = useState(false)
-  const toggleAttach = (f: { id: string; name: string }) => {
-    setAttached((prev) => (prev.some((x) => x.fileId === f.id)
-      ? prev.filter((x) => x.fileId !== f.id)
-      : [...prev, { fileId: f.id, fileName: f.name }]))
-  }
-  // 引用候选（空关键词 = 最近访问；否则 350ms 防抖全文搜索）。
-  useEffect(() => {
-    if (!attachOpen) return
-    let alive = true
-    const q = attachQuery.trim()
-    const run = (pr: Promise<Array<{ id: string; name: string; type?: string }>>) => {
-      setAttachLoading(true)
-      void pr
-        .then((items) => { if (alive) setAttachItems(items.filter((x) => x.type !== 'folder').map((x) => ({ id: x.id, name: x.name }))) })
-        .catch(() => { if (alive) setAttachItems([]) })
-        .finally(() => { if (alive) setAttachLoading(false) })
-    }
-    if (!q) {
-      run(listFiles(null, { recent: true, limit: 20 }))
-      return () => { alive = false }
-    }
-    const timer = window.setTimeout(() => run(searchFiles(q, 20)), 350)
-    return () => {
-      alive = false
-      window.clearTimeout(timer)
-    }
-  }, [attachOpen, attachQuery])
   const turnIdRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const inputRef = useRef<TextAreaRef | null>(null)
@@ -815,7 +761,6 @@ export default function AIEditChat({
       : '',
   )
   // 会话历史浮层展开态。
-  const [sessOpen, setSessOpen] = useState(false)
   // 悬浮窗模式（v7.5）：fixed 浮层 + 可拖动头部；偏好 localStorage 记忆。
   const [floatMode, setFloatMode] = useState(() => {
     try { return window.localStorage.getItem('docflow.ai.edit.floatMode') === '1' } catch { return false }
@@ -1562,498 +1507,85 @@ ${planText}` },
     ? '描述要做的修改——AI 会先读文档再逐步编辑并校验；复杂目标可切「计划」模式。'
     : 'Describe the change — the AI reads first, edits step by step, and verifies. Use Plan mode for complex goals.'
 
-  const panel = (
-    <aside
-      ref={panelRef}
-      className={`ai-edit-chat-panel${floatMode ? ' floating' : ''}`}
-      aria-label={zh ? 'AI 对话' : 'AI chat'}
-    >
-      <div className="ai-edit-chat-head" onPointerDown={onHeadPointerDown}>
-        <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
-        <span className="ai-edit-chat-title">{zh ? 'AI 对话' : 'AI chat'}</span>
-        <span className="ai-edit-chat-head-ops">
-          {/* 历史会话（服务端持久化；Conversations 组件与全局助手同款交互：
-              切换 + ⋯ 菜单重命名/删除）。 */}
-          <Popover
-            trigger="click"
-            placement="bottomLeft"
-            arrow={false}
-            open={sessOpen}
-            onOpenChange={(next) => {
-              // 重命名弹窗打开期间忽略外点关闭（Modal 挂载于 body）。
-              if (!next && sessEditing) return
-              setSessOpen(next)
-            }}
-            content={
-              <ConvoPicker
-                items={sessions}
-                activeId={activeSessId}
-                zh={zh}
-                onSwitch={(id) => { setSessOpen(false); switchSession(id) }}
-                onRename={(id) => {
-                  const cur = sessions.find((x) => x.id === id)
-                  if (cur) setSessEditing({ id: cur.id, draft: cur.title })
-                }}
-                onDelete={deleteSession}
-                onNew={() => { setSessOpen(false); newSession() }}
-              />
-            }
-          >
-            <Tooltip title={zh ? '历史会话（切换 / 重命名 / 删除）' : 'Session history (switch / rename / delete)'}>
-              <Button
-                size="small"
-                type="text"
-                icon={<MessagesSquare size={13} strokeWidth={2} />}
-                disabled={sessions.length === 0 && turns.length === 0}
-                aria-label={zh ? '历史会话' : 'Session history'}
-              />
-            </Tooltip>
-          </Popover>
-          {/* 会话导入/导出（B3）：整个文件域的会话 JSON 互导（含过程 trace）。 */}
-          <Tooltip title={zh ? '导出本文件全部会话（.json）' : 'Export all sessions (.json)'}>
-            <Button
-              size="small"
-              type="text"
-              icon={<Download size={13} strokeWidth={2} />}
-              disabled={sessions.length === 0}
-              onClick={() => void exportSessionsFile()}
-              aria-label={zh ? '导出会话' : 'Export sessions'}
-            />
-          </Tooltip>
-          <Tooltip title={zh ? '导入会话备份（.json，合并到本文件）' : 'Import session backup (.json)'}>
-            <Button
-              size="small"
-              type="text"
-              icon={<Upload size={13} strokeWidth={2} />}
-              onClick={() => importInputRef.current?.click()}
-              aria-label={zh ? '导入会话' : 'Import sessions'}
-            />
-          </Tooltip>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept="application/json,.json"
-            style={{ display: 'none' }}
-            onChange={(e) => { void importSessionsFile(e.target.files?.[0] ?? null); e.target.value = '' }}
-          />
-          {/* 批量操作：多选消息 → 批量删除 / 保存所选到文件。 */}
-          <Tooltip title={zh ? '批量操作消息（多选删除/保存）' : 'Batch message actions (multi-select delete/save)'}>
-            <Button
-              size="small"
-              type="text"
-              className={batchMode ? 'batch-on' : ''}
-              icon={<ListChecks size={13} strokeWidth={2} />}
-              onClick={() => (batchMode ? exitBatch() : setBatchMode(true))}
-              aria-label={zh ? '批量操作' : 'Batch actions'}
-              aria-pressed={batchMode}
-            />
-          </Tooltip>
-          {/* 新建会话（当前会话自动存入服务端历史）。 */}
-          <Tooltip title={zh ? '新建会话' : 'New session'}>
-            <Button
-              size="small"
-              type="text"
-              icon={<Plus size={14} strokeWidth={2} />}
-              onClick={newSession}
-              aria-label={zh ? '新建会话' : 'New session'}
-            />
-          </Tooltip>
-          {/* 悬浮窗/侧栏切换（偏好记忆）。 */}
-          <Tooltip title={floatMode
-            ? (zh ? '切换为侧边面板' : 'Switch to side panel')
-            : (zh ? '切换为悬浮窗（可拖动、可缩放）' : 'Switch to floating window (draggable & resizable)')}>
-            <Button
-              size="small"
-              type="text"
-              icon={<PictureInPicture2 size={13} strokeWidth={2} />}
-              onClick={toggleFloatMode}
-              aria-label={zh ? '悬浮窗/侧栏切换' : 'Toggle floating window'}
-              aria-pressed={floatMode}
-            />
-          </Tooltip>
-          <Button
-            size="small"
-            type="text"
-            icon={<X size={14} strokeWidth={2} />}
-            onClick={onClose}
-            aria-label={zh ? '收起面板' : 'Close panel'}
-          />
-        </span>
-      </div>
-      {/* 模式 + 上下文范围同行（v3.9：原两行合并省一行——可修改/仅对话 +
-          选区/全文同排；模型选择移入底部输入区工具栏，发送键最右）。 */}
-      <div className="ai-edit-chat-mode">
-        <Segmented
-          size="small"
-          value={mode}
-          onChange={(v) => changeMode(v as ChatMode)}
-          options={[
-            { label: zh ? '可修改' : 'Can edit', value: 'edit' },
-            { label: zh ? '仅对话' : 'Chat only', value: 'chat' },
-          ]}
-        />
-        {/* 模式说明收起为悬浮图标（hover 显示完整说明），避免平铺文案占用输入区空间。 */}
-        <Popover
-          content={<div className="ai-edit-chat-mode-popover"><strong>{modeHint}</strong><div className="muted">{modeTip}</div></div>}
-          trigger="hover"
-          placement="topRight"
-        >
-          <span className="ai-edit-chat-mode-hint" role="button" tabIndex={0} aria-label={modeHint}>
-            <HelpCircle size={14} />
-          </span>
-        </Popover>
-      </div>
-      <div className="ai-edit-chat-thread" ref={sticky.wrapRef} onScroll={sticky.onScroll}>
-        {turns.length === 0 && (
-          <div className="ai-edit-chat-empty muted">{emptyHint}</div>
+  return (
+    <>
+      <AIChatShell
+        open={true}
+        zh={zh} hostType="editor" title={zh ? 'AI 对话' : 'AI chat'}
+        onClose={onClose}
+        messages={turns as unknown as ChatMessage[]}
+        emptyHint={emptyHint} generatingLabel={t(locale, 'aiAssistantGenerating')}
+        inputValue={input} onInputChange={setInput}
+        onSend={() => void send(input)} onStop={stop} busy={busy}
+        inputPlaceholder={placeholder}
+        wrapRef={sticky.wrapRef} onScroll={sticky.onScroll}
+        sessions={sessions} activeSessionId={activeSessId}
+        onSwitchSession={switchSession}
+        onRenameSession={(id) => { const c = sessions.find((x) => x.id === id); if (c) setSessEditing({ id: c.id, draft: c.title }) }}
+        onDeleteSession={deleteSession} onNewSession={newSession}
+        onExportSessions={() => void exportSessionsFile()}
+        onImportSessions={() => importInputRef.current?.click()}
+        onCopy={copy} onDeleteExchange={deleteExchange}
+        onSaveConversation={() => void openSaveDialog()}
+        onRegenerate={regenerate} onContinue={(id) => void continueAgent(id)}
+        onExecutePlan={(plan) => void executePlan(plan)}
+        savingFile={savingFile}
+        mode={mode === 'plan' ? 'edit' : mode} onModeChange={changeMode} modeHint={modeHint} modeTip={modeTip} showModeSegment
+        floatMode={floatMode} onToggleFloat={toggleFloatMode}
+        panelRef={panelRef} onHeadPointerDown={onHeadPointerDown}
+        batchMode={batchMode} onToggleBatch={() => (batchMode ? exitBatch() : setBatchMode(true))}
+        checkedIds={checked} onToggleChecked={toggleChecked} onDeleteChecked={deleteChecked}
+        packages={agentPackages} pkgId={pkgId} onPkgChange={setPkgId} applyKind={applyKind}
+        cautious={cautious} onCautiousToggle={toggleCautious}
+        attachedFiles={attached} onFileDetach={(fid) => setAttached((prev) => prev.filter((x) => x.fileId !== fid))}
+        modelSlot={models.length > 0 ? (
+          <AIModelSelect models={models} modelKey={modelKey} modelExplicit={modelExplicit}
+            onSelect={(v) => { setModelKey(v); setModelExplicit(true) }} zh={zh} />
+        ) : undefined}
+        togglesSlot={(
+          <AIChatToggleBar zh={zh} web={toggles.web} think={toggles.think} thinkBlocked={toggles.thinkBlocked}
+            mcp={toggles.mcp} mcpAvailable={toggles.mcpAvailable} docs={toggles.docs} docsAvailable={toggles.docsAvailable}
+            onWeb={toggles.setWeb} onThink={toggles.setThink} onMcp={toggles.setMcp} onDocs={toggles.setDocs} />
         )}
-        {turns.map((turn) => (
-          <div key={turn.id} className={`ai-turn ai-turn-${turn.role}`}>
-            {batchMode && (
-              <Checkbox
-                className="ai-turn-check"
-                checked={checked.has(turn.id)}
-                onChange={() => toggleChecked(turn.id)}
-                aria-label={zh ? '选择消息' : 'Select message'}
-              />
-            )}
-            {turn.role === 'user' ? (
-              <>
-                <div className="ai-bubble ai-bubble-user">
-                  {turn.content}
-                  {turn.files && turn.files.length > 0 && (
-                    <span className="ai-turn-files">
-                      {turn.files.map((f) => (
-                        <span key={f.fileId} className="ai-turn-file-chip" title={f.fileName}>
-                          <Paperclip size={10} strokeWidth={2} aria-hidden="true" />
-                          <span>{f.fileName}</span>
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                  {turn.note && <div className="ai-edit-chat-note">{turn.note}</div>}
-                </div>
-                {!batchMode && (
-                  <div className="ai-edit-chat-actions user-ops">
-                    <Button size="small" type="text" icon={<Copy size={12} strokeWidth={2} />} onClick={() => copy(turn.content)}>
-                      {zh ? '复制' : 'Copy'}
-                    </Button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                {/* 助手头像：与全局 AI 助手同款 Sparkles 圆标。 */}
-                <div className="ai-avatar" aria-hidden="true">
-                  <Sparkles size={13} strokeWidth={2} />
-                </div>
-                <div className="ai-bubble ai-bubble-assistant">
-                  {/* 过程追踪（v7.3 Agent 轮次）：思考段与工具调用分阶段折叠；
-                      非 agent 轮次回落单段思考折叠区。 */}
-                  {turn.trace && turn.trace.length > 0 ? (
-                    <TraceView stages={turn.trace} running={!!turn.streaming} zh={zh} usage={turn.usage} />
-                  ) : (
-                    <AIChatThinking text={turn.thinking ?? ''} streaming={turn.streaming} thinkingMS={turn.thinkingMS} zh={zh} />
-                  )}
-                  {turn.content ? (
-                    turn.agentStream && turn.streaming ? (
-                      <AgentRawLine text={turn.content} />
-                    ) : (
-                      <AIMarkdown text={turn.content} zh={zh} streaming={turn.streaming} />
-                    )
-                  ) : turn.streaming ? (
-                    <span className="ai-thinking">{t(locale, 'aiAssistantGenerating')}</span>
-                  ) : (
-                    // 兜底：流结束但无正文/错误/停止标记——可见提示而非空白。
-                    <span className="muted">{zh ? '（模型未返回内容）' : '(no content returned)'}</span>
-                  )}
-                  {turn.streaming && turn.content && <span className="ai-caret" aria-hidden="true" />}
-                  {turn.error && <div className="ai-error-msg">{turn.error}</div>}
-                  {/* 外部工具调用（MCP）：Wrench 小标签逐条列出（顺序保留）。 */}
-                  {turn.toolCalls && !turn.trace && <AIToolCalls toolCalls={turn.toolCalls} zh={zh} />}
-                  {turn.note && <div className="ai-edit-chat-note muted">{turn.note}</div>}
-                  {turn.planReady && !turn.streaming && !batchMode && (
-                    <div className="ai-edit-chat-actions">
-                      <Button size="small" type="primary" ghost icon={<Play size={12} strokeWidth={2} />} disabled={busy} onClick={() => void executePlan(turn.content)}>
-                        {zh ? '按计划执行' : 'Execute plan'}
-                      </Button>
-                    </div>
-                  )}
-                  {turn.limitPaused && !turn.streaming && (
-                    <div className="ai-edit-chat-actions">
-                      <Button size="small" type="primary" ghost icon={<Play size={12} strokeWidth={2} />} onClick={() => void continueAgent(turn.id)}>
-                        {zh ? '继续' : 'Continue'}
-                      </Button>
-                    </div>
-                  )}
-                  {!turn.streaming && turn.content && !batchMode && (
-                    <div className="ai-edit-chat-actions">
-                      <Button size="small" type="text" icon={<Copy size={13} strokeWidth={2} />} onClick={() => copy(turn.content)}>
-                        {zh ? '复制' : 'Copy'}
-                      </Button>
-                      <Tooltip title={zh ? '删除本轮问答（输入+输出）' : 'Delete this exchange (prompt + reply)'}>
-                        <Button size="small" type="text" icon={<Trash2 size={13} strokeWidth={2} />} onClick={() => deleteExchange(turn.id)}>
-                          {zh ? '删除' : 'Delete'}
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title={zh ? '把当前会话导出为 Markdown 文件（当前文件所在目录）' : 'Export this conversation as a Markdown file (same folder)'}>
-                        <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => void openSaveDialog()}>
-                          {zh ? '保存' : 'Save'}
-                        </Button>
-                      </Tooltip>
-                      {turn.id === turns[turns.length - 1].id && (
-                        <Tooltip title={zh ? '删除本轮问答并重新生成' : 'Delete and regenerate'}>
-                          <Button size="small" type="text" icon={<RotateCcw size={13} strokeWidth={2} />} disabled={busy} onClick={() => regenerate(turn.id)}>
-                            {zh ? '重新生成' : 'Retry'}
-                          </Button>
-                        </Tooltip>
-                      )}
-                    </div>
-                  )}
-                  {/* 联网搜索来源：折叠列表（编号 + 标题超链接）。 */}
-                  {turn.webSources && <AIWebSources sources={turn.webSources} zh={zh} />}
-                </div>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-      {/* 输入区（v3.9：Cherry Studio 式统一框——引用 chips + 输入框 + 单行
-          工具栏（技能/引用文件/开关组 + 模型选择 + 发送键最右端）。 */}
-      <div className="ai-edit-chat-composer">
-        {notice && <div className="ai-edit-chat-notice error-text">{notice}</div>}
-        {attached.length > 0 && (
-          <div className="ai-attach-chips">
-            {attached.map((f) => (
-              <span key={f.fileId} className="ai-attach-chip">
-                <Paperclip size={10} strokeWidth={2} aria-hidden="true" />
-                <span className="ai-attach-chip-name" title={f.fileName}>{f.fileName}</span>
-                <button type="button" aria-label={zh ? '移除引用' : 'Remove reference'} onClick={() => toggleAttach({ id: f.fileId, name: f.fileName })}>×</button>
-              </span>
-            ))}
-          </div>
+        skillSlot={(
+          <AISkillButton zh={zh} onPick={(s) => {
+            const tgt = getTargetRef.current()
+            const sel = tgt.hasSelection ? tgt.text : ''
+            if (!sel && s.prompt.includes('{selection}')) void message.warning(zh ? '未选中内容，{selection} 已置空' : 'No selection')
+            setInput(renderSkillPrompt(s.prompt, { selection: sel, file: fileName }))
+          }} />
         )}
-        {batchMode && (
-          <div className="ai-batch-bar">
-            <span className="muted">{zh ? `已选 ${checked.size} 项` : `${checked.size} selected`}</span>
-            <span className="spacer" />
-            <Button size="small" icon={<Save size={12} strokeWidth={2} />} disabled={checked.size === 0 || savingFile} loading={savingFile} onClick={() => void openSaveDialog([...checked])}>
-              {zh ? '保存所选到文件' : 'Save selection'}
-            </Button>
-            <Button size="small" danger disabled={checked.size === 0} icon={<Trash2 size={12} strokeWidth={2} />} onClick={deleteChecked}>
-              {zh ? '删除所选' : 'Delete'}
-            </Button>
-            <Button size="small" type="text" onClick={exitBatch}>{zh ? '退出' : 'Exit'}</Button>
-          </div>
-        )}
-        <div className="chat-input-box">
-          <Input.TextArea
-            ref={inputRef}
-            autoSize={{ minRows: 2, maxRows: 5 }}
-            value={input}
-            placeholder={placeholder}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter 发送 / Shift+Enter 换行；输入法组合中 Enter 不发送（同 AI 助手）。
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                void send(input)
-              }
-            }}
-          />
-          <div className="chat-tools-bar">
-            {/* 左：技能 + 开关组（联网/思考/MCP/我的文件）+ 引用文件（居左组最右，与 AI 助手一致）。 */}
-            <AISkillButton
-              zh={zh}
-              onPick={(s) => {
-                const tgt = getTargetRef.current()
-                const selection = tgt.hasSelection ? tgt.text : ''
-                if (!selection && s.prompt.includes('{selection}')) {
-                  void message.warning(zh ? '未选中内容，{selection} 已置空' : 'No selection; {selection} was left empty')
-                }
-                setInput(renderSkillPrompt(s.prompt, { selection, file: fileName }))
-              }}
-            />
-            <Tooltip title={cautious
-              ? (zh ? '谨慎模式开：删除/整篇替换等破坏性工具执行前确认' : 'Cautious mode on: confirm before destructive tools')
-              : (zh ? '谨慎模式关：破坏性工具直接执行' : 'Cautious mode off')}>
-              <Button
-                size="small"
-                type="text"
-                className={`ai-attach-btn${cautious ? ' cautious-on' : ''}`}
-                icon={<ShieldAlert size={14} strokeWidth={2} aria-hidden="true" />}
-                onClick={toggleCautious}
-                aria-label={zh ? '谨慎模式' : 'Cautious mode'}
-                aria-pressed={cautious}
-              />
-            </Tooltip>
-            <AIChatToggleBar
-              zh={zh}
-              web={toggles.web}
-              think={toggles.think}
-              thinkBlocked={toggles.thinkBlocked}
-              mcp={toggles.mcp}
-              mcpAvailable={toggles.mcpAvailable}
-              docs={toggles.docs}
-              docsAvailable={toggles.docsAvailable}
-              onWeb={toggles.setWeb}
-              onThink={toggles.setThink}
-              onMcp={toggles.setMcp}
-              onDocs={toggles.setDocs}
-            />
-            {/* 引用文件（v3.9）：其它文件全文注入上下文（context.fileIds）。 */}
-            <Popover
-              trigger="click"
-              placement="topLeft"
-              arrow={false}
-              open={attachOpen}
-              onOpenChange={(next) => {
-                setAttachOpen(next)
-                if (next) setAttachQuery('')
-              }}
-              content={
-                <div className="ai-attach-pop">
-                  <Input
-                    allowClear
-                    size="small"
-                    value={attachQuery}
-                    onChange={(e) => setAttachQuery(e.target.value)}
-                    placeholder={zh ? '搜索文件（留空 = 最近访问）' : 'Search files (empty = recent)'}
-                    prefix={<Paperclip size={12} strokeWidth={2} aria-hidden="true" />}
-                  />
-                  <div className="ai-attach-list">
-                    {attachLoading && <div className="ai-attach-state muted">{zh ? '加载中…' : 'Loading…'}</div>}
-                    {!attachLoading && attachItems.length === 0 && <div className="ai-attach-state muted">{zh ? '没有匹配的文件' : 'No matching files'}</div>}
-                    {attachItems.map((item) => {
-                      const selected = attached.some((f) => f.fileId === item.id)
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`ai-attach-item${selected ? ' selected' : ''}`}
-                          onClick={() => toggleAttach(item)}
-                        >
-                          <FileText size={13} strokeWidth={2} aria-hidden="true" />
-                          <span className="name" title={item.name}>{item.name}</span>
-                          <Check size={13} strokeWidth={2} aria-hidden="true" className="check" />
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="ai-attach-state muted">{zh ? '引用文件全文将随指令一并作为上下文发送' : 'Referenced files are sent as extra context'}</div>
-                </div>
-              }
-            >
-              <Button size="small" type="text" className="ai-attach-btn" aria-label={zh ? '引用文件' : 'Attach files'} title={zh ? '引用文件（其它文件全文作为附加上下文）' : 'Attach files (full text as extra context)'}>
-                <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
-              </Button>
-            </Popover>
-            {/* 技能包（C2）：图标下拉（默认「自动」——程序按编辑类型选内置
-                专家包；可选「无」或指定包）。 */}
-            {agentPackages.length > 0 && (
-              <Dropdown
-                trigger={['click']}
-                placement="topLeft"
-                menu={{
-                  selectable: true,
-                  selectedKeys: [pkgId],
-                  className: 'ai-pkg-menu',
-                  items: [
-                    { key: 'auto', label: <span>{zh ? '自动（按文档类型选内置专家包）' : 'Auto (built-in by doc type)'}</span> },
-                    { key: 'none', label: <span>{zh ? '无' : 'None'}</span> },
-                    { type: 'divider' as const },
-                    ...agentPackages
-                      .filter((x) => !Array.isArray(x.kinds) || x.kinds.length === 0 || x.kinds.includes(applyKind))
-                      .map((x) => ({ key: x.id, label: (
-                        <span>
-                          <div>{x.name}</div>
-                          {x.description && <div className="pkg-desc muted">{x.description}</div>}
-                        </span>
-                      ) })),
-                  ],
-                  onClick: ({ key }) => setPkgId(key === 'none' ? '' : String(key)),
-                }}
-              >
-                <Button
-                  size="small"
-                  type="text"
-                  className={`ai-pkg-btn${pkgId !== '' ? ' pkg-on' : ''}`}
-                  icon={<Package size={14} strokeWidth={2} aria-hidden="true" />}
-                  aria-label={zh ? '技能包' : 'Skill package'}
-                  title={zh ? `技能包：${pkgId === 'auto' ? '自动' : pkgId === '' ? '无' : agentPackages.find((x) => x.id === pkgId)?.name ?? ''}` : 'Skill package'}
-                />
-              </Dropdown>
-            )}
-            {/* 右：模型选择 + 发送/停止（最右端，与 AI 助理/创作同款样式）。 */}
-            <div className="chat-tools-right">
-              {models.length > 0 && (
-                <AIModelSelect
-                  models={models}
-                  modelKey={modelKey}
-                  modelExplicit={modelExplicit}
-                  onSelect={(v) => {
-                    setModelKey(v)
-                    setModelExplicit(true)
-                  }}
-                  zh={zh}
-                />
-              )}
-            </div>
-            <span className="chat-send-btn-wrap">
-              {busy ? (
-                <button type="button" className="chat-stop-btn" aria-label={zh ? '停止生成' : 'Stop generating'} title={zh ? '停止生成' : 'Stop generating'} onClick={stop}>
-                  {CHAT_STOP_ICON}
-                </button>
-              ) : (
-                <button type="button" className="chat-send-btn" disabled={!input.trim()} aria-label={t(locale, 'aiAssistantSend')} title={t(locale, 'aiAssistantSend')} onClick={() => void send(input)}>
-                  {CHAT_SEND_ICON}
-                </button>
-              )}
-            </span>
-          </div>
-        </div>
-      </div>
-      {/* 保存会话到文件弹窗（默认同目录+自动文件名，用户可改）。 */}
+      />
+      <input ref={importInputRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
+        onChange={(e) => { void importSessionsFile(e.target.files?.[0] ?? null); e.target.value = '' }} />
       {saveDialog?.open && (
         <Modal title={zh ? '保存会话到文件' : 'Save conversation to file'} onClose={() => setSaveDialog(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div>
               <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{zh ? '文件名' : 'File name'}</div>
-              <Input value={saveDialog.fileName} onChange={(e) => setSaveDialog({ ...saveDialog, fileName: e.target.value })} placeholder={zh ? '输入文件名（含 .md 扩展名）' : 'File name (with .md)'} />
+              <Input value={saveDialog.fileName} onChange={(e) => setSaveDialog({ ...saveDialog, fileName: e.target.value })} />
             </div>
-            <div>
-              <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-                {zh ? '保存目录' : 'Save to folder'}：{saveDialog.parentId ? (zh ? '当前文件所在目录' : "Current file's folder") : (zh ? '根目录' : 'Root folder')}
-              </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {zh ? '保存目录' : 'Save to'}：{saveDialog.parentId ? (zh ? '当前文件所在目录' : "Current file's folder") : (zh ? '根目录' : 'Root')}
             </div>
           </div>
           <div className="modal-actions">
-            <Button type="primary" disabled={!saveDialog.fileName.trim()} loading={savingFile} onClick={() => void confirmSaveFile()}>
-              {zh ? '保存' : 'Save'}
-            </Button>
+            <Button type="primary" disabled={!saveDialog.fileName.trim()} loading={savingFile} onClick={() => void confirmSaveFile()}>{zh ? '保存' : 'Save'}</Button>
             <Button onClick={() => setSaveDialog(null)}>{zh ? '取消' : 'Cancel'}</Button>
           </div>
         </Modal>
       )}
-      {/* 会话重命名弹窗（与全局助手同款交互）。 */}
       {sessEditing && (
         <Modal title={zh ? '重命名会话' : 'Rename session'} onClose={() => setSessEditing(null)}>
-          <Input
-            value={sessEditing.draft}
-            maxLength={60}
+          <Input value={sessEditing.draft} maxLength={60}
             onChange={(e) => setSessEditing((cur) => (cur ? { ...cur, draft: e.target.value } : cur))}
-            onPressEnter={renameSession}
-            placeholder={zh ? '输入新的会话标题' : 'Enter a new title'}
-          />
+            onPressEnter={renameSession} placeholder={zh ? '输入新的会话标题' : 'Enter a new title'} />
           <div className="modal-actions">
-            <Button type="primary" disabled={!sessEditing.draft.trim()} onClick={renameSession}>
-              {zh ? '确定' : 'OK'}
-            </Button>
+            <Button type="primary" disabled={!sessEditing.draft.trim()} onClick={renameSession}>{zh ? '确定' : 'OK'}</Button>
             <Button onClick={() => setSessEditing(null)}>{zh ? '取消' : 'Cancel'}</Button>
           </div>
         </Modal>
       )}
-    </aside>
+    </>
   )
-  return floatMode ? createPortal(panel, document.body) : panel
 }
