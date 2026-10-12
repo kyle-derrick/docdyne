@@ -1,16 +1,15 @@
-/* DocFlow AI OnlyOffice 插件 v7.0 — 按编辑器类型的工具套装
+/* DocFlow AI OnlyOffice 插件 v7.1 — 按编辑器类型的工具套装
  *
- * v7 相对 v6 的关键变化（见 CHANGELOG）：
- * - 运行时函数改为真实函数声明，经 .toString() 序列化注入 DS 沙箱
- *   （v6 为字符串数组，不可读不可语法校验；现可 node --check）。
- * - 坐标/序号全编辑器统一 1 基：excel [行,列]（[1,1]=A1）、word 元素序号
- *   从 1 起、slide 页码从 1 起（v6 word/slide 为 0 基，跨编辑器易混）。
- * - excel 新增 write_table 组合工具（二维数组整表写入 + 表头自动样式），
- *   根除逐格坐标错位类问题；write_cells/read_range 返回 A1 地址便于校验。
- * - 修复 v6 format_range SetFillColor 传数组导致样式静默失效的 bug。
- * - word/slide 工具扩充（read_table / col_op / find_text / insert_image /
- *   add_table / set_text 等）；提示词按编辑器类型分节细化。
- * - 缓存版本号 v=7（index.html）。 */
+ * v7.1 增量（会话与滚动）：
+ * - 会话记录：按文件维度持久化（localStorage docflow.ai.plugin.convs.{fileId}，
+ *   宿主页 EditorPage 写入 docflow.ai.editor.file），支持历史列表/切换/新建/删除；
+ * - 贴底跟随：用户上滚阅读历史时不被流式输出顶回底部，回到底部自动恢复，
+ *   发送/切换会话强制贴底（与主应用各对话面板一致）；
+ * - 输入框自适应加高：默认约 2 行，最高约 5 行（超出滚动）。
+ *
+ * v7.0 要点（见 CHANGELOG）：真实函数 + toString 序列化运行时；全编辑器
+ * 1 基坐标；excel write_table 组合工具；word 26 / excel 19 / ppt 13 工具；
+ * 提示词按编辑器类型分节；缓存版本号机制（plugin.js 改动须递增 ?v=）。 */
 (function () {
   'use strict';
   var log = document.getElementById('log');
@@ -23,9 +22,153 @@
   var modelSel = document.getElementById('model');
   var modeSeg = document.getElementById('mode');
   var manualBar = document.getElementById('manualBar');
+  var sessBtn = document.getElementById('sess');
+  var sessPanel = document.getElementById('sessPanel');
   var history = [], busy = false, token = '', controller = null;
   var webOn = false, thinkOn = true, editMode = true;
   var editorType = null, docInfo = null, lastReply = '';
+  // 贴底跟随（v7.1）：仅当用户处于底部（距底 < 40px）时跟随新内容。
+  var stick = true;
+  log.addEventListener('scroll', function () {
+    stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  });
+  function stickBottom(force) {
+    if (force) stick = true;
+    if (stick) log.scrollTop = log.scrollHeight;
+  }
+
+  /* ---- 会话记录（v7.1：按文件维度持久化 + 切换/新建/删除）----
+   * 存储键 docflow.ai.plugin.convs.{fileId}（宿主页 EditorPage 经
+   * localStorage docflow.ai.editor.file 提供文件标识；缺省 default）。
+   * 结构 {list:[{id,title,updatedAt,messages}], activeId}；空会话不入库，
+   * 每会话截 40 条、每文件最多 30 个会话。 */
+  var fileKey = 'docflow.ai.plugin.convs.default';
+  try {
+    var fj = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
+    if (fj && fj.id) fileKey = 'docflow.ai.plugin.convs.' + fj.id;
+  } catch (e) {}
+  var sessions = [];
+  var activeId = '';
+  function newSessId() { return 'ps-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
+  function sessTitleOf(msgs) {
+    for (var i = 0; i < msgs.length; i++) if (msgs[i].role === 'user') return String(msgs[i].content).replace(/\s+/g, ' ').slice(0, 18);
+    return '';
+  }
+  function sessLoad() {
+    try {
+      var raw = window.localStorage.getItem(fileKey);
+      var parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && Array.isArray(parsed.list)) sessions = parsed.list.filter(function (s) { return s && typeof s.id === 'string' && Array.isArray(s.messages); });
+    } catch (e) { sessions = []; }
+    sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+    activeId = (sessions[0] && sessions[0].id) || newSessId();
+    history = sessMsgs(activeId).slice();
+  }
+  function sessMsgs(id) {
+    for (var i = 0; i < sessions.length; i++) if (sessions[i].id === id) return sessions[i].messages;
+    return [];
+  }
+  function sessSave() {
+    var persist = history.slice(-40);
+    var others = sessions.filter(function (s) { return s.id !== activeId; });
+    if (persist.length) {
+      var cur = null;
+      for (var i = 0; i < sessions.length; i++) if (sessions[i].id === activeId) cur = sessions[i];
+      others.push({ id: activeId, title: (cur && cur.title) || sessTitleOf(persist) || '新会话', updatedAt: Date.now(), messages: persist });
+      others.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+    }
+    sessions = others.slice(0, 30);
+    try { window.localStorage.setItem(fileKey, JSON.stringify({ list: sessions, activeId: activeId })); } catch (e) {}
+    renderSessions();
+  }
+  /** 把 history 回放为消息气泡（切换/恢复会话时重建 log）。 */
+  function renderHistory() {
+    log.innerHTML = '';
+    thinkEl = null;
+    for (var i = 0; i < history.length; i++) {
+      if (history[i].role === 'user') userBubble(history[i].content);
+      else el('div', 'm a', mdToHtml(String(history[i].content)));
+    }
+    stickBottom(true);
+  }
+  /** 会话浮层渲染（打开时与保存后刷新）。 */
+  function fmtTime(ts) {
+    var d = Date.now() - ts;
+    if (d < 60000) return '刚刚';
+    if (d < 3600000) return Math.floor(d / 60000) + ' 分钟前';
+    if (d < 86400000) return Math.floor(d / 3600000) + ' 小时前';
+    return Math.floor(d / 86400000) + ' 天前';
+  }
+  function renderSessions() {
+    if (!sessPanel) return;
+    sessPanel.innerHTML = '';
+    if (!sessions.length) {
+      var em = document.createElement('div');
+      em.className = 'sess-empty';
+      em.textContent = '暂无历史会话';
+      sessPanel.appendChild(em);
+    }
+    for (var i = 0; i < sessions.length; i++) {
+      (function (s) {
+        var row = document.createElement('div');
+        row.className = 'sess-item' + (s.id === activeId ? ' active' : '');
+        var t = document.createElement('span'); t.className = 't'; t.title = s.title || ''; t.textContent = s.title || '（未命名）';
+        var tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = fmtTime(s.updatedAt);
+        var del = document.createElement('button'); del.className = 'del'; del.title = '删除会话'; del.textContent = '✕';
+        del.onclick = function (ev) {
+          ev.stopPropagation();
+          sessions = sessions.filter(function (x) { return x.id !== s.id; });
+          try { window.localStorage.setItem(fileKey, JSON.stringify({ list: sessions, activeId: s.id === activeId ? (sessions[0] ? sessions[0].id : '') : activeId })); } catch (e) {}
+          if (s.id === activeId) {
+            activeId = sessions[0] ? sessions[0].id : newSessId();
+            history = sessMsgs(activeId).slice();
+            renderHistory();
+          }
+          renderSessions();
+        };
+        row.appendChild(t); row.appendChild(tm); row.appendChild(del);
+        row.onclick = function () {
+          if (s.id === activeId) { sessPanel.style.display = 'none'; return; }
+          sessSave();
+          activeId = s.id;
+          history = sessMsgs(activeId).slice();
+          renderHistory();
+          sessPanel.style.display = 'none';
+          setHint('已切换会话');
+        };
+        sessPanel.appendChild(row);
+      })(sessions[i]);
+    }
+    var nb = document.createElement('button');
+    nb.className = 'sess-new';
+    nb.textContent = '＋ 新建会话';
+    nb.onclick = function () {
+      sessSave();
+      activeId = newSessId();
+      history = [];
+      renderHistory();
+      sessPanel.style.display = 'none';
+      setHint('已新建会话');
+    };
+    sessPanel.appendChild(nb);
+  }
+  if (sessBtn && sessPanel) {
+    sessBtn.onclick = function (e) {
+      e.stopPropagation();
+      var show = sessPanel.style.display !== 'block';
+      if (show) renderSessions();
+      sessPanel.style.display = show ? 'block' : 'none';
+    };
+    sessPanel.onclick = function (e) { e.stopPropagation(); };
+    document.addEventListener('click', function () { sessPanel.style.display = 'none'; });
+  }
+
+  /* ---- 输入框自适应加高（v7.1：默认约 2 行，最高约 5 行）---- */
+  function growInput() {
+    q.style.height = 'auto';
+    q.style.height = Math.min(120, Math.max(48, q.scrollHeight)) + 'px';
+  }
+  q.addEventListener('input', growInput);
   try { if (/theme-type=(dark)/.exec(window.location.search)) document.documentElement.dataset.themeType = 'dark'; } catch (e) {}
   function readEditorKind() {
     try { var k = window.localStorage.getItem('docflow.ai.editor.kind');
@@ -122,7 +265,7 @@
     var d = document.createElement(tag);
     if (cls) d.className = cls;
     if (html !== undefined) d.innerHTML = html;
-    log.appendChild(d); log.scrollTop = log.scrollHeight;
+    log.appendChild(d); stickBottom(false);
     return d;
   }
   function setHint(t) { hintEl.textContent = t; }
@@ -136,7 +279,7 @@
     }
     thinkEl._b.textContent += chunk;
     if (thinkEl._b.textContent.length > 12000) thinkEl._b.textContent = '…' + thinkEl._b.textContent.slice(-12000);
-    log.scrollTop = log.scrollHeight;
+    stickBottom(false);
   }
   function settleThink(ms) {
     if (!thinkEl) return;
@@ -155,7 +298,7 @@
     card.querySelector('.t-head').innerHTML = (ok ? '✅ ' : '⚠️ ') + esc(name);
     var r = document.createElement('div'); r.className = 't-res';
     r.textContent = (typeof payload === 'string' ? payload : JSON.stringify(payload)).slice(0, 400);
-    card.appendChild(r); log.scrollTop = log.scrollHeight;
+    card.appendChild(r); stickBottom(false);
   }
 
   /* ====================================================================
@@ -1248,8 +1391,10 @@
     var text = q.value.trim();
     if (!text || busy) return;
     q.value = '';
+    growInput();
     setBusyUI(true);
     userBubble(text);
+    stickBottom(true);
     thinkEl = null;
     controller = new AbortController();
     editorType = readEditorKind() || 'word';
@@ -1261,16 +1406,17 @@
       if (s) el('div', 'm a', mdToHtml(s));
       history.push({ role: 'user', content: text }, { role: 'assistant', content: ('完成：' + s).slice(0, 2000) });
       if (history.length > 12) history = history.slice(-12);
+      sessSave();
       probeEditor().then(function () {});
       setBusyUI(false); controller = null;
       setHint('已完成（DS 自动保存）');
     }
-    function finishErr(m) { settleThink(0); el('div', 'm a err', esc(m)); setBusyUI(false); controller = null; }
+    function finishErr(m) { settleThink(0); el('div', 'm a err', esc(m)); sessSave(); setBusyUI(false); controller = null; }
 
     if (!editMode) {
       var acc = '', bub = null;
       chat(convo, {
-        onDelta: function (d) { acc += d; if (!bub) bub = el('div', 'm a'); bub.innerHTML = mdToHtml(acc) + '<span class="caret"></span>'; log.scrollTop = log.scrollHeight; },
+        onDelta: function (d) { acc += d; if (!bub) bub = el('div', 'm a'); bub.innerHTML = mdToHtml(acc) + '<span class="caret"></span>'; stickBottom(false); },
         onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
         onDone: function () { settleThink(thinkStart ? Date.now() - thinkStart : 0); if (bub) bub.innerHTML = mdToHtml(acc); }
       }).then(function () { lastReply = acc; setBusyUI(false); controller = null; })
@@ -1282,7 +1428,7 @@
       rounds++;
       var acc2 = '', raw = null;
       chat(convo, {
-        onDelta: function (d) { acc2 += d; if (!raw) raw = el('div', 'raw'); raw.textContent = acc2.slice(-300) + ' ▌'; log.scrollTop = log.scrollHeight; },
+        onDelta: function (d) { acc2 += d; if (!raw) raw = el('div', 'raw'); raw.textContent = acc2.slice(-300) + ' ▌'; stickBottom(false); },
         onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
         onDone: function () {}
       }).then(function () {
@@ -1317,7 +1463,11 @@
     manualBar.classList.toggle('hidden', editMode);
     q.placeholder = editMode ? '描述要做的修改…' : '仅对话模式…';
   });
-  document.getElementById('clear').onclick = function () { history = []; lastReply = ''; log.innerHTML = ''; setHint('已清空'); };
+  document.getElementById('clear').onclick = function () {
+    history = []; lastReply = ''; log.innerHTML = ''; thinkEl = null;
+    sessSave();
+    setHint('已清空当前会话');
+  };
   document.getElementById('insert').onclick = function () { if (lastReply && window.Asc && window.Asc.plugin) window.Asc.plugin.executeMethod('PasteHtml', [mdToHtml(lastReply)]); };
   document.getElementById('replace').onclick = function () { if (lastReply && window.Asc && window.Asc.plugin) window.Asc.plugin.executeMethod('PasteHtml', [mdToHtml(lastReply)]); };
 
@@ -1327,18 +1477,29 @@
     reg = true;
     window.Asc.plugin.init = function () {
       editorType = readEditorKind();
-      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7');
+      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.1');
       void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () { setHint('初始化失败'); });
     };
     window.Asc.plugin.onMethodReturn = function () {};
     window.Asc.plugin.button = function () {};
   }
+  // 会话恢复（文件标识可能晚于插件装载写入——稍候再读一次）。
+  sessLoad();
+  renderHistory();
+  window.setTimeout(function () {
+    var key2 = 'docflow.ai.plugin.convs.default';
+    try {
+      var fj = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
+      if (fj && fj.id) key2 = 'docflow.ai.plugin.convs.' + fj.id;
+    } catch (e) {}
+    if (key2 !== fileKey) { fileKey = key2; sessLoad(); renderHistory(); }
+  }, 800);
   if (window.Asc && window.Asc.plugin) { register(); }
   else {
     var n = 0, p = setInterval(function () {
       n++;
       if (window.Asc && window.Asc.plugin) { clearInterval(p); register(); if (window.Asc.plugin.init) window.Asc.plugin.init(); return; }
-      if (n >= 20) { clearInterval(p); setHint('调试模式 · v7'); }
+      if (n >= 20) { clearInterval(p); setHint('调试模式 · v7.1'); }
     }, 500);
     void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () {});
   }

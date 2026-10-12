@@ -203,14 +203,16 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             : 'OnlyOffice DocsAPI is unavailable (script loaded but API missing)')
           return
         }
-        // 同源 localStorage 传编辑器类型给 DocFlow AI 插件（docx→word /
+        // 同源 localStorage 传编辑器类型与文件标识给 DocFlow AI 插件（docx→word /
         // xlsx→cell / pptx→slide）。该定制 DS 构建的沙箱初始化期只有
         // 混淆内部方法，callCommand 探测不可靠——agent 误判 unknown 是
-        // Excel/Word 编辑失效的根因；从 fileType 硬判定彻底消除。
+        // Excel/Word 编辑失效的根因；从 fileType 硬判定彻底消除。文件标识
+        // 供插件按文件维度持久化会话记录（v7.1）。
         try {
           const ft = String(((config as Record<string, unknown>).document as Record<string, unknown> | undefined)?.fileType ?? '')
           const kind = /xl/i.test(ft) ? 'cell' : /pp/i.test(ft) ? 'slide' : ft ? 'word' : 'pdf'
           window.localStorage.setItem('docflow.ai.editor.kind', ft ? kind : 'pdf')
+          window.localStorage.setItem('docflow.ai.editor.file', JSON.stringify({ id: fileId, name: '' }))
         } catch { /* ignore */ }
         const editorConfig: OnlyOfficeEditorConfig = {
           ...config,
@@ -309,7 +311,11 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
    *  executeMethod('Save') 触发立即保存（DocumentServer 收到命令后回调
    *  落版本），提示后返回文件页。 */
   useEffect(() => {
-    if (file) setAIContextFile({ fileId: file.id, fileName: file.name })
+    if (file) {
+      setAIContextFile({ fileId: file.id, fileName: file.name })
+      // 文件元信息就绪后补全插件会话标识（config 加载期可能先于元信息到达）。
+      try { window.localStorage.setItem('docflow.ai.editor.file', JSON.stringify({ id: file.id, name: file.name })) } catch { /* ignore */ }
+    }
     return () => setAIContextFile(null)
   }, [file])
 
