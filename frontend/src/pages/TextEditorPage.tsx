@@ -547,37 +547,6 @@ export default function TextEditorPage({
     }
   }
 
-  /** 版本保护前置：确保当前内容已保存（有未保存修改先 save），返回应用前
-   * 版本信息（null=保存失败，AIEditChat 将放弃自动应用）。 */
-  const aiEnsureSaved = useCallback(async (): Promise<{ versionId: string; version: number } | null> => {
-    try {
-      if (dirtyRef.current) {
-        await save()
-        // save() 内部捕获错误不抛出：dirtyRef 仍为 true 即保存失败。
-        if (dirtyRef.current) return null
-      }
-      const meta = await getFileMeta(fileId)
-      return meta.current_version
-        ? { versionId: meta.current_version.id, version: meta.current_version.version }
-        : null
-    } catch {
-      return null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, save])
-
-  /** 撤销回退后刷新编辑器：重新拉取最新内容（Monaco 受控 value 随 setText
-   * 同步刷新，无需重挂）并清理 dirty。 */
-  const aiReload = useCallback(async () => {
-    const content = await fetchFileText(fileId)
-    setText(content)
-    dirtyRef.current = false
-    setDirty(false)
-    setNotice('')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId])
-
-  /** 头部下拉快捷指令：打开面板并透传给 AIEditChat 自动执行。 */
   const openAiChatWith = (cmd: AIQuickCommand) => {
     setAiChatOpen(true)
     setAiQuick(cmd)
@@ -725,13 +694,8 @@ export default function TextEditorPage({
           open={aiChatOpen}
           onClose={() => setAiChatOpen(false)}
           getTarget={aiGetTarget}
-          getAllText={() => text}
-          onApply={aiApply}
-          onAppend={aiAppendEnd}
           agentTools={aiEditTools}
           fileId={fileId}
-          ensureSaved={aiEnsureSaved}
-          reload={aiReload}
           quickCommand={aiQuick}
           onQuickConsumed={() => setAiQuick(null)}
         />

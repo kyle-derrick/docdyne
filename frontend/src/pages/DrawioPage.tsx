@@ -467,9 +467,6 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
     frame.postMessage(JSON.stringify({ action: 'export', format: 'xml' }), '*')
   }
 
-  /** AI XML 自动应用（AIEditChat 已提取完整 drawio XML；单轮生成通道）。 */
-  const aiApply = (_mode: 'insert' | 'replace', xml: string): string | void => applyDiagramXML(xml)
-
   /** v7 drawio Agent 工具集：单元格级读/列/增/改/删 + 整图替换——局部修改
    *  不再需要输出整份 XML（id 定位、样式键值合并、悬空边清理）。 */
   const aiAgentTools: AIEditTool[] = useMemo(() => {
@@ -656,39 +653,6 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 版本保护前置：应用前先把当前图表（最新已知 XML）保存为基线版本。 */
-  const aiEnsureSaved = async (): Promise<{ versionId: string; version: number } | null> => {
-    try {
-      if (dirtyRef.current) {
-        const ok = await saveDiagram(xmlRef.current, true)
-        if (!ok) return null
-      }
-      const meta = await getFileMeta(fileId)
-      return meta.current_version
-        ? { versionId: meta.current_version.id, version: meta.current_version.version }
-        : null
-    } catch {
-      return null
-    }
-  }
-
-  /** 撤销回退后刷新画布：重新拉取文件内容，经 load 消息重载编辑器。 */
-  const aiReload = async (): Promise<void> => {
-    const text = await fetchFileText(fileId)
-    xmlRef.current = text.trim() ? text : EMPTY_DRAWIO_XML
-    dirtyRef.current = false
-    frameRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ action: 'load', xml: xmlRef.current, autosave: 1 }),
-      '*',
-    )
-    try {
-      setFile(await getFileMeta(fileId))
-    } catch {
-      // 版本号刷新失败不影响回退结果
-    }
-  }
-
-  /** 头部下拉快捷指令：打开面板并透传给 AIEditChat 自动执行。 */
   const openAiChatWith = (cmd: AIQuickCommand) => {
     setAiChatOpen(true)
     setAiQuick(cmd)
@@ -798,11 +762,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             open={aiChatOpen}
             onClose={() => setAiChatOpen(false)}
             getTarget={aiGetTarget}
-            getAllText={() => xmlRef.current}
-            onApply={aiApply}
             fileId={fileId}
-            ensureSaved={aiEnsureSaved}
-            reload={aiReload}
             quickCommand={aiQuick}
             onQuickConsumed={() => setAiQuick(null)}
             applyKind="drawio-xml"

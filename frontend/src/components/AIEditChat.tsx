@@ -1,25 +1,12 @@
-// 编辑器页「AI 对话式创作/编辑」侧栏面板：
-// - AIEditChatButton：编辑器页头部「AI 对话」Dropdown.Button 入口（Sparkles；
-//   AI 未启用不渲染，useAIEnabled 门控）——主点击展开/收起右侧面板，下拉
-//   菜单为原 AIEditMenu 并入的快捷指令（摘要/续写/润色/翻译成英文/自定义），
-//   点击经 onQuick 通知宿主页打开面板并自动发送（见 AIQuickCommand）；
-// - AIEditChat（默认导出）：页面内嵌右侧面板，Monaco（md/text/code）与
-//   Tiptap（.dfrt/.dfdoc）编辑页共用——多轮对话（SSE 流式 + markdown +
-//   打字机光标，气泡/头像布局与全局 AIAssistant 统一）、上下文范围选择
-//   （选区默认，无选区禁用并提示 / 全文）、快捷指令 chips、停止生成
-//   （AbortController → aiChat signal，卸载自动 abort）。
-// - 模式开关（Segmented）：「可修改」= 回复流式完成后自动应用（有选区替换
-//   选区、无选区经 onAppend 追加文末），应用前先经 ensureSaved 保存新版本
-//   （版本保护），消息下记录修改点并支持一键撤销（restoreVersion 回退到
-//   应用前版本 + reload 刷新编辑器）；「仅对话」= 纯输出不改动文档。
-//   手动「插入到光标 / 替换选区」按钮已移除，仅保留「复制」。
-// - 应用通道 applyKind（默认 text 行为不变）：excalidraw-json（白板页：
-//   AI 只回 excalidraw 元素 JSON 数组，自动应用时提取 JSON 交宿主经官方
-//   convertToExcalidrawElements 转为白板原生元素追加插入）、drawio-xml
-//   （图表页：AI 回完整 drawio XML，自动应用时提取 XML 整体替换画布）；
-//   v3.9：OnlyOffice 编辑页不再挂本面板（Office 的 AI 入口 = 编辑器内
-//   DocFlow AI 插件，见 frontend/public/oo-plugins/docflow-ai）；本面板
-//   仅服务有落盘通道的宿主页（Monaco/Tiptap/白板/图表）。
+// 编辑器页「AI 对话」侧栏面板（v7.4：Agent 工具循环为唯一通道）：
+// - AIEditChatButton：头部入口（Sparkles，AI 未启用不渲染；下拉快捷指令）；
+// - AIEditChat：Monaco/富文本/白板/drawIO 编辑页共用。宿主经 agentTools
+//   注入编辑工具集 + agentSystemExtra 注入宿主规范，三种模式：
+//   可修改=TOOL_CALL 工具循环（预算 300 轮、上下文压缩、同参连败熔断、
+//   达限「继续」）；计划=只读子集探查产出执行计划一键执行；仅对话=纯问答。
+// - 过程 TraceView 分阶段折叠（思考段/工具条目 + 用量汇总）；会话服务端
+//   持久化（按文件分域，ConvoPicker 统一选择器：搜索/切换/重命名/删除）；
+// - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntdApp, Button, Checkbox, Input, Popover, Segmented, Tooltip } from 'antd'
 import { Modal } from './FileBrowser'
@@ -27,11 +14,11 @@ import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import { Check, Copy, Download, FileText, HelpCircle, ListChecks, MessagesSquare, Paperclip, Play, Plus, RotateCcw, Save, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react'
-import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, restoreVersion, searchFiles, uploadFile } from '../api'
+import { aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, listFiles, searchFiles, uploadFile } from '../api'
 import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AIToolCalls, AIWebSources, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, normalizeWebSources, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
-import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
+import { AIChatThinking } from './aichat'
 import ConvoPicker from './aichat/ConvoPicker'
 import TraceView from './aichat/TraceView'
 import type { TraceStage, TraceUsage } from './aichat/TraceView'
@@ -68,11 +55,6 @@ const MAX_CONTEXT_CHARS = 6000
 
 /** 随每轮携带的问答历史轮数（每轮独立重建上下文）。 */
 const HISTORY_ROUNDS = 2
-
-/** 自动应用记录的文本摘要长度（前 N 字）。 */
-const APPLY_SUMMARY_CHARS = 60
-
-type ChatScope = 'selection' | 'full'
 
 /** Agent 模式 system 提示词的宿主名（按 applyKind）。 */
 function agentHostLabel(kind: AIApplyKind): string {
@@ -125,39 +107,6 @@ export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'richtext-
 
 /** 从 AI 回复中提取 excalidraw 元素 JSON 源码：优先 ```excalidraw-json 围栏；
  * 其次任意围栏代码块内容以 [ 开头；最后裸数组（trim 后 [ 起 ] 止）。
- * 只负责提取文本——JSON.parse 与元素合法性校验在宿主页（非法时回
- * applyError，画布不动）。 */
-function extractExcalidrawJSON(reply: string): string {
-  const fenced = /```(?:excalidraw-json|excalidraw)[^\n]*\n([\s\S]*?)```/.exec(reply)
-  if (fenced && fenced[1].trim().startsWith('[')) return fenced[1].trim()
-  const re = /```[^\n]*\n([\s\S]*?)```/g
-  for (let m = re.exec(reply); m; m = re.exec(reply)) {
-    const body = m[1].trim()
-    if (body.startsWith('[')) return body
-  }
-  const trimmed = reply.trim()
-  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed
-  return ''
-}
-
-/** 从 AI 回复中提取完整 drawio XML：优先 ```xml 围栏；裸文则取首个
- * <mxfile|<mxGraphModel 起至对应闭合标签。 */
-function extractDrawioXML(reply: string): string {
-  const fenced = /```(?:xml|drawio)[^\n]*\n([\s\S]*?)```/.exec(reply)
-  if (fenced && /^<(?:mxfile|mxGraphModel)\b/.test(fenced[1].trim())) return fenced[1].trim()
-  const start = reply.search(/<(?:mxfile|mxGraphModel)\b/)
-  if (start >= 0) {
-    const endFile = reply.lastIndexOf('</mxfile>')
-    const endModel = reply.lastIndexOf('</mxGraphModel>')
-    const end = Math.max(endFile, endModel)
-    if (end > start) {
-      const closeLen = end === endFile ? '</mxfile>'.length : '</mxGraphModel>'.length
-      return reply.slice(start, end + closeLen).trim()
-    }
-  }
-  return ''
-}
-
 /** drawio-xml 通道 system 指令附加的 XML 生成参考（吸收 jgraph/drawio-mcp
  * 官方指南精编，≤45 行）。技术规范统一英文——模型对英文 XML 约定遵循更稳，
  * 双语 intro 仍按现有 locale 机制（见 send()）。仅增强提示词，不影响
@@ -174,23 +123,6 @@ export const DRAWIO_XML_GUIDE = `drawio XML quick reference:
 - Overlap (mandatory): never let two node boxes intersect; align on a grid (x/y multiples of 20), keep >=40px spacing in both axes.
 - Editing an existing diagram: keep the ids of unchanged elements and only modify their style/geometry/value, or add/remove cells; never renumber the whole model.
 - The XML must be well-formed; escape < > & " ' inside value attributes.`
-
-/** richtext-patch 通道 system 指令附加的「富文本编辑指令规范」（同
- * DRAWIO_XML_GUIDE 模式：英文技术规范，双语 intro 按现有 locale 机制）。
- * AI 输出 ```docflow-edit 围栏内的 JSON 指令数组；宿主执行器按 find/after
- * 定位原文（纯文本精确匹配）逐条执行增删改插。 */
-const RICHTEXT_PATCH_GUIDE = `Rich text edit instruction protocol (mandatory output format):
-- Reply with exactly one fenced block starting with \`\`\`docflow-edit and ending with \`\`\`, containing ONLY a JSON array of edit operations. No explanations outside the fence.
-- Operations, executed in array order:
-  {"op":"replace","find":"<exact original snippet>","text":"<replacement, Markdown>"}
-  {"op":"insert","after":"<exact original snippet>","text":"<new content, Markdown, inserted right after that snippet>"}
-  {"op":"delete","find":"<exact original snippet to remove>"}
-  {"op":"replaceAll","text":"<entire new document, Markdown>"} — only when the edits affect most of the document.
-- PROTECTED CONTENT: lines like [DocFlow-Embed kind="drawio" fileId="..." title="..."], [DocFlow-Image fileId="..." title="..."] and [DocFlow-File fileId="..." title="..."] in the document are embedded blocks (diagrams/whiteboards/images/file cards). They MUST be preserved VERBATIM — copy them character-for-character (all attributes unchanged) into the output "text" whenever the surrounding content is replaced or rewritten, as standalone lines at a sensible position. NEVER edit, reword, merge, split or drop them. When emitting a replaceAll you are expected to keep every placeholder line.
-- Locating rules: "find"/"after" must be copied VERBATIM from the document text given in the user message (plain text only — bold/links/headings are invisible to the matcher). Pick a snippet of 10-80 characters that is unique in the document and taken from within a single paragraph/heading; never rewrite, shorten or fabricate the snippet. Do not use placeholder lines (e.g. [DocFlow-Embed ...]) inside "find"/"after" — they are not plain text and cannot be located.
-- Locate every operation against the ORIGINAL document text; a snippet that earlier operations already removed is skipped, so do not chain operations onto text you are replacing.
-- "text" values are Markdown (headings, lists, tables, code fences, bold, links, ...). The fence body must be valid JSON: escape " as \\" and newlines inside values as \\n.
-- Prefer several small precise operations over one huge replace; never output the whole document unless replaceAll is truly needed.`
 
 /** excalidraw-json 通道 system 指令附加的元素 JSON 生成规范（以本地
  * @excalidraw/excalidraw 0.17.6 的 types/element/types.d.ts 字段定义与
@@ -218,27 +150,6 @@ export const EXCALIDRAW_JSON_GUIDE = `Excalidraw elements JSON quick reference (
 - Accent sparingly: strokeColor+backgroundColor pairs like #1971c2/#a5d8ff (blue), #2f9e44/#d3f9d8 (green), #e8590c/#ffe8cc (orange), #c2255c/#ffdeeb (pink) to group related nodes; keep connectors neutral #1e1e1e or #868e96.
 - The output must be strictly valid JSON (double quotes, no trailing commas, no comments).`
 
-/** 已应用 payload 回复的折叠视图：自动应用成功后，回复正文（白板 JSON/
- * drawio XML/编辑指令等大段 payload）不再整屏裸输出——摘要卡片 + 「查看
- * 原始回复」按需展开（展开后长代码块仍受 AIMarkdown 折叠约束）。 */
-function AppliedReplyView({ content, zh, label }: { content: string; zh: boolean; label: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="ai-applied-payload">
-      <div className="ai-applied-payload-head">
-        <Check size={13} strokeWidth={2} className="ok-text" aria-hidden="true" />
-        <span className="ai-applied-payload-label">{label}</span>
-        <Button size="small" type="link" className="ai-applied-payload-toggle" onClick={() => setOpen((v) => !v)}>
-          {open ? (zh ? '收起原始回复' : 'Collapse raw reply') : (zh ? '查看原始回复' : 'View raw reply')}
-        </Button>
-      </div>
-      {open && <AIMarkdown text={content} zh={zh} />}
-    </div>
-  )
-}
-
-/** 头部下拉快捷指令：send=打开面板自动发送（editMode 指定以何种模式处理）；
- * focus=打开面板并聚焦输入框（自定义指令）。 */
 export type AIQuickCommand =
   | { kind: 'send'; instruction: string; editMode: boolean }
   | { kind: 'focus' }
@@ -483,16 +394,10 @@ export default function AIEditChat({
   open,
   onClose,
   getTarget,
-  getAllText,
-  onApply,
-  onAppend,
   fileId,
-  ensureSaved,
-  reload,
   quickCommand,
   onQuickConsumed,
   applyKind = 'text',
-  outputFormat = 'plaintext',
   agentTools,
   agentSystemExtra,
 }: {
@@ -500,30 +405,14 @@ export default function AIEditChat({
   onClose: () => void
   /** 当前选区（text 为选中文本；无选区时返回全文与 hasSelection=false）。 */
   getTarget: () => AIEditTarget
-  /** 全文（「全文」范围与无选区回退时的输入）。 */
-  getAllText: () => string
-  /** 应用结果（宿主页面负责编辑器落盘与 dirty 标记）。返回 string=应用
-   * 失败原因（文档未被修改，显示为 applyError）；Promise 版本供元素 JSON
-   * 转换等异步落盘（text 场景维持同步 void，行为不变）。 */
-  onApply: (mode: 'insert' | 'replace', output: string) => string | void | Promise<string | void>
-  /** 无选区时追加到文档末尾（缺省回退 onApply('insert')）。 */
-  onAppend?: (output: string) => void
-  /** 文件 id（撤销时 restoreVersion 用）。 */
+  /** 文件 id（服务端会话分域键）。 */
   fileId: string
-  /** 确保当前内容已保存为新版本，返回应用前版本（null=保存失败）。 */
-  ensureSaved: () => Promise<{ versionId: string; version: number } | null>
-  /** 撤销回退后刷新编辑器内容（含 dirty 清理）。 */
-  reload: () => Promise<void>
+  /** 应用通道标识（Agent 宿主名与快捷指令形态）。 */
+  applyKind?: AIApplyKind
   /** 头部下拉快捷指令（非 null 时自动执行一次）。 */
   quickCommand?: AIQuickCommand | null
   /** 快捷指令执行后回调（宿主页清空 quickCommand）。 */
   onQuickConsumed?: () => void
-  /** 应用通道（默认 text；excalidraw-json/drawio-xml 见 AIApplyKind）。 */
-  applyKind?: AIApplyKind
-  /** text 通道输出格式（默认 plaintext=原样纯文本输出，Monaco 等用）；
-   * markdown=富文本宿主（.dfrt 编辑页）：system 指令要求输出 Markdown，
-   * 宿主经 marked 转富文本 HTML 插入。仅 applyKind='text' 生效。 */
-  outputFormat?: 'markdown' | 'plaintext'
   /** 宿主注册的编辑工具集（v5 内置 Agent 模式）：提供时面板切换为
    *  TOOL_CALL/FINAL 工具循环——AI 自主读文档/定位/编辑/验证（编辑范围
    *  由 AI 判断），工具经 exec 在宿主编辑器上执行，过程以工具链 UI 展示。
@@ -804,16 +693,11 @@ export default function AIEditChat({
     }
   }
   const [input, setInput] = useState('')
-  const [scope, setScope] = useState<ChatScope>('selection')
-  const [hasSelection, setHasSelection] = useState(false)
-  const [selectionLen, setSelectionLen] = useState(0)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   /** 面板模式：可修改（默认）/仅对话（ref 供快捷指令立即生效）。 */
   const [mode, setMode] = useState<ChatMode>('edit')
   const modeRef = useRef<ChatMode>('edit')
-  /** 正在执行撤销的回合 id（单飞：同一时间只允许一次版本回退）。 */
-  const [undoingId, setUndoingId] = useState<number | null>(null)
   // 联网/思考开关：与全局助手共用 localStorage key 与默认逻辑
   //（所选模型从 docflow.ai.model 读取，无记忆时回落 default_models.chat；
   //  模型列表仅用于评估思考能力）。
@@ -883,18 +767,8 @@ export default function AIEditChat({
   // 命令式访问器经 ref 取（宿主每渲染重建函数，避免 effect 反复重挂）。
   const getTargetRef = useRef(getTarget)
   getTargetRef.current = getTarget
-  const getAllTextRef = useRef(getAllText)
-  getAllTextRef.current = getAllText
-  const onApplyRef = useRef(onApply)
-  onApplyRef.current = onApply
-  const onAppendRef = useRef(onAppend)
-  onAppendRef.current = onAppend
   const fileIdRef = useRef(fileId)
   fileIdRef.current = fileId
-  const ensureSavedRef = useRef(ensureSaved)
-  ensureSavedRef.current = ensureSaved
-  const reloadRef = useRef(reload)
-  reloadRef.current = reload
 
   // 卸载清理：中止进行中的生成。
   useEffect(() => () => { abortRef.current?.abort() }, [])
@@ -932,24 +806,6 @@ export default function AIEditChat({
   }, [open, aiOn, fileId])
 
   // 新回合/流式更新的滚动由 useStickyScroll 承担（贴底才跟随）。
-
-  // 面板打开期间轻量轮询选区（「选区」选项禁用态、范围提示联动）。
-  useEffect(() => {
-    if (!open || !aiOn) return
-    const check = () => {
-      const tgt = getTargetRef.current()
-      setHasSelection(tgt.hasSelection)
-      setSelectionLen(tgt.hasSelection ? tgt.text.length : 0)
-    }
-    check()
-    const timer = window.setInterval(check, 1000)
-    return () => window.clearInterval(timer)
-  }, [open, aiOn])
-
-  // 选区丢失时回退「全文」（「选区」选项已禁用，避免悬空取值）。
-  useEffect(() => {
-    if (!hasSelection && scope === 'selection') setScope('full')
-  }, [hasSelection, scope])
 
   // 头部下拉快捷指令：send=切模式并自动发送；focus=聚焦输入框。
   useEffect(() => {
@@ -1068,7 +924,7 @@ export default function AIEditChat({
     return [userTurnId, asstTurnId]
   }
 
-  const sendAgent = async (question: string) => {
+  const sendAgent = async (question: string, attachFiles?: AIAttachFile[]) => {
     const tools = agentToolsRef.current ?? []
     // 用户发送 = 关注最新输出：强制恢复贴底跟随（即便此前上滚阅读）。
     sticky.scrollToBottom()
@@ -1079,7 +935,7 @@ export default function AIEditChat({
     const controller = new AbortController()
     abortRef.current = controller
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: question }]
-    await runAgentLoop(tools, convo, asstTurnId, controller)
+    await runAgentLoop(tools, convo, asstTurnId, controller, {}, attachFiles)
   }
 
   /** 计划模式：只读工具探查 → FINAL=执行计划（标记 planReady）。 */
@@ -1192,6 +1048,7 @@ ${planText}` },
     asstTurnId: number,
     controller: AbortController,
     opts: { plan?: boolean } = {},
+    attachFiles?: AIAttachFile[],
   ) => {
     // 过程分段写入（trace）：think=本轮思考段（首个思考增量开段），tool=一次调用。
     let stageSeq = 0
@@ -1229,7 +1086,7 @@ ${planText}` },
         // 发送视图经压缩（防长会话爆上下文）；瞬态错误（网络/网关抖动，
         // 非用户中止）自动重试一次，再失败按原语义终止本轮任务。
         const roundChat = () => aiChat(
-          { messages: agentConvoView(convo), think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined },
+          { messages: agentConvoView(convo), think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
           {
             onDelta: (chunk) => {
               acc += chunk
@@ -1443,275 +1300,23 @@ ${planText}` },
     }
   }
 
-  /** 发送一轮：每轮独立构造 prompt（系统约束 + 最近 2 轮历史 + 指令与
-   * 当前选区/全文上下文），SSE 流式渲染；停止/失败落在助手回合上。
-   * 可修改模式下正常完成后自动应用（见 autoApply）；中止/失败不应用。 */
+  /** 发送：Agent 页按模式分发（可修改=工具循环 / 计划=只读规划 / 仅对话=纯问答）。 */
   const send = async (question: string) => {
     const text = question.trim()
     if (!text || busy) return
-    // 用户发送 = 关注最新输出：强制恢复贴底跟随（单轮/Agent 通道共用）。
+    // 用户发送 = 关注最新输出：强制恢复贴底跟随；引用文件随首轮注入上下文。
     sticky.scrollToBottom()
-    if (agentTools && agentTools.length > 0) {
-      // Agent 页按面板模式分流：可修改=工具循环（AI 可改文档）；计划=只读
-      // 工具探查产出执行计划；仅对话=纯问答（无编辑工具）。
-      const m = modeRef.current
-      if (m === 'edit') { await sendAgent(text); return }
-      if (m === 'plan') { await sendAgentPlan(text); return }
-      await sendAgentChat(text); return
-    }
-    // 以发送时刻的模式为准（流式期间切换不影响本轮）。
-    const applyMode = modeRef.current
-    const tgt = getTargetRef.current()
-    const useSelection = scope === 'selection' && tgt.hasSelection
-    const full = useSelection ? tgt.text : getAllTextRef.current()
-    // 空上下文：文本编辑页维持原拦截；excalidraw/drawio/仅对话场景允许无
-    // 上下文发送（空白画布从零生成、Office 无转换文本时直接提问）。
-    if (!full.trim() && applyKind === 'text') {
-      setNotice(zh ? '文档内容为空，无法作为上下文发送' : 'Nothing to send: the document is empty')
-      return
-    }
-    const truncated = full.length > MAX_CONTEXT_CHARS
-    const content = truncated ? full.slice(0, MAX_CONTEXT_CHARS) : full
-    const scopeLabel = useSelection ? (zh ? '选区' : 'selection') : (zh ? '全文' : 'whole document')
-    const truncNote = truncated
-      ? (zh ? `，已截断至前 ${MAX_CONTEXT_CHARS} 字符` : `, truncated to the first ${MAX_CONTEXT_CHARS} chars`)
-      : ''
-    // 最近 2 轮问答历史（跳过出错/空回合；每轮仍重新携带当前上下文）。
-    const history: AIMessage[] = turns
-      .filter((x) => !x.error && x.content)
-      .slice(-HISTORY_ROUNDS * 2)
-      .map((x) => ({ role: x.role, content: x.content }))
-    const system = applyKind === 'excalidraw-json'
-      ? (zh
-        ? `你是白板图表助手。请按用户需求直接输出 Excalidraw 元素 JSON 数组（rectangle/ellipse/diamond/text/arrow/line 元素骨架），只输出一个 \`\`\`excalidraw-json 代码块（以 [ 开头、] 结尾），代码块之外不要任何解释——该 JSON 将被直接转换为白板原生元素插入画布。\n\n${EXCALIDRAW_JSON_GUIDE}`
-        : `You are a whiteboard diagram assistant. Output Excalidraw element JSON directly per the request (rectangle/ellipse/diamond/text/arrow/line skeletons) — exactly one \`\`\`excalidraw-json fenced block (starting with [ and ending with ]), no explanations outside it. The JSON is converted into native whiteboard elements and inserted onto the canvas.\n\n${EXCALIDRAW_JSON_GUIDE}`)
-      : applyKind === 'drawio-xml'
-        ? (zh
-          ? `你是 draw.io 图表助手。基于给定的当前图表 XML，按指令输出修改后的完整 drawio XML（以 <mxGraphModel>...</mxGraphModel> 或 <mxfile>...</mxfile> 包裹）。只输出 XML 本身，不要解释。\n\n${DRAWIO_XML_GUIDE}`
-          : `You are a draw.io diagram assistant. Based on the given current diagram XML, output the complete modified drawio XML (wrapped in <mxGraphModel>...</mxGraphModel> or <mxfile>...</mxfile>). Output only the XML itself, no explanations.\n\n${DRAWIO_XML_GUIDE}`)
-        : applyKind === 'richtext-patch'
-          ? (zh
-            ? `你是富文本文档编辑助手。请按用户指令对给定文档进行修改（新增、插入、删除、替换），修改以下述「编辑指令」表达——系统会自动定位并逐条执行，不要直接输出修改后的全文。文档中的 [DocFlow-Embed / DocFlow-Image / DocFlow-File] 占位行是嵌入的图表/白板/图片/文件块，属受保护内容，必须逐字保留在编辑指令里。在对话回复中引用这些嵌入内容时，用标题指代（如「流程图"新图表"」），不要把 [DocFlow-...] 占位语法复制到对话正文。\n\n${RICHTEXT_PATCH_GUIDE}`
-            : `You are a rich text document editing assistant. Apply the user's requested changes (add, insert, delete, replace) as edit instructions per the protocol below — they are located and executed automatically; do NOT output the whole modified document. [DocFlow-Embed / DocFlow-Image / DocFlow-File] placeholder lines in the document are protected embedded blocks (diagrams/whiteboards/images/files) and must be preserved verbatim in edit instructions. When referencing them in conversation replies, use their titles — NEVER copy the raw [DocFlow-...] syntax into your response text.\n\n${RICHTEXT_PATCH_GUIDE}`)
-          : outputFormat === 'markdown'
-          ? (zh
-            ? '你是富文本文档写作助手。请按指令处理给定文本，仅输出最终内容本身：不要解释、不要说明。请用 Markdown 输出结果（标题 #/##/###、有序与无序列表、表格、代码块、加粗、斜体、链接等）——内容将被转换为富文本样式插入文档。'
-            : 'You are a rich text document writing assistant. Process the given text per the instruction and output only the final content itself: no explanations. Write the result in Markdown (headings #/##/###, ordered and unordered lists, tables, code blocks, bold, italic, links, etc.) — it will be converted into rich text styles and inserted into the document.')
-          : zh
-            ? '你是文档写作助手。请按指令处理给定文本，仅输出最终内容本身：不要解释、不要说明，不要使用代码围栏。可以输出 Markdown 格式。'
-            : 'You are a writing assistant. Process the given text per the instruction and output only the final content itself: no explanations and no code fences. Markdown formatting is allowed.'
-    const contextLabel = applyKind === 'excalidraw-json'
-      ? (zh ? '当前白板内容摘要' : 'Current whiteboard summary')
-      : applyKind === 'drawio-xml'
-        ? (zh ? '当前图表 XML' : 'Current diagram XML')
-        : (zh ? '待处理文本' : 'Text to process')
-    const userContent = full.trim()
-      ? `${zh ? '指令' : 'Instruction'}：${text}\n\n${contextLabel}（${scopeLabel}${truncNote}）：\n<text>\n${content}\n</text>`
-      : `${zh ? '指令' : 'Instruction'}：${text}`
-    const userTurnId = ++turnIdRef.current
-    const asstTurnId = ++turnIdRef.current
-    const sentFiles = attached.length > 0 ? [...attached] : undefined
-    setInput('')
-    setNotice('')
+    const files = attached.length > 0 ? [...attached] : undefined
     setAttached([])
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: userTurnId,
-        role: 'user',
-        content: text,
-        files: sentFiles,
-        note: full.trim()
-          ? `${scopeLabel} · ${full.length} ${zh ? '字符' : 'chars'}${truncated ? (zh ? '（已截断）' : ' (truncated)') : ''}`
-          : (zh ? '无文档上下文' : 'No document context'),
-      },
-      { id: asstTurnId, role: 'assistant', content: '', streaming: true },
-    ])
-    setBusy(true)
-    const controller = new AbortController()
-    abortRef.current = controller
-    let result = ''
-    // 所选模型（本地记忆 ?? default_models.chat）：显式携带 providerId/model。
-    const selectedModel = modelKey ? models.find((m) => m.id === modelKey) ?? null : null
-    try {
-      await aiChat(
-        {
-          messages: [
-            { role: 'system', content: system },
-            ...history,
-            { role: 'user', content: userContent },
-          ],
-          providerId: selectedModel?.providerId || undefined,
-          model: selectedModel ? { providerId: selectedModel.providerId, modelId: selectedModel.model } : undefined,
-          // 联网/思考开关：选中时携带（后端未配置/模型不支持时静默忽略）。
-          web_search: toggles.web ? true : undefined,
-          think: toggles.think ? true : undefined,
-          // MCP 工具开关：开启时允许调用平台配置的外部 MCP 服务器工具。
-          use_mcp: toggles.mcp ? true : undefined,
-          // 我的文件（RAG 引用本人文档）：默认开（后端就绪前透传、忽略）。
-          include_docs: toggles.docs ? true : undefined,
-          // 引用文件全文注入上下文（context.fileIds；aiChat 空数组不下发）。
-          fileIds: attached.length > 0 ? attached.map((f) => f.fileId) : undefined,
-        },
-        {
-          onMeta: (meta) => {
-            // 联网来源：SSE meta.sources 宽松读取（与全局助手同一归一化）。
-            const ws = normalizeWebSources((meta as { sources?: unknown }).sources)
-            if (ws.length > 0) {
-              setTurns((prev) => prev.map((x) => (x.id === asstTurnId ? { ...x, webSources: ws } : x)))
-            }
-          },
-          onDelta: (chunk) => {
-            result += chunk
-            setTurns((prev) => {
-              const next = [...prev]
-              const last = next[next.length - 1]
-              next[next.length - 1] = { ...last, content: last.content + chunk }
-              return next
-            })
-          },
-          // 推理思考增量：聚合到独立折叠区（首个增量记录起始时间）。
-          onThinking: (text) => {
-            setTurns((prev) => {
-              const next = [...prev]
-              const last = next[next.length - 1]
-              next[next.length - 1] = {
-                ...last,
-                thinking: (last.thinking ?? '') + text,
-                thinkingStartedAt: last.thinkingStartedAt ?? Date.now(),
-              }
-              return next
-            })
-          },
-          // 工具调用生命周期：执行前追加 running 条目，执行后合并终态/摘要。
-          onTool: (tool) => {
-            setTurns((prev) => prev.map((x) => (x.id === asstTurnId ? { ...x, toolCalls: [...(x.toolCalls ?? []), toolEntryFrom(tool)] } : x)))
-          },
-          onToolResult: (r) => {
-            setTurns((prev) => prev.map((x) => (x.id === asstTurnId ? { ...x, toolCalls: applyToolResult(x.toolCalls ?? [], r) } : x)))
-          },
-        },
-        controller.signal,
-      )
-      // 正常完成（未中止）且可修改模式 → 自动应用（版本保护内置于 autoApply）。
-      if (applyMode === 'edit' && result.trim()) await autoApply(asstTurnId, result)
-    } catch (err) {
-      const aborted = err instanceof Error && err.name === 'AbortError'
-      setTurns((prev) => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        next[next.length - 1] = aborted
-          ? { ...last, note: zh ? '已停止生成（未应用）' : 'Generation stopped (not applied)' }
-          : { ...last, error: err instanceof Error ? err.message : t(locale, 'aiAssistantErr') }
-        return next
-      })
-    } finally {
-      abortRef.current = null
-      setTurns((prev) => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        next[next.length - 1] = last.thinkingStartedAt
-          ? { ...last, streaming: false, thinkingMS: Math.max(0, Date.now() - last.thinkingStartedAt) }
-          : { ...last, streaming: false }
-        return next
-      })
-      setBusy(false)
-    }
-  }
-
-  /** 自动应用回复到文档（版本保护）：
-   * 1) 应用前先 ensureSaved——有未保存修改先保存，取「应用前版本」；
-   * 2) 落盘：text 通道——有选区→替换选区（onApply replace）、无选区→追加
-   *    文档末尾（onAppend，缺省回退 onApply insert）；excalidraw-json/
-   *    drawio-xml 通道——从回复提取元素 JSON/drawio XML，统一 onApply
-   *    ('replace', 提取结果)，宿主返回/抛出错误则显示 applyError（文档未被
-   *    修改）；
-   * 3) 在消息上记录修改点（版本/时间/摘要），供「撤销此修改」回退。 */
-  const autoApply = async (turnId: number, content: string) => {
-    setTurns((prev) => prev.map((x) => (x.id === turnId ? { ...x, applying: true } : x)))
-    const saved = await ensureSavedRef.current()
-    if (!saved) {
-      setTurns((prev) => prev.map((x) => (x.id === turnId
-        ? { ...x, applying: false, applyError: zh ? '自动应用前保存失败，文档未被修改；请手动保存后重试' : 'Failed to save before applying; the document was left unchanged. Save manually and retry' }
-        : x)))
-      void message.error(zh ? '保存失败，本次回复未应用到文档' : 'Save failed; the reply was not applied')
+    if (agentTools && agentTools.length > 0) {
+      const m = modeRef.current
+      if (m === 'edit') { await sendAgent(text, files); return }
+      if (m === 'plan') { await sendAgentPlan(text); return }
+      await sendAgentChat(text)
       return
     }
-    // 应用摘要与内容：excalidraw/drawio 通道先提取目标载荷，失败不动文档；
-    // richtext-patch 通道回复原文透传宿主执行器（docflow-edit 围栏解析、
-    // 定位执行、围栏缺失回落追加均在宿主 applyRichTextPatch 内完成）。
-    let appliedContent = content
-    if (applyKind === 'excalidraw-json' || applyKind === 'drawio-xml') {
-      const extracted = applyKind === 'excalidraw-json' ? extractExcalidrawJSON(content) : extractDrawioXML(content)
-      if (!extracted) {
-        const why = applyKind === 'excalidraw-json'
-          ? (zh ? '未识别到 excalidraw 元素 JSON 数组，画布未被修改' : 'No excalidraw element JSON array detected; the canvas was left unchanged')
-          : (zh ? '未识别到 drawio XML，文档未被修改' : 'No drawio XML detected; the document was left unchanged')
-        setTurns((prev) => prev.map((x) => (x.id === turnId ? { ...x, applying: false, applyError: why } : x)))
-        return
-      }
-      appliedContent = extracted
-    }
-    let applyFail = ''
-    try {
-      if (applyKind !== 'text') {
-        const r = await onApplyRef.current('replace', appliedContent)
-        if (typeof r === 'string' && r) applyFail = r
-      } else {
-        const tgt = getTargetRef.current()
-        if (tgt.hasSelection) onApplyRef.current('replace', appliedContent)
-        else if (onAppendRef.current) onAppendRef.current(appliedContent)
-        else onApplyRef.current('insert', appliedContent)
-      }
-    } catch (err) {
-      applyFail = err instanceof Error ? err.message : (zh ? '应用失败，文档未被修改' : 'Failed to apply; the document was left unchanged')
-    }
-    if (applyFail) {
-      setTurns((prev) => prev.map((x) => (x.id === turnId ? { ...x, applying: false, applyError: applyFail } : x)))
-      void message.error(applyFail)
-      return
-    }
-    const summary = appliedContent.replace(/\s+/g, ' ').trim().slice(0, APPLY_SUMMARY_CHARS)
-    setTurns((prev) => prev.map((x) => (x.id === turnId
-      ? {
-          ...x,
-          applying: false,
-          applied: {
-            versionId: saved.versionId,
-            version: saved.version,
-            summary,
-            time: new Date().toLocaleTimeString(),
-            revoked: false,
-          },
-        }
-      : x)))
-    void message.success(zh
-      ? `已应用到文档（基线版本 v${saved.version}，可撤销）`
-      : `Applied to the document (baseline v${saved.version}, revertible)`)
-  }
-
-  /** 撤销一次自动应用：先保存当前未保存修改（含该次 AI 输出，避免丢弃），
-   * 再 restoreVersion 回退到应用前版本，reload 刷新编辑器并标记「已撤销」。
-   * 诚实边界：回退的是整个文档到应用前版本（此后的其它修改一并回退），
-   * 并非仅移除该段 AI 文字——按钮 Tooltip 已注明。 */
-  const undoApply = async (turn: ChatTurn) => {
-    const rec = turn.applied
-    if (!rec || rec.revoked || undoingId !== null) return
-    setUndoingId(turn.id)
-    try {
-      const saved = await ensureSavedRef.current()
-      if (!saved) throw new Error(zh ? '保存当前修改失败，为避免丢失内容未执行回退' : 'Failed to save current changes; revert aborted')
-      await restoreVersion(fileIdRef.current, rec.versionId)
-      await reloadRef.current()
-      setTurns((prev) => prev.map((x) => (x.id === turn.id && x.applied
-        ? { ...x, applied: { ...x.applied, revoked: true } }
-        : x)))
-      void message.success(zh ? `已撤销：文档已回退到 v${rec.version}` : `Reverted: the document is back to v${rec.version}`)
-    } catch (err) {
-      void message.error(err instanceof Error ? err.message : (zh ? '版本恢复失败' : 'Failed to restore the version'))
-    } finally {
-      setUndoingId(null)
-    }
+    // 未注册工具的宿主（当前不存在）兜底纯问答。
+    await sendAgentChat(text)
   }
 
   const copy = (content: string) => {
@@ -1725,63 +1330,27 @@ ${planText}` },
 
   if (!aiOn || !open) return null
 
-  const scopeHint = applyKind === 'excalidraw-json'
-    ? (zh ? '白板无选区，将使用画布内容摘要' : 'No selection; the whiteboard summary will be used')
-    : applyKind === 'drawio-xml'
-      ? (zh ? '图表无选区，将使用当前 XML' : 'No selection; the current XML will be used')
-      : hasSelection
-        ? (zh ? `已选 ${selectionLen} 字符` : `${selectionLen} chars selected`)
-        : (zh ? '未选中文本，将使用全文' : 'No selection; the whole document will be used')
+  // 渲染提示文案（Agent 模式语义）。
   const modeHint = mode === 'edit'
-    ? (applyKind === 'excalidraw-json'
-      ? (zh ? '回复自动转为白板元素插入，可撤销' : 'Auto-insert as whiteboard elements, revertible')
-      : applyKind === 'drawio-xml'
-        ? (zh ? '回复自动替换图表内容，可撤销' : 'Auto-replace the diagram, revertible')
-        : applyKind === 'richtext-patch'
-          ? (zh ? '编辑指令自动定位并应用，可撤销' : 'Edit instructions auto-applied, revertible')
-          : (zh ? '回复自动应用，可撤销' : 'Auto-apply, revertible'))
-    : (zh ? '纯输出，不改文档' : 'Output only')
+    ? (zh ? '可修改：AI 经工具循环直接编辑文档' : 'Can edit: the AI edits via the tool loop')
+    : mode === 'plan'
+      ? (zh ? '计划：AI 只读探查并产出执行计划，可一键执行' : 'Plan: read-only exploration, then execute the plan')
+      : (zh ? '仅对话' : 'Chat only')
   const modeTip = mode === 'edit'
-    ? (applyKind === 'excalidraw-json'
-      ? (zh
-        ? '可修改：AI 回复完成后，其中的 excalidraw 元素 JSON 会被转换为白板原生元素（矩形/椭圆/菱形/文本/箭头等）追加插入画布（不覆盖现有内容）。应用前会先保存新版本作为回退基线，可在消息下方一键撤销。'
-        : 'Can edit: when the reply finishes, its excalidraw element JSON is converted into native whiteboard elements (rectangles/ellipses/diamonds/text/arrows) and appended to the canvas (existing content is kept). A new version is saved first as the revert baseline.')
-      : applyKind === 'drawio-xml'
-        ? (zh
-          ? '可修改：AI 回复完成后，生成的 drawio XML 将整体替换画布内容。应用前会先保存新版本作为回退基线，可在消息下方一键撤销。'
-          : 'Can edit: when the reply finishes, the generated drawio XML replaces the whole canvas. A new version is saved first as the revert baseline.')
-        : applyKind === 'richtext-patch'
-          ? (zh
-            ? '可修改：AI 回复完成后，围栏内的编辑指令（替换/插入/删除/整篇重写）会按定位原文自动应用到文档。应用前会先保存新版本作为回退基线，可在消息下方一键撤销。'
-            : 'Can edit: when the reply finishes, the fenced edit instructions (replace/insert/delete/full rewrite) are located in the document and applied automatically. A new version is saved first as the revert baseline.')
-          : (zh
-            ? '可修改：AI 回复完成后自动应用到文档（有选区替换选区，无选区追加到文档末尾）。应用前会先保存新版本作为回退基线，可在消息下方一键撤销。'
-            : 'Can edit: replies are applied automatically when finished (replace the selection, or append to the end without one). A new version is saved first as the revert baseline; each applied message can be reverted.'))
-    : (zh
-      ? '仅对话：AI 回复只在对话中展示，不改动文档内容。'
-      : 'Chat only: replies stay in the conversation; the document is never modified.')
+    ? (zh ? 'AI 通过工具循环自主读文档、执行修改并校验；过程分阶段可折叠，达预算或熔断可「继续」；破坏性操作受谨慎模式确认。' : 'The AI reads, edits and verifies via tools; staged trace, resumable, destructive ops confirmed in cautious mode.')
+    : mode === 'plan'
+      ? (zh ? 'AI 只能用只读工具探查现状，最终输出分步执行计划；点击「按计划执行」转入执行循环。' : 'The AI explores read-only and outputs a step plan; "Execute plan" runs it.')
+      : (zh ? '纯问答，不修改文档。' : 'Questions only; the document is never modified.')
   const placeholder = applyKind === 'excalidraw-json'
-    ? (zh ? '描述想要的图（AI 生成白板原生元素插入画布），Enter 发送' : 'Describe the diagram you want (AI generates native whiteboard elements), Enter to send')
+    ? (zh ? '描述想要的图，AI 生成白板元素插入画布，Enter 发送' : 'Describe the diagram; Enter to send')
     : applyKind === 'drawio-xml'
-      ? (zh ? '描述要生成的图表或修改（AI 输出 drawio XML），Enter 发送' : 'Describe the diagram or change (AI outputs drawio XML), Enter to send')
+      ? (zh ? '描述要生成的图表或修改，Enter 发送' : 'Describe the diagram or change; Enter to send')
       : applyKind === 'richtext-patch'
-        ? (zh ? '描述要做的修改（AI 输出编辑指令并自动应用），Enter 发送' : 'Describe the change (AI emits edit instructions, auto-applied), Enter to send')
-        : (zh ? '输入指令，Enter 发送（Shift+Enter 换行）' : 'Type an instruction, Enter to send (Shift+Enter for newline)')
-  const emptyHint = applyKind === 'excalidraw-json'
-      ? (zh
-        ? '描述想要的图，例如「画一个用户注册流程图」「画一个三层架构图」。「可修改」模式下 AI 生成的 excalidraw 元素 JSON 会自动转换为白板原生元素插入画布（可撤销）。'
-        : 'Describe a diagram, e.g. “draw a user sign-up flowchart”. In “Can edit” mode the generated excalidraw element JSON is converted into native whiteboard elements and inserted (revertible).')
-      : applyKind === 'drawio-xml'
-        ? (zh
-          ? '描述想要的图表或修改，例如「生成一个微服务架构图」「把泳道改成三条」。「可修改」模式下 AI 生成的 drawio XML 会自动替换画布内容（可撤销）。'
-          : 'Describe the diagram or change, e.g. “generate a microservice architecture diagram”. In “Can edit” mode the generated drawio XML replaces the canvas (revertible).')
-        : applyKind === 'richtext-patch'
-          ? (zh
-            ? '描述要做的修改，例如「把第二段改得更简洁」「删除小结一节」「在开头插入一段引言」。「可修改」模式下 AI 输出编辑指令（替换/插入/删除/整篇重写），自动定位原文并应用到文档（可撤销）。'
-            : 'Describe the change, e.g. “make the second paragraph more concise”, “delete the summary section”. In “Can edit” mode the AI emits edit instructions (replace/insert/delete/full rewrite) that are located in the document and applied automatically (revertible).')
-          : (zh
-            ? '输入指令让 AI 基于选区或全文创作/改写，例如「把选中的这段改得更简洁」「续写下一节」「生成一个对比表格」。「可修改」模式下回复会自动应用到文档（可撤销），「仅对话」模式只在对话中输出。'
-            : 'Ask the AI to write or rewrite the selection / whole document. In “Can edit” mode replies are applied automatically (revertible); “Chat only” never modifies the document.')
+        ? (zh ? '描述要做的修改，Enter 发送' : 'Describe the change; Enter to send')
+        : (zh ? '输入指令，Enter 发送（Shift+Enter 换行）' : 'Type an instruction; Enter to send (Shift+Enter for newline)')
+  const emptyHint = zh
+    ? '描述要做的修改——AI 会先读文档再逐步编辑并校验；复杂目标可切「计划」模式。'
+    : 'Describe the change — the AI reads first, edits step by step, and verifies. Use Plan mode for complex goals.'
 
   return (
     <aside className="ai-edit-chat-panel" aria-label={zh ? 'AI 对话' : 'AI chat'}>
@@ -1899,20 +1468,6 @@ ${planText}` },
               : []),
           ]}
         />
-        {(applyKind === 'text' || applyKind === 'richtext-patch') && (
-          <Segmented
-            size="small"
-            value={scope}
-            onChange={(v) => setScope(v as ChatScope)}
-            options={[
-              { label: zh ? '选区' : 'Selection', value: 'selection', disabled: !hasSelection },
-              { label: zh ? '全文' : 'Whole doc', value: 'full' },
-            ]}
-          />
-        )}
-        <span className="muted ai-edit-chat-scope-hint">{scopeHint}</span>
-        {/* v3.7：AIChatToggleBar 移到 chat-tools-bar（输入框内底部工具栏），
-            不再在面板顶部平铺。 */}
         {/* 模式说明收起为悬浮图标（hover 显示完整说明），避免平铺文案占用输入区空间。 */}
         <Popover
           content={<div className="ai-edit-chat-mode-popover"><strong>{modeHint}</strong><div className="muted">{modeTip}</div></div>}
@@ -1980,21 +1535,7 @@ ${planText}` },
                     turn.agentStream && turn.streaming ? (
                       <AgentRawLine text={turn.content} />
                     ) : (
-                    // payload 通道自动应用成功后收起原始回复（大段 JSON/XML 不
-                    // 再整屏裸输出）；仅对话/失败/流式期间保持原样渲染。
-                    (applyKind === 'excalidraw-json' || applyKind === 'drawio-xml' || applyKind === 'richtext-patch') && turn.applied && !turn.streaming ? (
-                      <AppliedReplyView
-                        content={turn.content}
-                        zh={zh}
-                        label={applyKind === 'excalidraw-json'
-                          ? (zh ? '白板元素已生成并插入画布' : 'Whiteboard elements generated and inserted')
-                          : applyKind === 'drawio-xml'
-                            ? (zh ? '图表已生成并替换画布' : 'Diagram generated and applied to the canvas')
-                            : (zh ? '编辑指令已应用到文档' : 'Edit instructions applied to the document')}
-                      />
-                    ) : (
                       <AIMarkdown text={turn.content} zh={zh} streaming={turn.streaming} />
-                      )
                     )
                   ) : turn.streaming ? (
                     <span className="ai-thinking">{t(locale, 'aiAssistantGenerating')}</span>
@@ -2043,45 +1584,6 @@ ${planText}` },
                           </Button>
                         </Tooltip>
                       )}
-                    </div>
-                  )}
-                  {/* 自动应用状态：进行中 / 修改点（可撤销）/ 已撤销 / 失败。 */}
-                  {turn.applying && (
-                    <div className="ai-edit-chat-note muted">
-                      {zh ? '正在保存并应用到文档…' : 'Saving and applying to the document…'}
-                    </div>
-                  )}
-                  {turn.applyError && <div className="ai-edit-chat-note error-text">{turn.applyError}</div>}
-                  {turn.applied && !turn.applied.revoked && (
-                    <div className="ai-applied-bar">
-                      <span className="ai-applied-note">
-                        {zh ? '已应用于文档' : 'Applied to document'}
-                        {' · v'}{turn.applied.version} · {turn.applied.time}
-                        {turn.applied.summary && (
-                          <span className="ai-applied-summary" title={turn.applied.summary}>
-                            {turn.applied.summary}
-                            {turn.applied.summary.length >= APPLY_SUMMARY_CHARS ? '…' : ''}
-                          </span>
-                        )}
-                      </span>
-                      <Tooltip title={zh
-                        ? `撤销 = 将整个文档回退到应用前版本 v${turn.applied.version}：此后的其它修改（含其它 AI 应用）也会一并回退，并非仅移除该段文字。回退前会先保存当前未保存修改。`
-                        : `Revert = restore the whole document to the pre-apply version v${turn.applied.version}; later changes (including other AI edits) are reverted too, not just this snippet. Unsaved changes are saved first.`}>
-                        <Button
-                          size="small"
-                          type="link"
-                          danger
-                          loading={undoingId === turn.id}
-                          onClick={() => void undoApply(turn)}
-                        >
-                          {zh ? '撤销此修改' : 'Revert'}
-                        </Button>
-                      </Tooltip>
-                    </div>
-                  )}
-                  {turn.applied?.revoked && (
-                    <div className="ai-applied-revoked">
-                      {zh ? `已撤销（文档已回退至 v${turn.applied.version}）` : `Reverted (document restored to v${turn.applied.version})`}
                     </div>
                   )}
                   {/* 联网搜索来源：折叠列表（编号 + 标题超链接）。 */}

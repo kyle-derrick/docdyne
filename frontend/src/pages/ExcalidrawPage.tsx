@@ -298,7 +298,7 @@ export default function ExcalidrawPage({
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiQuick, setAiQuick] = useState<AIQuickCommand | null>(null)
   // 编辑器重挂 key（AI 撤销回退 reload 时强制重载 initialData）。
-  const [reloadKey, setReloadKey] = useState(0)
+  const [reloadKey] = useState(0)
   // 「保存并退出」流程抑制 beforeunload（v2.7 根治）：保存成功后 closeEditor
   // 会 window.close()，若此刻仍挂着 dirty 的 beforeunload 监听，浏览器弹
   // 原生「离开页面？」——保存已成功却拦退出是误报。close 前置位本标记。
@@ -496,18 +496,6 @@ export default function ExcalidrawPage({
     }
   }
 
-  /** AI excalidraw JSON 自动应用（单轮生成通道，AIEditChat 提取围栏 JSON）：
-   * 复用 insertSkeletons 管线；返回 string=失败原因（applyError，画布不动）。 */
-  const aiApply = async (_mode: 'insert' | 'replace', json: string): Promise<string | void> => {
-    const r = await insertSkeletons(json)
-    if (!r.ok) {
-      const head = json.replace(/\s+/g, ' ').slice(0, 100)
-      return (locale === 'zh-CN'
-        ? `${r.error}，画布未被修改；原文已保留在上面对话中（开头：${head}…）`
-        : `${r.error}; the canvas was left unchanged. The original reply is kept above (starts with: ${head}…)`)
-    }
-  }
-
   /** v7 白板 Agent 工具集：元素级读/增/改/移/删——修改既有内容不再需要
    *  整图重画（id 定位、白名单属性更新；连线绑定与标签联动清理）。 */
   const aiAgentTools: AIEditTool[] = useMemo(() => {
@@ -684,35 +672,6 @@ export default function ExcalidrawPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 版本保护前置：应用前先保存当前场景为基线版本（照文本编辑页模式）。 */
-  const aiEnsureSaved = async (): Promise<{ versionId: string; version: number } | null> => {
-    try {
-      if (dirtyRef.current) {
-        await save(false, true)
-        if (dirtyRef.current) return null
-      }
-      const meta = await getFileMeta(fileId)
-      return meta.current_version
-        ? { versionId: meta.current_version.id, version: meta.current_version.version }
-        : null
-    } catch {
-      return null
-    }
-  }
-
-  /** 撤销回退后刷新画布：重新拉取文件内容，重挂编辑器（key 递增强制
-   * initialData 重载），重置脏基线。 */
-  const aiReload = async (): Promise<void> => {
-    const text = await fetchFileText(fileId)
-    const scene = parseScene(text)
-    sceneRef.current = scene
-    initialJSONRef.current = null
-    dirtyRef.current = false
-    setInitial(scene)
-    setReloadKey((k) => k + 1)
-    setNotice('')
-  }
-
   /** 头部下拉快捷指令：打开面板并透传给 AIEditChat 自动执行。 */
   const openAiChatWith = (cmd: AIQuickCommand) => {
     setAiChatOpen(true)
@@ -818,11 +777,7 @@ export default function ExcalidrawPage({
             open={aiChatOpen}
             onClose={() => setAiChatOpen(false)}
             getTarget={aiGetTarget}
-            getAllText={sceneSummary}
-            onApply={aiApply}
             fileId={fileId}
-            ensureSaved={aiEnsureSaved}
-            reload={aiReload}
             quickCommand={aiQuick}
             onQuickConsumed={() => setAiQuick(null)}
             applyKind="excalidraw-json"
