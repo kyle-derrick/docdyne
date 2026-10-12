@@ -1269,6 +1269,7 @@ ${planText}` },
     }
     // 轮次预算：大任务（多元素图/整表/批量改）几百轮也够；真正的防失控靠
     // 连续失败熔断（同工具同参连败 8 次）而非低轮次硬顶；达上限仍可「继续」。
+    console.info('[AgentLoop] 启动: 工具集=', tools.map((t) => t.name).join(', '), '| pkgId=', pkgIdRef.current)
     const MAX_ROUNDS = 300
     const FAIL_STREAK_LIMIT = 8
     let failStreak = 0
@@ -1349,7 +1350,10 @@ ${planText}` },
         })
         let result: { ok: boolean; data?: unknown; error?: string }
         if (!def) {
-          result = { ok: false, error: `未知工具 ${tool}（可用：${tools.map((t) => t.name).join(', ')}；技能包=${pkgIdRef.current}）` }
+          // 诊断：完整记录工具集状态（排查 mid-loop 工具丢失问题）
+          const allNames = tools.map((t) => t.name).join(', ')
+          console.warn('[AgentLoop] 未知工具:', tool, '| 循环工具集:', allNames, '| agentTools:', (agentToolsRef.current ?? []).length, '个', '| pkgId:', pkgIdRef.current, '| round:', round)
+          result = { ok: false, error: `未知工具 ${tool}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个）` }
         } else if (def.destructive && cautiousRef.current) {
           // 谨慎模式：破坏性工具执行前确认；取消=跳过（结果回喂，模型自适应）。
           const ok = await confirmDestructive(def.label(args))
