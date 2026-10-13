@@ -99,8 +99,9 @@ export interface AIChatShellProps {
 }
 
 export default function AIChatShell(p: AIChatShellProps) {
-  if (!p.open) return null
+  // Hooks 必须在早退之前（open 翻转时 hook 数量恒定——助手抽屉随开合切换）。
   const [modeTipOpen, setModeTipOpen] = useState(false)
+  if (!p.open) return null
   const panel = (
     <aside
       ref={p.panelRef}
