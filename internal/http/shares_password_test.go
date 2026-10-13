@@ -150,12 +150,11 @@ func TestPublicSharePasswordFlow(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
 		t.Fatal(err)
 	}
-	if info["watermark_enabled"] != true {
+	// v7.11：公开分享不加水印（旧断言期望 true 已过时）。
+	if info["watermark_enabled"] != false {
 		t.Fatalf("watermark_enabled = %v", info["watermark_enabled"])
 	}
-	if text, _ := info["watermark_text"].(string); !strings.Contains(text, "203.0.*") || !strings.Contains(text, "机密文档.txt") {
-		t.Fatalf("watermark_text = %q, want rendered template with ip prefix and file name", text)
-	}
+
 
 	// 携带 cookie：预览 200（事件 action=preview）。
 	if w := doPublic(router, http.MethodGet, infoPath+"/preview", cookie); w.Code != http.StatusOK {

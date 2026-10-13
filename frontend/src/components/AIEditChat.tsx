@@ -1294,8 +1294,11 @@ ${planText}` },
         if (thinkKey) patchStage(thinkKey, { ms: Math.max(0, Date.now() - roundThinkStart) })
         const parsed = parseAgentReply(acc)
         if (parsed.type === 'final') {
-          // 纯散文回复（无 TOOL_CALL / FINAL 标记）→ 纠正后重试（≤2 次）
+          // 纯散文回复（无 TOOL_CALL / FINAL 标记）→ 作为叙述行进过程块，
+          // 纠正后重试（≤2 次）——Cherry Studio 式「明白，我先收集信息…」。
           if (!acc.trim().startsWith('FINAL') && round < MAX_ROUNDS - 2) {
+            const note = acc.trim().slice(0, 400)
+            if (note) pushStage({ kind: 'note', text: note })
             convo.push({ role: 'assistant', content: acc.slice(0, 200) })
             convo.push({ role: 'user', content: '你刚才输出了散文而非 TOOL_CALL。请严格按格式输出：恰好一行 TOOL_CALL {"tool":"工具名","args":{...}}，不要任何解释文字。' })
             continue

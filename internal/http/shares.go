@@ -626,7 +626,7 @@ func (h *Handler) publicShareInfo(c *gin.Context) {
 			}
 		}
 		watermark := any(nil)
-		if r.Share.WatermarkEnabled {
+		if r.Share.WatermarkEnabled && false { // v7.11：公开分享不加水印（兼容旧数据强制关）
 			watermark = share.RenderWatermark(r.Share.WatermarkTemplate(), name, c.ClientIP(), "", time.Now())
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -637,13 +637,13 @@ func (h *Handler) publicShareInfo(c *gin.Context) {
 			"expires_at":        r.Share.ExpiresAt,
 			"max_downloads":     r.Share.MaxDownloads,
 			"download_count":    r.Share.DownloadCount,
-			"watermark_enabled": r.Share.WatermarkEnabled,
+			"watermark_enabled": false,
 			"watermark_text":    watermark,
 		})
 		return
 	}
 	var watermarkText any
-	if r.Share.WatermarkEnabled {
+	if r.Share.WatermarkEnabled && false { // v7.11：公开分享不加水印（兼容旧数据强制关）
 		watermarkText = share.RenderWatermark(r.Share.WatermarkTemplate(), r.File.Name, c.ClientIP(), "", time.Now())
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -657,7 +657,7 @@ func (h *Handler) publicShareInfo(c *gin.Context) {
 		"expires_at":        r.Share.ExpiresAt,
 		"max_downloads":     r.Share.MaxDownloads,
 		"download_count":    r.Share.DownloadCount,
-		"watermark_enabled": r.Share.WatermarkEnabled,
+		"watermark_enabled": false,
 		"watermark_text":    watermarkText,
 	})
 }

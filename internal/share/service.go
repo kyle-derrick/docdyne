@@ -377,7 +377,9 @@ func (s *Service) SetWatermarkDefaultsProvider(fn func() (bool, string)) {
 // resolveWatermark 解析创建请求的水印字段：显式值优先，缺省采用 provider
 // 默认（再回退内置默认）；模板非法（超长/含控制字符）返回错误。
 func (s *Service) resolveWatermark(enabled *bool, text *string) (bool, string, error) {
-	defEnabled, defText := true, DefaultWatermarkTemplate
+	// v7.11：默认关闭（原 true——gorm default:true 零值省略导致"未勾选也
+	// 加水印"；settings share.default_watermark 仍可显式开启默认）。
+	defEnabled, defText := false, DefaultWatermarkTemplate
 	if s.watermarkDefaults != nil {
 		if e, t := s.watermarkDefaults(); t != "" {
 			defEnabled, defText = e, t
@@ -521,6 +523,8 @@ func (s *Service) CreatePublic(owner, fileID uuid.UUID, permission string, expir
 	if err != nil {
 		return Share{}, "", err
 	}
+	// v7.11：公开分享不加水印（访客无用户身份，防截屏水印无意义）。
+	watermarkEnabled = false
 	f, err := s.files.Get(owner, fileID)
 	if err != nil {
 		return Share{}, "", ErrFileNotFound
@@ -595,6 +599,8 @@ func (s *Service) CreateBundle(owner uuid.UUID, fileIDs []uuid.UUID, permission 
 	if err != nil {
 		return Share{}, "", err
 	}
+	// v7.11：公开分享不加水印（访客无用户身份，防截屏水印无意义）。
+	watermarkEnabled = false
 	items := dedupeIDs(fileIDs)
 	if len(items) < 2 {
 		return Share{}, "", ErrBundleTooFew

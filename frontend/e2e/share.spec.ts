@@ -51,14 +51,14 @@ test.describe.serial('公开分享', () => {
     await logoutViaUI(page)
   })
 
-  test('未登录访问分享页：文件名、预览与下载', async ({ page }) => {
+  test('未登录访问分享页：直接内容与悬浮下载', async ({ page }) => {
+    // v7.11 直接内容模式：无标题卡片，文本内容全幅呈现 + 右下悬浮下载。
     await page.goto(`/s/${shareToken}`)
-    await expect(page.locator('.share-title')).toHaveText(fileName)
     await expect(page.locator('.preview-text')).toContainText(`DocFlow E2E share ${stamp}`)
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('link', { name: /下\s*载/ }).click(),
+      page.locator('.share-fab').click(),
     ])
     expect(download.suggestedFilename()).toBe(fileName)
   })

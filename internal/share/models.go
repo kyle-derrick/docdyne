@@ -52,7 +52,7 @@ type Share struct {
 	Visibility       string     `gorm:"size:16;not null;default:public;index" json:"visibility"`
 	Permission       string     `gorm:"size:16;not null" json:"permission"`
 	PasswordHash     string     `gorm:"size:64" json:"-"`
-	WatermarkEnabled bool       `gorm:"not null;default:true" json:"watermark_enabled"`
+	WatermarkEnabled bool       `gorm:"not null;default:false" json:"watermark_enabled"`
 	WatermarkText    *string    `gorm:"type:text" json:"watermark_text,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	MaxDownloads     *int       `json:"max_downloads,omitempty"`

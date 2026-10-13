@@ -11,7 +11,7 @@
 // - 密码保护分享先解锁（HttpOnly 会话 cookie），水印开启时叠加全屏覆盖层。
 import { FormEvent, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { FileQuestion, FileText, Folder, Lock } from 'lucide-react'
+import { FileQuestion, FileText, Folder, Lock , Download } from 'lucide-react'
 import { Button, Input, Modal as AntdModal, Segmented } from 'antd'
 import {
   ApiError,
@@ -614,6 +614,8 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
  * 水印开启时叠加全屏覆盖层。 */
 export default function SharePage() {
   const { token = '' } = useParams()
+  // 注意：所有 hook 必须在任何条件返回之前调用（dark 在直接内容分支使用）。
+  const darkMode = useColorMode() === 'dark'
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [text, setText] = useState<string | null>(null)
   const [textError, setTextError] = useState('')
@@ -674,8 +676,14 @@ export default function SharePage() {
 
   const okState = state.status === 'ok' ? state : null
 
+  // v7.11：直接内容模式——文本类内容统一拉取（md/富文本/drawio/白板/文本）。
+  const metaForText = okState?.info
+  const needDirectText = !!metaForText && metaForText.type !== 'folder' && (
+    previewKind(metaForText.mime_type ?? '') === 'text'
+    || /\.(md|markdown|drawio|excalidraw|dfrt|dfdoc)$/i.test(metaForText.name)
+  )
   useEffect(() => {
-    if (!okState || okState.info.type === 'folder' || previewKind(okState.info.mime_type ?? '') !== 'text') return
+    if (!okState || !needDirectText) return
     let cancelled = false
     setText(null)
     setTextError('')
@@ -689,7 +697,7 @@ export default function SharePage() {
     return () => {
       cancelled = true
     }
-  }, [okState, token])
+  }, [okState, needDirectText, token])
 
   // 网页包（zip）：/preview 存在 ready 解包结果时改返内容入口 URL，
   // 以 sandbox iframe 渲染；无包（415）时静默回退普通预览分支。
@@ -755,65 +763,84 @@ export default function SharePage() {
   }
 
   const previewUrl = `/api/v1/public/shares/${encodeURIComponent(token)}/preview`
+  const lower = info.name.toLowerCase()
+  const dark = darkMode
+
+  // v7.11 直接内容模式：仅查看分享 = 内容本身全幅呈现（无外框卡片/标题栏
+  // 嵌套），可下载时仅右下角悬浮下载按钮（最小侵入）。类型分发与文件页
+  // 同口径：网页包/Office/富文本/图片/PDF/Markdown/drawio/白板/文本。
+  let body: React.ReactNode
+  if (info.version_status !== 'available') {
+    body = <div className="empty">文件暂不可用，无法预览</div>
+  } else if (webpkgUrl) {
+    // 网页包：sandbox 不含 allow-same-origin（唯一化 origin 沙箱）。
+    body = <iframe className="share-direct-frame" sandbox="allow-scripts" src={webpkgUrl} title={info.name} />
+  } else if (isOfficeFile(info.name)) {
+    body = <PublicOfficeViewer token={token} name={info.name} />
+  } else if (isDfdocFile(lower)) {
+    body = (
+      <Suspense fallback={<p className="hint">正在加载查看器…</p>}>
+        <PublicSingleDfdocViewer token={token} />
+      </Suspense>
+    )
+  } else if (isExcalidrawFile(lower)) {
+    body = text === null
+      ? <ViewerState text="正在加载白板…" />
+      : (() => {
+          const scene = parseScene(text)
+          if (scene.elements.length === 0) return <ViewerState text="该白板为空或内容损坏" />
+          return (
+            <div className="text-editor-page viewer-only diagram-viewer-page">
+              <ExcalidrawViewer elements={scene.elements} appState={scene.appState} files={scene.files} title={info.name} />
+            </div>
+          )
+        })()
+  } else if (isDrawioFile(lower)) {
+    body = text === null
+      ? <ViewerState text="正在加载图表…" />
+      : (
+        <div className="text-editor-page viewer-only diagram-viewer-page">
+          <DrawioViewer baseURL="/drawio" xml={text || '<mxfile><diagram/></mxfile>'} title={info.name} dark={dark} lang="zh" />
+        </div>
+      )
+  } else if (kind === 'image') {
+    body = (
+      <div className="share-direct-center">
+        <img className="share-direct-image" src={previewUrl} alt={info.name} />
+      </div>
+    )
+  } else if (kind === 'pdf') {
+    body = <iframe className="share-direct-frame" src={previewUrl} title={info.name} />
+  } else if (/\.(md|markdown)$/.test(lower)) {
+    body = text === null
+      ? <ViewerState text="正在加载文档…" />
+      : <div className="share-direct-scroll"><MarkdownViewer source={text} /></div>
+  } else if (kind === 'text') {
+    body = (
+      <div className="share-direct-scroll">
+        {textError ? <div className="error-text">{textError}</div>
+          : text === null ? <ViewerState text="加载预览内容…" />
+          : <pre className="preview-text">{text}</pre>}
+      </div>
+    )
+  } else {
+    body = (
+      <div className="empty">
+        该文件类型不支持在线预览{info.permission === 'download' ? '，可下载后查看' : ''}
+      </div>
+    )
+  }
 
   return (
-    <div className="share-page">
+    <div className="share-page share-direct">
       {showWatermark && <WatermarkOverlay text={info.watermark_text as string} />}
-      <main className="share-card soft-fade">
-        <h1 className="share-title">{info.name}</h1>
-        <div className="share-meta">
-          <span>大小：{formatSize(info.size ?? 0)}</span>
-          <span>类型：{info.mime_type || '未知'}</span>
-          {info.permission === 'download' ? (
-            <Button type="primary" href={downloadUrl}>下载</Button>
-          ) : (
-            <span className="badge">仅预览</span>
-          )}
-        </div>
-
-        {info.version_status !== 'available' ? (
-          <div className="empty">文件暂不可用，无法预览</div>
-        ) : webpkgUrl ? (
-          // 网页包：sandbox 不含 allow-same-origin（唯一化 origin 沙箱），
-          // 内容端点带严格 CSP/nosniff，不携带主站认证信息。
-          <div className="preview-box">
-            <iframe className="preview-frame" sandbox="allow-scripts" src={webpkgUrl} title={info.name} />
-          </div>
-        ) : isOfficeFile(info.name) ? (
-          // Office 文档：OnlyOffice 只读查看会话（公开端点，访客无需登录）。
-          <PublicOfficeViewer token={token} name={info.name} />
-        ) : isDfdocFile(info.name) ? (
-          // 富文本文档（.dfrt/.dfdoc）：同一 RichTextEditor 只读渲染
-          //（内容与引用资源均经 raw/share 公开端点，单文件分享无兄弟资源授权）。
-          <div className="preview-box">
-            <Suspense fallback={<p className="hint">正在加载查看器…</p>}>
-              <PublicSingleDfdocViewer token={token} />
-            </Suspense>
-          </div>
-        ) : kind === 'image' ? (
-          <div className="preview-box">
-            <img className="preview-image" src={previewUrl} alt={info.name} />
-          </div>
-        ) : kind === 'pdf' ? (
-          <div className="preview-box">
-            <iframe className="preview-frame" src={previewUrl} title={info.name} />
-          </div>
-        ) : kind === 'text' ? (
-          <div className="preview-box">
-            {textError ? (
-              <div className="error-text">{textError}</div>
-            ) : text === null ? (
-              <p className="hint">加载预览内容…</p>
-            ) : (
-              <pre className="preview-text">{text}</pre>
-            )}
-          </div>
-        ) : (
-          <div className="empty">
-            该文件类型不支持在线预览{info.permission === 'download' ? '，可下载后查看' : ''}
-          </div>
-        )}
-      </main>
+      {body}
+      {info.permission === 'download' && (
+        <a className="share-fab" href={downloadUrl} download={info.name} title={`下载 ${info.name}`}>
+          <Download size={16} strokeWidth={2} aria-hidden="true" />
+          <span>下载</span>
+        </a>
+      )}
     </div>
   )
 }

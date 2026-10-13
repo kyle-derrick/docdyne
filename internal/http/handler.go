@@ -1240,8 +1240,16 @@ func (h *Handler) listFiles(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to list files"})
 		return
 	}
-	// 网页目录标记：目录直接子级含 index.html 时 has_index_web=true，
-	// 前端把该目录默认点击行为切换为"网页打开"。查询失败不阻塞列举。
+	c.JSON(http.StatusOK, gin.H{"files": h.filesJSONWithWebMark(out)})
+}
+
+// filesJSONWithWebMark 列表条目 → JSON，附网页标记（/api/v1/files 与
+// /api/v1/spaces/:id/files 共用；v7.11 修复：空间端点此前漏标导致文件页
+// 网页目录/网页 zip 无「网页」徽标且点击不打开网页）：
+//   - 目录直接子级含 index.html → has_index_web=true（前端默认点击=网页打开）；
+//   - zip 已成功解包（Extract 校验保证含 index.html）→ has_index_web=true。
+// 查询失败不阻塞列举（标记缺省 false）。
+func (h *Handler) filesJSONWithWebMark(out []files.File) []gin.H {
 	folderIDs := make([]uuid.UUID, 0, len(out))
 	zipIDs := make([]uuid.UUID, 0, len(out))
 	for _, f := range out {
@@ -1255,8 +1263,6 @@ func (h *Handler) listFiles(c *gin.Context) {
 	if ierr != nil {
 		indexWeb = nil
 	}
-	// 网页包标记：zip 已成功解包（Extract 校验保证含 index.html）时
-	// has_index_web=true，前端在该 zip 行显示「网页」徽标（与目录口径一致）。
 	zipWeb := h.webpkg.ReadyFileIDs(zipIDs)
 	result := make([]gin.H, 0, len(out))
 	for _, f := range out {
@@ -1268,7 +1274,7 @@ func (h *Handler) listFiles(c *gin.Context) {
 		}
 		result = append(result, item)
 	}
-	c.JSON(http.StatusOK, gin.H{"files": result})
+	return result
 }
 
 type folderRequest struct {

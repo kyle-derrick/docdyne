@@ -577,11 +577,9 @@ func (h *Handler) listSpaceFiles(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to list files"})
 		return
 	}
-	items := make([]gin.H, 0, len(out))
-	for _, f := range out {
-		items = append(items, fileJSON(f))
-	}
-	c.JSON(http.StatusOK, gin.H{"files": items, "parent_id": parent.ID})
+	// v7.11：与 /api/v1/files 同款网页标记（此前漏标 → 文件页网页目录/zip
+	// 无「网页」徽标、点击不打开网页）。
+	c.JSON(http.StatusOK, gin.H{"files": h.filesJSONWithWebMark(out), "parent_id": parent.ID})
 }
 
 type spaceFolderRequest struct {

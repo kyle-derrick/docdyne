@@ -340,7 +340,7 @@ export default function FilesPage() {
   // ---- 分享 ----
   const [shareTarget, setShareTarget] = useState<FileItem | null>(null)
   const [shareVisibility, setShareVisibility] = useState<'public' | 'private'>('public')
-  const [sharePermission, setSharePermission] = useState<'view' | 'download'>('download')
+  const [sharePermission, setSharePermission] = useState<'view' | 'download'>('view')
   const [shareHours, setShareHours] = useState('0')
   const [shareMax, setShareMax] = useState('')
   const [sharePassword, setSharePassword] = useState('')
@@ -742,6 +742,7 @@ export default function FilesPage() {
                       showSearch
                       allowClear
                       filterOption={false}
+                      style={{ width: '100%' }}
                       value={shareUsers}
                       loading={shareUserSearching}
                       placeholder="搜索昵称、用户名或邮箱（至少 2 字）"
@@ -761,7 +762,7 @@ export default function FilesPage() {
                     />
                   </div>
                   <div className="field">
-                    <span>{msg('grantedAccess')}</span>
+                    <span>{locale === 'zh-CN' ? '授权空间（勾选后该空间全体成员可见）' : 'Granted spaces (all members)'}</span>
                     {spaces.length === 0 ? (
                       <p className="hint">{msg('teamsEmpty')}</p>
                     ) : (

@@ -132,13 +132,16 @@ func TestShareAccessSessionValidity(t *testing.T) {
 func TestWatermarkDefaultsResolution(t *testing.T) {
 	svc, _, owner, fileID := newPasswordTestEnv(t)
 
-	// 内置默认：开启 + "{date} {name}"。
+	// v7.11：公开分享恒不加水印；内置默认关闭（模板仍解析默认值）。
 	sh, _, err := svc.CreatePublic(owner, fileID, PermissionView, 0, nil, ShareOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sh.WatermarkEnabled || sh.WatermarkTemplate() != DefaultWatermarkTemplate {
-		t.Fatalf("builtin defaults = (%v, %q)", sh.WatermarkEnabled, sh.WatermarkTemplate())
+	if sh.WatermarkEnabled {
+		t.Fatal("public shares must not carry a watermark")
+	}
+	if sh.WatermarkTemplate() != DefaultWatermarkTemplate {
+		t.Fatalf("builtin template = %q", sh.WatermarkTemplate())
 	}
 
 	// provider 默认（关闭 + 自定义模板）。
@@ -151,15 +154,16 @@ func TestWatermarkDefaultsResolution(t *testing.T) {
 		t.Fatalf("provider defaults = (%v, %q)", sh.WatermarkEnabled, sh.WatermarkTemplate())
 	}
 
-	// 显式指定覆盖默认。
+	// 显式指定：公开分享仍强制无水印（v7.11 策略——访客无用户身份），
+	// 模板取自定义值；私有分享显式开启生效。
 	enabled := true
 	custom := "{email} 于 {date} 查看"
 	sh, _, err = svc.CreatePublic(owner, fileID, PermissionView, 0, nil, ShareOptions{WatermarkEnabled: &enabled, WatermarkText: &custom})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sh.WatermarkEnabled || sh.WatermarkTemplate() != custom {
-		t.Fatalf("explicit watermark = (%v, %q)", sh.WatermarkEnabled, sh.WatermarkTemplate())
+	if sh.WatermarkEnabled || sh.WatermarkTemplate() != custom {
+		t.Fatalf("explicit watermark on public = (%v, %q)", sh.WatermarkEnabled, sh.WatermarkTemplate())
 	}
 	private, err := svc.CreatePrivateWithOptions(owner, fileID, PermissionView, 0, nil, nil, nil, ShareOptions{WatermarkEnabled: &enabled})
 	if err != nil {

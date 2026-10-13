@@ -796,11 +796,11 @@ export default function FileBrowser({
   const [batchShareOpen, setBatchShareOpen] = useState(false)
   const [batchShareBusy, setBatchShareBusy] = useState(false)
   const [batchShareError, setBatchShareError] = useState('')
-  const [batchSharePermission, setBatchSharePermission] = useState<'view' | 'download'>('download')
+  const [batchSharePermission, setBatchSharePermission] = useState<'view' | 'download'>('view')
   const [batchShareHours, setBatchShareHours] = useState('0')
   const [batchShareMax, setBatchShareMax] = useState('')
   const [batchSharePassword, setBatchSharePassword] = useState('')
-  const [batchShareWatermark, setBatchShareWatermark] = useState(true)
+  const [batchShareWatermark, setBatchShareWatermark] = useState(false)
   const [batchShareWatermarkText, setBatchShareWatermarkText] = useState('')
   const [batchShareTitle, setBatchShareTitle] = useState('')
   const [shareLinks, setShareLinks] = useState<Array<{ name: string; url: string }>>([])
@@ -2096,6 +2096,25 @@ export default function FileBrowser({
   const isWebFolder = (item: FileItem): boolean =>
     item.type === 'folder' && (Boolean(item.has_index_web) || item.name.includes('网页'))
 
+  /** Ctrl/Cmd+点击：新标签页打开查看（文件=查看页；网页目录=独立网页窗口；
+   *  普通目录不适用，按原行为处理）。v7.11。 */
+  const openItemWith = (item: FileItem, e?: { ctrlKey: boolean; metaKey: boolean; preventDefault: () => void }) => {
+    if (e && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      if (item.type === 'folder') {
+        if (isWebFolder(item)) {
+          void openAsWebsite(item)
+          return
+        }
+        openFolder(item) // 普通目录：无查看页语义，维持目录进入
+        return
+      }
+      window.open(`/view/${item.id}`, '_blank', 'noopener')
+      return
+    }
+    openItem(item)
+  }
+
   const openItem = (item: FileItem) => {
     if (item.type === 'folder') {
       if (searchMode) return
@@ -2850,6 +2869,11 @@ export default function FileBrowser({
                   e.preventDefault()
                   setCtxMenu({ item, x: e.clientX, y: e.clientY })
                 }}
+                onClick={(e) => {
+                  // 行内交互控件（操作按钮/复选框等）不触发行点击语义。
+                  if ((e.target as HTMLElement).closest('button, input, a, .ctx-menu')) return
+                  openItemWith(item, e)
+                }}
               >
                 <td className="col-check">
                   <input
@@ -2876,7 +2900,7 @@ export default function FileBrowser({
                     <Star size={16} strokeWidth={2} aria-hidden="true" fill={item.is_starred ? 'currentColor' : 'none'} />
                   </button>
                   {item.type === 'folder' && !searchMode ? (
-                    <button className="name-btn" title={item.name} onClick={(e) => { e.stopPropagation(); openItem(item) }}>
+                    <button className="name-btn" title={item.name} onClick={(e) => { e.stopPropagation(); openItemWith(item, e) }}>
                       <span className="icon">{item.has_index_web
                         ? <Globe size={14} strokeWidth={2} aria-hidden="true" />
                         : <Folder size={14} strokeWidth={2} aria-hidden="true" />}</span>
@@ -2888,7 +2912,7 @@ export default function FileBrowser({
                       {item.name}
                     </span>
                   ) : (
-                    <button className="name-btn" title={item.name} onClick={(e) => { e.stopPropagation(); openItem(item) }}>
+                    <button className="name-btn" title={item.name} onClick={(e) => { e.stopPropagation(); openItemWith(item, e) }}>
                       <span className="icon">{item.has_index_web
                         ? <Globe size={14} strokeWidth={2} aria-hidden="true" />
                         : <FileText size={14} strokeWidth={2} aria-hidden="true" />}</span>
@@ -2975,7 +2999,7 @@ export default function FileBrowser({
                 <button
                   className="file-card-body"
                   title={item.type === 'file' ? (locale === 'zh-CN' ? '查看' : 'View') : item.name}
-                  onClick={() => openItem(item)}
+                  onClick={(e) => openItemWith(item, e)}
                 >
                   <span className="file-card-icon">{item.type === 'folder'
                     ? (item.has_index_web
