@@ -105,6 +105,22 @@
       anthropic base64 source，≤8 张）；非 vision 走 ai.ocr 转文字
 - [x] 浏览器全链路实测 + E2E 17/17 + 生产 migration 055 已应用
 
+## v7.10 增量（用户反馈八项，a13c1d2）
+- [x] 1. AI 助手「切换无效」根因（生产库副本+重置管理员复现）：两个助手
+      会话为空壳（0 事件，历史部署窗口写入失败）→ 点谁都是欢迎页。
+      修复：载入时自动清理空壳 + 解锁本机历史迁移
+- [x] 2. drawio 头部：MCP/Ctrl+S 两提示紧跟文件名居左，按钮右移
+- [x] 3. AgentLoop 诊断日志 → console.debug（生产不刷屏）
+- [x] 4. 工具状态红点 → 彩色文字标签（成功/失败/执行中…）
+- [x] 5. drawio「确认后元素丢失又回来」根因（trace 实锤）：apply 后
+      export 回执未等（读到旧 XML）+ 文件内容压缩 mxfile 不可解析 →
+      apply 异步化等回执 + init 规范化导出
+- [x] 6. 版本历史：批量删除 + 保留上限 5→30 + 合并语义说明（非 git）
+- [x] 7. 用户气泡复制 → 气泡内左下角
+- [x] 8. Office 插件 v8（?v=19）SPA 桥接统一：插件壳 iframe → /office-ai
+      路由（同一套 AIEditChat/AIChatShell 全量复用），plugin.js 仅留 DS
+      运行时 + oa:* postMessage 桥（1785→1102 行）
+
 ## 遗留观察项
 - 「未知工具」偶发：诊断日志已部署（5a5f978 + AgentLoop 启动日志），
   等真实复现时取控制台输出
