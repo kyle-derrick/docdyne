@@ -1,5 +1,5 @@
 // 查看页悬浮 AI 助理（替换查看页原 AI 摘要按钮行）：
-// - 收起态：56px 悬浮球（Sparkles，主色）；pointer 事件手写拖动
+// - 收起态：44px 悬浮球（Sparkles，主色）；pointer 事件手写拖动
 //   （位移 >4px 判定为拖动，否则视为点击展开/收起），位置记忆 localStorage
 //   （docflow.viewer-ai.pos）；默认 CSS right/bottom 贴窗口右下角（v3.8），
 //   双击重置回默认；
@@ -8,8 +8,9 @@
 //   cardPosFor 翻转——空间足够向左上展开（默认右下角形态），不足时向右下
 //   展开，并夹取在可用边界（弹窗矩形/视口）内，绝不越界遮出边缘；
 //   卡片 = 头部（标题 + 文件名 + 收起）+ Segmented「对话 | 摘要」+ 内容区 +
-//   输入区（Cherry Studio 式单行工具栏：联网/思考/清空 + 模型选择 + 发送键
-//   最右端，与 AI 助理/AI 创作同款 chat-send-btn）：
+//   输入区（v7.4 S9 起统一共享组件：ChatThread 消息流 + ChatInput 输入框，
+//   与 AI 助手/编辑页同款操作行——复制/删除/重新生成；「保存为新版本」经
+//   actionSlot 注入）：
 //   · 对话：aiChat SSE 流式（系统提示注入当前文件全文截 12000 字），文本类
 //     文件的 AI 回答提供消息级「保存为新版本」（围栏代码块优先 →
 //     uploadFileVersion 覆盖当前 file_id，自动留版本链）；
@@ -17,13 +18,16 @@
 // - AI 未启用（useAIEnabled=false）不渲染。
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { App as AntdApp, Button, Input, Popconfirm, Segmented, Select, Tooltip } from 'antd'
+import { App as AntdApp, Button, Popconfirm, Segmented, Tooltip } from 'antd'
 import { Check, ChevronDown, Copy, Globe, Brain, RotateCcw, Save, Sparkles, Trash2 } from 'lucide-react'
 import AIMarkdown from './AIMarkdown'
+import AIModelSelect from './AIModelSelect'
 import { AIModelOption, AI_MODEL_STORAGE_KEY, AI_THINK_STORAGE_KEY, AI_WEB_STORAGE_KEY, defaultAIModelKey, getAIModels, readAIFlag, writeAIFlag } from './AIAssistant'
-import { AIChatThinking, AIToolChain, applyToolResult, toolEntryFrom } from './aichat'
+import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
+import ChatThread from './aichat/ChatThread'
+import type { ChatMessage } from './aichat/ChatThread'
+import ChatInput from './aichat/ChatInput'
 import { useStickyScroll } from './aichat/useStickyScroll'
-import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './aichat/icons'
 import type { AIToolCallEntry } from './aichat'
 import {
   AIMessage,
@@ -50,6 +54,8 @@ const CARD_GAP = 8
 const DRAG_THRESHOLD = 4
 /** 对话上下文注入的文件全文截断长度。 */
 const CONTEXT_TEXT_LIMIT = 12000
+/** ChatThread 批量勾选空集常量（viewer 无批量模式，恒空）。 */
+const EMPTY_CHECKED = new Set<number>()
 
 /** 可用边界（视口坐标；弹窗内挂载时 = 弹窗容器矩形）。 */
 interface HostBounds { x: number; y: number; w: number; h: number }
@@ -327,7 +333,6 @@ export default function ViewerAIWidget({
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const seqRef = useRef(0)
-  const [copiedId, setCopiedId] = useState<number | null>(null)
   // 模型选择（默认模型 + 下拉，选择记忆与全局助手共用同一 localStorage key）。
   const [models, setModels] = useState<AIModelOption[]>([])
   const [modelKey, setModelKey] = useState(() => {
@@ -335,6 +340,15 @@ export default function ViewerAIWidget({
       return window.localStorage.getItem(AI_MODEL_STORAGE_KEY) ?? ''
     } catch {
       return ''
+    }
+  })
+  // 是否用户显式选过模型（localStorage 有记忆）：false 时命中默认模型以
+  // placeholder 提示而非高亮选中项（与助手/编辑页同款 AIModelSelect 语义）。
+  const [modelExplicit, setModelExplicit] = useState(() => {
+    try {
+      return (window.localStorage.getItem(AI_MODEL_STORAGE_KEY) ?? '') !== ''
+    } catch {
+      return false
     }
   })
   // 文件上下文全文缓存（首次发送时现取；保存新版本后以新内容覆盖）。
@@ -539,11 +553,39 @@ export default function ViewerAIWidget({
 
   // 新回合/流式更新时的滚动由 useStickyScroll 承担（贴底才跟随）。
 
-  /** 复制回答（短暂 ✓ 反馈）。 */
-  const copyTurn = (turn: WidgetTurn) => {
-    void navigator.clipboard.writeText(turn.content)
-    setCopiedId(turn.id)
-    window.setTimeout(() => setCopiedId((cur) => (cur === turn.id ? null : cur)), 1200)
+  /** 复制内容（统一 ChatThread 操作行回调）。 */
+  const copyContent = (content: string) => {
+    void navigator.clipboard.writeText(content)
+    void message.success(t(locale, 'aiAssistantCopied'))
+  }
+
+  /** 删除本轮问答（assistant 与其前置最近 user 一并删；localStorage 快照同步）。 */
+  const deleteExchange = (asstId: number) => {
+    if (busyRef.current) return
+    applyTurns((prev) => {
+      const idx = prev.findIndex((x) => x.id === asstId)
+      if (idx < 0) return prev
+      let userId: number | null = null
+      for (let i = idx - 1; i >= 0; i--) {
+        if (prev[i].role === 'user') { userId = prev[i].id; break }
+      }
+      return prev.filter((x) => x.id !== asstId && x.id !== userId)
+    })
+  }
+
+  /** 重新生成：删除本轮问答并重发其问题（ChatThread 操作行）。 */
+  const regenerateAsst = (asstId: number) => {
+    if (busyRef.current) return
+    const prev = turnsRef.current
+    const idx = prev.findIndex((x) => x.id === asstId)
+    if (idx < 0) return
+    let question = ''
+    for (let i = idx - 1; i >= 0; i--) {
+      if (prev[i].role === 'user') { question = prev[i].content; break }
+    }
+    if (!question) return
+    deleteExchange(asstId)
+    void send(question)
   }
 
   /** 保存为新版本：提取代码块/全文 → uploadFileVersion 覆盖当前 file_id
@@ -646,66 +688,37 @@ export default function ViewerAIWidget({
               ]}
             />
           </div>
-          {/* 内容区（对话/摘要共用滚动容器）。 */}
-          <div className="viewer-aiw-body" ref={sticky.wrapRef} onScroll={sticky.onScroll}>
-            {tab === 'chat' ? (
-              <>
-                {turns.length === 0 && (
-                  <div className="viewer-aiw-empty muted">
-                    {zh
-                      ? `已注入「${fileName}」全文上下文，可直接提问、总结或让 AI 修改后保存为新版本。`
-                      : `Context from "${fileName}" is injected. Ask, summarize, or let the AI revise and save a new version.`}
-                  </div>
-                )}
-                {turns.map((turn) =>
-                  turn.role === 'user' ? (
-                    <div key={turn.id} className="viewer-aiw-bubble user">{turn.content}</div>
-                  ) : (
-                    <div key={turn.id} className="viewer-aiw-bubble assistant">
-                      {/* 推理思考折叠区 + 工具调用链（与其他对话场景同款共享组件）。 */}
-                      <AIChatThinking text={turn.thinking ?? ''} streaming={turn.streaming} thinkingMS={turn.thinkingMS} zh={zh} />
-                      <AIToolChain toolCalls={turn.toolCalls} zh={zh} />
-                      {turn.error ? (
-                        <div className="error-text">{turn.error}</div>
-                      ) : turn.content ? (
-                        <>
-                          <AIMarkdown text={turn.content} zh={zh} streaming={turn.streaming} />
-                          {turn.streaming && <span className="ai-caret" aria-hidden="true" />}
-                        </>
-                      ) : turn.streaming ? (
-                        <span className="muted">{t(locale, 'aiAssistantGenerating')}</span>
-                      ) : turn.stopped ? (
-                        <span className="muted">{t(locale, 'aiAssistantStopped')}</span>
-                      ) : (
-                        // 兜底：流结束但无正文/错误/停止标记——给出可见提示而非空白。
-                        <span className="muted">{zh ? '（模型未返回内容）' : '(no content returned)'}</span>
-                      )}
-                      {turn.stopped && turn.content && <span className="ai-stopped-tag">{t(locale, 'aiAssistantStopped')}</span>}
-                      {!turn.streaming && !turn.error && turn.content && (
-                        <div className="viewer-aiw-msg-actions">
-                          <Tooltip title={copiedId === turn.id ? t(locale, 'aiAssistantCopied') : t(locale, 'aiAssistantCopy')}>
-                            <Button size="small" type="text" className="viewer-aiw-act" aria-label={t(locale, 'aiAssistantCopy')} onClick={() => copyTurn(turn)}>
-                              {copiedId === turn.id ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={2} aria-hidden="true" />}
-                            </Button>
-                          </Tooltip>
-                          {textLike ? (
-                            saveButton(turn)
-                          ) : (
-                            <Tooltip title={zh ? '仅文本类文件支持保存修改' : 'Only text-like files support saving changes'}>
-                              <Button size="small" type="text" className="viewer-aiw-act" disabled aria-label={zh ? '保存为新版本' : 'Save as new version'}>
-                                <Save size={13} strokeWidth={2} aria-hidden="true" />
-                              </Button>
-                            </Tooltip>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ),
-                )}
-              </>
-            ) : (
-              <>
-                <AIChatThinking text={summary.thinking ?? ''} streaming={summary.loading} thinkingMS={summary.thinkingMS} zh={zh} />
+          {/* 内容区：对话 = ChatThread（统一消息流，S9）；摘要 = 自有滚动容器。 */}
+          {tab === 'chat' ? (
+            <ChatThread
+              zh={zh}
+              messages={turns as unknown as ChatMessage[]}
+              emptyHint={zh
+                ? `已注入「${fileName}」全文上下文，可直接提问、总结或让 AI 修改后保存为新版本。`
+                : `Context from "${fileName}" is injected. Ask, summarize, or let the AI revise and save a new version.`}
+              generatingLabel={t(locale, 'aiAssistantGenerating')}
+              onCopy={copyContent}
+              onDeleteExchange={deleteExchange}
+              onRegenerate={regenerateAsst}
+              onContinue={() => {}}
+              onExecutePlan={() => {}}
+              busy={busy}
+              batchMode={false}
+              checkedIds={EMPTY_CHECKED}
+              onToggleChecked={() => {}}
+              wrapRef={sticky.wrapRef} onScroll={sticky.onScroll}
+              /* 「保存为新版本」（文本类）：viewer 特有消息级操作，经扩展位注入。 */
+              actionSlot={(msg) => (textLike ? saveButton(msg as unknown as WidgetTurn) : (
+                <Tooltip title={zh ? '仅文本类文件支持保存修改' : 'Only text-like files support saving changes'}>
+                  <Button size="small" type="text" className="viewer-aiw-act" disabled aria-label={zh ? '保存为新版本' : 'Save as new version'}>
+                    <Save size={13} strokeWidth={2} aria-hidden="true" />
+                  </Button>
+                </Tooltip>
+              ))}
+            />
+          ) : (
+            <div className="viewer-aiw-body" ref={sticky.wrapRef} onScroll={sticky.onScroll}>
+              <AIChatThinking text={summary.thinking ?? ''} streaming={summary.loading} thinkingMS={summary.thinkingMS} zh={zh} />
                 {summary.loading && !summary.text && !summary.thinking && <div className="muted">{t(locale, 'aiSummaryLoading')}</div>}
                 {summary.text && (
                   <AIMarkdown text={summary.text} zh={zh} streaming={summary.loading} />
@@ -730,61 +743,46 @@ export default function ViewerAIWidget({
                     </Button>
                   </div>
                 )}
-              </>
-            )}
-          </div>
-          {/* 底部输入区（v3.9 Cherry Studio 式：输入框 + 单行工具栏，发送/
-              停止按钮在工具栏最右端=模型切换右侧，与 AI 助理/创作同款样式）。 */}
+            </div>
+          )}
+          {/* 底部输入区（S9 统一 ChatInput：联网/思考/清空开关组 + 模型选择 +
+              发送/停止，与 AI 助手/编辑页同款）。 */}
           {tab === 'chat' && (
-            <div className="chat-input-box viewer-aiw-input">
-              <Input.TextArea
-                autoSize={{ minRows: 1, maxRows: 4 }}
-                value={input}
-                placeholder={t(locale, 'aiAssistantPlaceholder')}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    void send(input)
-                  }
-                }}
-              />
-              <div className="chat-tools-bar">
-                <Tooltip title={zh ? '联网搜索（回答附网络来源）' : 'Web search (with sources)'}>
-                  <button type="button" className={`ai-tool-icon${web ? ' on' : ''}`} aria-pressed={web} aria-label={zh ? '联网搜索' : 'Web search'} onClick={() => { const v = !web; setWeb(v); writeAIFlag(AI_WEB_STORAGE_KEY, v) }}>
-                    <Globe size={15} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                </Tooltip>
-                <Tooltip title={zh ? '深度思考（所选模型须支持推理）' : 'Deep thinking (requires a reasoning model)'}>
-                  <button type="button" className={`ai-tool-icon${think ? ' on' : ''}`} aria-pressed={think} aria-label={zh ? '深度思考' : 'Deep thinking'} onClick={() => { const v = !think; setThink(v); writeAIFlag(AI_THINK_STORAGE_KEY, v) }}>
-                    <Brain size={15} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                </Tooltip>
+            <ChatInput
+              zh={zh}
+              value={input} onChange={setInput}
+              onSend={() => void send(input)} onStop={() => abortRef.current?.abort()}
+              busy={busy}
+              placeholder={t(locale, 'aiAssistantPlaceholder')}
+              packages={[]} pkgId="" onPkgChange={() => {}} applyKind="viewer"
+              showCautious={false} cautious={false} onCautiousToggle={() => {}}
+              attachedFiles={[]} onFileDetach={() => {}}
+              togglesSlot={(
+                <>
+                  <Tooltip title={zh ? '联网搜索（回答附网络来源）' : 'Web search (with sources)'}>
+                    <button type="button" className={`ai-tool-icon${web ? ' on' : ''}`} aria-pressed={web} aria-label={zh ? '联网搜索' : 'Web search'} onClick={() => { const v = !web; setWeb(v); writeAIFlag(AI_WEB_STORAGE_KEY, v) }}>
+                      <Globe size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip title={zh ? '深度思考（所选模型须支持推理）' : 'Deep thinking (requires a reasoning model)'}>
+                    <button type="button" className={`ai-tool-icon${think ? ' on' : ''}`} aria-pressed={think} aria-label={zh ? '深度思考' : 'Deep thinking'} onClick={() => { const v = !think; setThink(v); writeAIFlag(AI_THINK_STORAGE_KEY, v) }}>
+                      <Brain size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                </>
+              )}
+              extraSlot={(
                 <Tooltip title={t(locale, 'aiAssistantClear')}>
                   <Button size="small" type="text" disabled={turns.length === 0} aria-label={t(locale, 'aiAssistantClear')} onClick={() => { abortRef.current?.abort(); applyTurns(() => []) }}>
                     <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
                   </Button>
                 </Tooltip>
-                <div className="chat-tools-right">
-                  {models.length > 0 && (
-                    <Select size="small" className="viewer-aiw-model" value={modelKey || undefined} placeholder={zh ? '默认模型' : 'Default model'}
-                      onChange={(v) => { setModelKey(v); try { window.localStorage.setItem(AI_MODEL_STORAGE_KEY, v) } catch { /* ignore */ } }}
-                      options={models.map((m) => ({ value: m.id, label: `${m.providerName || m.providerId} / ${m.model}` }))} />
-                  )}
-                </div>
-                <span className="chat-send-btn-wrap">
-                  {busy ? (
-                    <button type="button" className="chat-stop-btn" aria-label={t(locale, 'aiAssistantStop')} title={t(locale, 'aiAssistantStop')} onClick={() => abortRef.current?.abort()}>
-                      {CHAT_STOP_ICON}
-                    </button>
-                  ) : (
-                    <button type="button" className="chat-send-btn" disabled={!input.trim()} aria-label={t(locale, 'aiAssistantSend')} title={t(locale, 'aiAssistantSend')} onClick={() => void send(input)}>
-                      {CHAT_SEND_ICON}
-                    </button>
-                  )}
-                </span>
-              </div>
-            </div>
+              )}
+              modelSlot={models.length > 0 ? (
+                <AIModelSelect models={models} modelKey={modelKey} modelExplicit={modelExplicit}
+                  onSelect={(v) => { setModelKey(v); setModelExplicit(true) }} zh={zh} />
+              ) : undefined}
+            />
           )}
 
         </div>

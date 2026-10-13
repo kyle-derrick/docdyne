@@ -55,14 +55,18 @@ export interface ChatThreadProps {
   // 操作回调
   onCopy: (content: string) => void
   onDeleteExchange: (asstId: number) => void
-  onSaveConversation: (ids?: number[]) => void
+  /** 未提供时隐藏「保存」按钮（viewer 宿主无会话落盘）。 */
+  onSaveConversation?: (ids?: number[]) => void
   onRegenerate: (asstId: number) => void
   onContinue: (asstId: number) => void
   onExecutePlan: (planText: string) => void
+  /** 助手消息操作行扩展位（viewer：保存为新版本）。 */
+  actionSlot?: (msg: ChatMessage) => ReactNode
   // 状态
   busy: boolean
   batchMode: boolean
-  savingFile: boolean
+  /** 保存中（「保存」按钮 loading；未提供按 false）。 */
+  savingFile?: boolean
   // 批量勾选
   checkedIds: Set<number>
   onToggleChecked: (id: number) => void
@@ -88,6 +92,7 @@ function AgentRawLine({ text }: { text: string }) {
 export default function ChatThread({
   zh, messages, emptyHint, emptySlot, generatingLabel,
   onCopy, onDeleteExchange, onSaveConversation, onRegenerate, onContinue, onExecutePlan,
+  actionSlot,
   busy, batchMode, savingFile,
   checkedIds, onToggleChecked,
   wrapRef, onScroll,
@@ -204,11 +209,14 @@ export default function ChatThread({
                         {zh ? '删除' : 'Delete'}
                       </Button>
                     </Tooltip>
-                    <Tooltip title={zh ? '保存会话到文件' : 'Save to file'}>
-                      <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => onSaveConversation()}>
-                        {zh ? '保存' : 'Save'}
-                      </Button>
-                    </Tooltip>
+                    {onSaveConversation && (
+                      <Tooltip title={zh ? '保存会话到文件' : 'Save to file'}>
+                        <Button size="small" type="text" icon={<Save size={13} strokeWidth={2} />} loading={savingFile} onClick={() => onSaveConversation()}>
+                          {zh ? '保存' : 'Save'}
+                        </Button>
+                      </Tooltip>
+                    )}
+                    {actionSlot?.(msg)}
                     {msg.id === messages[messages.length - 1]?.id && (
                       <Tooltip title={zh ? '删除并重新生成' : 'Delete & regenerate'}>
                         <Button size="small" type="text" icon={<RotateCcw size={13} strokeWidth={2} />} disabled={busy} onClick={() => onRegenerate(msg.id)}>

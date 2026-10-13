@@ -5980,17 +5980,6 @@ kbd {
   color: var(--muted);
   border: 1px dashed var(--border);
 }
-/* 错误消息：红色气泡 + 重试按钮。 */
-.ai-error-bubble {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
-}
 .ai-error-msg { font-size: 13px; color: var(--danger); word-break: break-word; }
 /* hover 操作：复制 / 重新生成（触屏设备常显）。 */
 .ai-message-actions {
@@ -6683,32 +6672,6 @@ kbd {
 .ai-workdir-default > svg:last-child { margin-left: auto; flex-shrink: 0; }
 /* 抽屉头部右侧（会话列表 + 新建 + 固定按钮；关闭为 antd 自带 X）。 */
 .ai-drawer-extra { display: inline-flex; align-items: center; gap: 2px; }
-/* 抽屉头部左侧会话标题按钮（点击重命名；标题超长省略，hover 显铅笔）。 */
-.ai-title-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  min-width: 0;
-  padding: 2px 6px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.ai-title-btn:hover:not(:disabled) { background: var(--surface-2); }
-.ai-title-btn:disabled { cursor: default; }
-.ai-title-btn .ai-title-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ai-title-btn > svg { flex-shrink: 0; color: var(--muted); opacity: 0; transition: opacity 0.15s; }
-.ai-title-btn:hover:not(:disabled) > svg { opacity: 1; }
 .ai-attach-item {
   display: flex;
   align-items: center;
@@ -6821,40 +6784,6 @@ kbd {
   background: var(--primary);
   flex-shrink: 0;
 }
-/* ==================== AI 对话共享组件（components/aichat；三处对话统一） ==================== */
-/* 消息流容器（Studio 右栏）。 */
-.aic-bubbles.ant-bubble-list { flex: 1; min-height: 0; }
-.aic-bubbles .ant-bubble { padding-block: 5px; }
-.aic-bubbles .ant-bubble-start { padding-inline-end: 4%; }
-.aic-bubbles .ant-bubble-end { padding-inline-start: 4%; }
-.aic-bubbles .ant-bubble-content.aic-bubble-user {
-  background: var(--primary);
-  color: #fff;
-  border-radius: 14px;
-  padding: 7px 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.aic-bubbles .ant-bubble-content.aic-bubble-ai { max-width: 100%; }
-/* AI 消息体。 */
-.aic-msg { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.aic-generating, .aic-stopped { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
-.aic-stopped-tag {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 11px;
-}
-.aic-error {
-  padding: 8px 12px;
-  border: 1px solid rgba(220, 38, 38, 0.4);
-  border-radius: 8px;
-  background: rgba(220, 38, 38, 0.06);
-}
-.aic-error-msg { color: var(--danger, #dc2626); font-size: 12.5px; white-space: pre-wrap; }
 /* 思考过程折叠区（DeepSeek 式：流式展开、完成收起 + 用时）。 */
 .aic-thinking {
   display: flex;
@@ -6956,31 +6885,6 @@ kbd {
   font-size: 10.5px;
 }
 .aic-websource-link .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 消息操作行。 */
-.aic-msg-actions { display: flex; align-items: center; gap: 2px; }
-.aic-msg-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-.aic-msg-action:hover { background: var(--surface-2); color: var(--primary); }
-/* 贴底跟随包裹层（v3.4）：占满消息区高度并接管纵向滚动（Bubble.List 自身
-   不再 autoScroll）。 */
-.aic-list-wrap { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-.aic-list-wrap .ant-bubble-list { flex: 1; }
-/* 关闭 Bubble.List 内部滚动（外层 aic-list-wrap 统一接管）；同时强制
-   column 正向布局——autoscroll 态的 column-reverse 会把内容向上溢出，
-   不计入祖先 scrollHeight（反向 flex 的 scrollHeight 怪癖），外层
-   overflow:auto 永远无内容可滚 → 历史记录无法滚动查看的根因。 */
-.aic-list-wrap .ant-bubble-list-scroll-box { overflow: visible; flex-direction: column; }
-.aic-send-tools { display: flex; align-items: center; gap: 8px; }
 /* ==================== AI 编辑对话：模式开关 + 自动应用/撤销（版本保护） ==================== */
 /* 面板头部下方的「可修改 / 仅对话 + 选区 / 全文」单行（v3.9 两行合并省一行），
    模型选择在底部输入区工具栏、发送键最右端。 */
@@ -7232,30 +7136,7 @@ kbd {
   flex-direction: column;
   gap: 10px;
 }
-.viewer-aiw-empty { font-size: 12.5px; line-height: 1.8; padding: 8px 2px; }
-/* 对话气泡：用户右对齐主色底 / 助手左对齐面板底（markdown 内联排版）。 */
-.viewer-aiw-bubble {
-  max-width: 92%;
-  padding: 8px 10px;
-  border-radius: 10px;
-  line-height: 1.6;
-  word-break: break-word;
-}
-.viewer-aiw-bubble.user {
-  align-self: flex-end;
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--text);
-  white-space: pre-wrap;
-}
-.viewer-aiw-bubble.assistant {
-  align-self: flex-start;
-  width: 100%;
-  max-width: 100%;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
 /* 气泡内 markdown：去掉 .markdown-preview 的卡片外观（与编辑页 AI 面板同规则）。 */
-.viewer-aiw-bubble .markdown-preview,
 .viewer-aiw-card .markdown-preview {
   flex: none;
   width: auto;
@@ -7265,15 +7146,6 @@ kbd {
   background: transparent;
   font-size: 13px;
 }
-/* 消息级操作行（复制 / 保存为新版本）：hover 淡显。 */
-.viewer-aiw-msg-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: 4px;
-  opacity: 0.75;
-}
-.viewer-aiw-msg-actions:hover { opacity: 1; }
 .viewer-aiw-act.ant-btn { padding: 0 4px; color: var(--muted); }
 .viewer-aiw-act.ant-btn:hover:not(:disabled) { color: var(--primary); }
 /* 摘要页底部操作（重新生成 / 复制）。 */
@@ -7289,7 +7161,6 @@ kbd {
   gap: 6px;
 }
 .viewer-aiw-input-spacer { flex: 1; }
-.viewer-aiw-model { min-width: 0; max-width: 200px; }
 /* 窄视口：卡片缩至近全宽，避免遮挡内容。 */
 @media (max-width: 420px) {
   .viewer-aiw-card { width: calc(100vw - 16px) !important; }
@@ -7358,37 +7229,6 @@ kbd {
 .aiax-conv-label { display: flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; width: 100%; }
 .aiax-conv-label .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .aiax-conv-label .time { flex-shrink: 0; min-width: 4.5em; text-align: right; font-size: 11px; }
-
-/* ---- 消息流（Bubble.List） ---- */
-.aiax-thread {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.aiax-thread .ai-empty { margin: auto; }
-.aiax-bubbles.ant-bubble-list { flex: 1; min-height: 0; }
-/* 气泡间距收紧（默认 padding 偏大）；左右留白比例下调。 */
-.aiax-bubbles .ant-bubble { padding-block: 5px; }
-.aiax-bubbles .ant-bubble-start { padding-inline-end: 5%; }
-.aiax-bubbles .ant-bubble-end { padding-inline-start: 5%; }
-/* 用户气泡：主色胶囊（覆盖 filled 默认灰底）。 */
-.aiax-bubbles .ant-bubble-content.aiax-bubble-user {
-  background: var(--primary);
-  color: #fff;
-}
-.aiax-user-msg { min-width: 0; white-space: pre-wrap; word-break: break-word; }
-/* 吸附半嵌圆点内文件 chips 沿用 .ai-turn-files（flex-end 对齐不变）。 */
-/* AI 气泡：borderless（透明无内边距），内容全宽。 */
-.aiax-bubbles .ant-bubble-content.aiax-bubble-ai { max-width: 100%; }
-.aiax-ai-msg { min-width: 0; max-width: 100%; font-size: 13px; line-height: 1.7; }
-/* 回答操作行（复制 / 重新生成）：默认淡显，hover 全显（触屏常显）。 */
-.aiax-msg-actions { display: flex; gap: 2px; margin-top: 4px; opacity: 0.55; transition: opacity 0.15s; }
-.aiax-msg-actions:hover, .aiax-msg-actions:focus-within { opacity: 1; }
-@media (hover: none) { .aiax-msg-actions { opacity: 1; } }
-.aiax-msg-actions .ant-btn { padding: 0 4px; color: var(--muted); }
-.aiax-msg-actions .ant-btn:hover { color: var(--primary); }
 
 /* ---- 底部输入区（v3.7 Cherry Studio 式统一框：输入+单行工具栏） ---- */
 /* ant-sender 自带 box-shadow 造成「假分割线」——全局去除。 */
@@ -7608,5 +7448,3 @@ kbd {
 .ai-pkg-menu { min-width: 200px; }
 .ai-pkg-menu .pkg-desc { font-size: 11px; color: var(--muted); white-space: normal; }
 
-/* 用户消息操作行：气泡内底部右对齐（非右侧竖排）。 */
-.aiax-user-msg .aic-msg-actions { display: flex; justify-content: flex-end; gap: 2px; margin-top: 2px; }

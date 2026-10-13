@@ -685,24 +685,12 @@ export function AIChatToggleBar({
 
 // 网络来源归一化与渲染、工具调用链迁至 components/aichat（三处对话共用），
 // 保留原导出名以兼容 AIEditChat 等既有引用。
-import { AIToolChain, applyToolResult, normalizeWebSources, toolEntryFrom } from './aichat'
+import { applyToolResult, normalizeWebSources, toolEntryFrom } from './aichat'
 import AIChatShell from './aichat/AIChatShell'
 import type { ChatMessage } from './aichat/ChatThread'
-import type { AIChatTurnData, AIToolCallEntry, AIAttachFile } from './aichat'
+import type { AIChatTurnData, AIAttachFile } from './aichat'
 import AIAttachTree from './aichat/AIAttachTree'
 import { useStickyScroll } from './aichat/useStickyScroll'
-
-export { normalizeWebSources } from './aichat'
-export type { AIWebSource } from './aichat'
-export type { AIToolCallEntry as AIToolCallView } from './aichat'
-export { toolEntryFrom as toolCallView, applyToolResult } from './aichat'
-export { AIWebSourcesView as AIWebSources } from './aichat'
-
-/** 「工具调用」行（共享 ThoughtChain 渲染：running 旋转 → success/error
- *  终态，可展开参数/结果摘要；三处对话共用）。 */
-export function AIToolCalls({ toolCalls, zh }: { toolCalls: AIToolCallEntry[] | undefined; zh: boolean }) {
-  return <AIToolChain toolCalls={toolCalls} zh={zh} />
-}
 
 // ---------- 工作目录选择（df_* 平台文件工具的相对路径基准） ----------
 
