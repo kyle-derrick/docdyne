@@ -5928,7 +5928,8 @@ kbd {
 }
 .ai-suggestion-card:hover { border-color: var(--primary); background: var(--surface-2); }
 .ai-turn { display: flex; gap: 8px; }
-.ai-turn-user { justify-content: flex-end; }
+/* 用户消息：气泡 + 下方操作行（v7.6：复制按钮从右侧移到气泡下方）。 */
+.ai-turn-user { flex-direction: column; align-items: flex-end; }
 .ai-turn-assistant { justify-content: flex-start; align-items: flex-start; }
 /* 助手头像（Sparkles 圆标）。 */
 .ai-avatar {
@@ -6888,26 +6889,25 @@ kbd {
 /* ==================== AI 编辑对话：模式开关 + 自动应用/撤销（版本保护） ==================== */
 /* 面板头部下方的「可修改 / 仅对话 + 选区 / 全文」单行（v3.9 两行合并省一行），
    模型选择在底部输入区工具栏、发送键最右端。 */
-.ai-edit-chat-mode {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-}
-/* 模式说明悬浮图标（hover 弹出完整说明；替代平铺文案）。 */
-.ai-edit-chat-mode-hint {
-  display: inline-flex;
-  align-items: center;
-  margin-left: auto;
+/* 模式切换单按钮（v7.6：标题后，点击切换 可修改/仅对话，hover 显示说明）。 */
+.ai-mode-toggle {
+  flex-shrink: 0;
+  padding: 1px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
   color: var(--muted, #888);
-  cursor: help;
-  border-radius: 50%;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
 }
-.ai-edit-chat-mode-hint:hover { color: var(--accent, #1677ff); }
-.ai-edit-chat-mode-popover { max-width: 320px; line-height: 1.5; }
-.ai-edit-chat-mode-popover strong { display: block; margin-bottom: 4px; }
+.ai-mode-toggle:hover { color: var(--primary); border-color: var(--primary); }
+.ai-mode-toggle.on {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
 /* 助手气泡内「已应用于文档 · vN · 时间 + 摘要」小字条与「撤销此修改」。 */
 .ai-applied-bar {
   display: flex;
@@ -7418,6 +7418,35 @@ kbd {
 }
 .ai-batch-bar .spacer { flex: 1; }
 .ai-edit-chat-actions.user-ops { justify-content: flex-end; }
+/* 回到底部悬浮按钮（v7.6：消息流离底时出现，贴底吸浮于流底部）。 */
+.ai-jump-bottom {
+  position: sticky;
+  bottom: 10px;
+  align-self: center;
+  margin-top: -36px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  z-index: 6;
+}
+.ai-jump-bottom:hover { color: var(--primary); border-color: var(--primary); }
+/* 过程追踪：运行中的当前阶段（自动展开 + 高亮左边条）。 */
+.ai-trace-stage.live > .ai-trace-row { color: var(--primary); }
+.ai-trace-stage.live > .ai-trace-row .ai-trace-dot { animation: none; }
+/* 自动展开的思考体限高 + 贴底跟随（流式更新滚动到底）。 */
+.ai-trace-body.live-follow {
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .ai-edit-chat-head-ops .batch-on { color: var(--primary); background: var(--hover, rgba(127, 127, 127, .1)); }
 
 /* 谨慎模式开关开启态（B1）。 */
@@ -7437,11 +7466,34 @@ kbd {
   max-width: none;
   z-index: 950;
   box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
-  resize: both;
   min-width: 360px;
-  min-height: 420px;
+  min-height: 360px;
 }
 .ai-edit-chat-panel.floating .ai-edit-chat-head { cursor: move; user-select: none; }
+/* 悬浮窗右下角缩放手柄（v7.6：pointer 拖拽，尺寸记忆 localStorage）。 */
+.ai-float-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 5;
+  touch-action: none;
+}
+.ai-float-resize::before {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted, #888);
+  border-bottom: 2px solid var(--muted, #888);
+  border-radius: 0 0 2px 0;
+  opacity: .7;
+}
+.ai-float-resize:hover::before { border-color: var(--primary); opacity: 1; }
 /* 技能包图标下拉按钮（紧凑化，替代宽下拉）。 */
 .ai-pkg-btn { flex-shrink: 0; }
 .ai-pkg-btn.pkg-on { color: var(--primary); background: var(--hover, rgba(127,127,127,.1)); }

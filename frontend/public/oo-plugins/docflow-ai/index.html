@@ -1,7 +1,10 @@
 <!doctype html>
-<!-- DocFlow AI OnlyOffice 插件（v7.2）：
+<!-- DocFlow AI OnlyOffice 插件（v7.6，UI 对齐平台统一设计）：
      - 工具套装：word 26 / excel 19 / ppt 13 个编辑器工具，全 1 基索引；
        excel 新增 write_table 组合工具（整表写入+表头样式）。
+     - v7.6：模式收敛为头部单按钮（可修改⇄仅对话，hover 说明）；用户/回复
+       气泡下方复制操作；回复底部 tok 用量+整体耗时；移除流式 TOOL_CALL
+       原始行（过程由思考折叠区+工具卡呈现）；离底显示「回到底部」按钮。
      - v7.2：会话记录服务端持久化（历史/切换/新建/删除，跨设备一致；
        本机旧记录首次自动迁移）。
      - v7.1：贴底跟随滚动（上滚不被顶回）、输入框自适应加高（2-5 行）。
@@ -34,9 +37,10 @@
   header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex-shrink: 0; background: var(--card); }
   .logo { width: 20px; height: 20px; border-radius: 6px; background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
   header .title { font-weight: 600; font-size: 13px; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .seg button { border: none; background: transparent; color: var(--fg); padding: 3px 10px; font-size: 12px; }
-  .seg button.on { background: var(--brand); color: #fff; }
+  /* 模式单按钮（v7.6 对齐平台：点击在 可修改/仅对话 间切换，title=说明）。 */
+  .mode-toggle { flex-shrink: 0; border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 1px 10px; border-radius: 999px; font-size: 11px; line-height: 18px; cursor: pointer; }
+  .mode-toggle:hover { color: var(--brand); border-color: var(--brand); }
+  .mode-toggle.on { color: var(--brand); border-color: var(--brand); background: var(--brand-weak); }
   .iconbtn { border: none; background: transparent; color: var(--muted); border-radius: 6px; padding: 4px 6px; }
   .iconbtn:hover { color: var(--fg); background: var(--card); }
   .spacer { flex: 1; }
@@ -52,7 +56,15 @@
   .m.a ul { margin: 4px 0; padding-left: 18px; }
   .m.a table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
   .m.a th, .m.a td { border: 1px solid var(--line); padding: 3px 8px; }
-  .raw { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; max-height: 100px; overflow-y: auto; }
+  /* 消息操作行 + 用量行（v7.6 对齐平台：复制在气泡下方；tok 用量在回复底部）。 */
+  .m-ops { display: flex; gap: 6px; margin-top: 4px; }
+  .m-ops button { border: none; background: transparent; color: var(--muted); font-size: 11px; padding: 1px 6px; border-radius: 6px; cursor: pointer; }
+  .m-ops button:hover { color: var(--brand); background: var(--card); }
+  .u-wrap { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; max-width: 94%; }
+  .usage { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  /* 回到底部（v7.6 对齐平台：离底时出现）。 */
+  #jump { position: sticky; bottom: 10px; align-self: center; margin-top: -36px; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: none; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.18); z-index: 6; }
+  #jump:hover { color: var(--brand); border-color: var(--brand); }
   .caret { display: inline-block; width: 7px; height: 13px; background: var(--brand); vertical-align: -2px; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
   .think { font-size: 12px; color: var(--muted); }
@@ -108,11 +120,7 @@
   <header>
     <span class="logo">AI</span>
     <span class="title">DocFlow AI</span>
-    <div class="seg" id="mode">
-      <button data-v="edit" class="on" title="AI 经工具循环自主操作文档">自主编辑</button>
-      <button data-v="plan" title="只读探查并产出执行计划，可一键执行">计划</button>
-      <button data-v="chat" title="仅问答，不改动文档">仅对话</button>
-    </div>
+    <button class="mode-toggle on" id="mode" title="AI 通过工具循环自主读文档、执行修改并校验；过程分阶段可折叠，达预算或熔断可「继续」；破坏性操作受谨慎模式确认。">可修改</button>
     <span class="spacer"></span>
     <button class="iconbtn" id="sess" title="历史会话">🕘</button>
     <button class="iconbtn" id="clear" title="清空当前会话">🗑</button>
@@ -136,6 +144,6 @@
     <button id="stop" title="停止" aria-label="停止"><span class="sq"></span></button>
   </div>
   <div class="hint" id="hint">Enter 发送 · Shift+Enter 换行</div>
-  <script src="plugin.js?v=15"></script>
+  <script src="plugin.js?v=16"></script>
 </body>
 </html>

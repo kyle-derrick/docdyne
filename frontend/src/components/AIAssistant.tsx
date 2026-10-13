@@ -1239,6 +1239,26 @@ useEffect(() => {
       return next
     })
   }
+  // 悬浮窗模式（v7.6）：助手脱离抽屉为独立可拖动/缩放窗口（与编辑页同款，
+  // 拖动/缩放/记忆内聚 AIChatShell）。
+  const [floatMode, setFloatMode] = useState(() => {
+    try {
+      return window.localStorage.getItem('docflow.ai.assistant.floatMode') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleFloatMode = () => {
+    setFloatMode((v) => {
+      const next = !v
+      try {
+        window.localStorage.setItem('docflow.ai.assistant.floatMode', next ? '1' : '0')
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
   const [personaId, setPersonaId] = useState(loadPersonaId)
   const [customPrompt, setCustomPrompt] = useState(() => {
     try {
@@ -1555,27 +1575,37 @@ useEffect(() => {
   }
 
   /** 切换会话：中断进行中的流式请求并恢复目标会话消息（贴底显示最新）；
-   *  正文按需从服务端拉取（列表只带元信息）。 */
+   *  正文按需从服务端拉取（列表只带元信息）。
+   *  v7.6 防御性修复：目标查找回落 convos state（ref/state 理论同步，任何
+   *  漂移都不再静默吞掉点击）；点击已激活会话 = 重新拉取正文（视为刷新，
+   *  覆盖「列表激活态与实际内容不一致」的状态修复场景）。 */
   const switchConvo = (id: string) => {
-    const target = convosRef.current.find((c) => c.id === id)
-    if (!target || id === convoIdRef.current) return
-    abortRef.current?.abort()
-    sticky.scrollToBottom()
-    convoIdRef.current = id
-    setConvoId(id)
-    setInput('')
-    setAttached([])
-    const apply = (msgs: AIConvoMessage[]) => {
-      applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+    const target = convosRef.current.find((c) => c.id === id) ?? convos.find((c) => c.id === id)
+    if (!target) {
+      console.warn('[ai-assistant] 切换目标不在会话列表：', id, '（refs', convosRef.current.length, '/ state', convos.length, '条）')
+      return
     }
-    if (target.messages.length > 0) { convoSyncedLenRef.current = target.messages.length; apply(target.messages); return }
+    if (id !== convoIdRef.current) {
+      abortRef.current?.abort()
+      sticky.scrollToBottom()
+      convoIdRef.current = id
+      setConvoId(id)
+      setInput('')
+      setAttached([])
+      exitBatch()
+      if (target.messages.length > 0) {
+        convoSyncedLenRef.current = target.messages.length
+        applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+        return
+      }
+    }
     void aiGetConversation(id)
       .then((row) => {
         if (convoIdRef.current !== id) return
         const msgs = (row.messages as unknown as AIConvoMessage[]).filter((m) => m && typeof m.content === 'string')
         convosRef.current = convosRef.current.map((c) => (c.id === id ? { ...c, messages: msgs } : c))
         convoSyncedLenRef.current = msgs.length
-        apply(msgs)
+        applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
       })
       .catch(() => {
         if (convoIdRef.current === id) void message.error(zh ? '会话内容加载失败' : 'Failed to load conversation')
@@ -2025,9 +2055,7 @@ useEffect(() => {
       ]
 
   // ---- 渲染（v7.4 S8：AIChatShell 统一 UI；本组件只注入业务回调）----
-  const modeHint = chatOnly
-    ? (zh ? '仅对话：不注入文件工具，不读写文件' : 'Chat only: no file tools')
-    : (zh ? '可修改：AI 可经平台文件工具读写工作目录内文件' : 'Can edit: the AI reads/writes files via platform file tools')
+  // 模式说明（v7.6：经头部模式单按钮 hover 展示）。
   const modeTip = chatOnly
     ? (zh ? '不注入 df_* 文件工具（use_files=false）且系统提示声明不读写文件；联网/思考/MCP/记忆等能力不受影响。' : 'No df_* file tools are injected; web/thinking/MCP/memory still work.')
     : (zh ? 'AI 可经 df_* 平台文件工具直接读写工作目录内文件（自动留版本）；工作目录在下方工具行切换。' : 'The AI can read/write files in the working directory via df_* tools (auto versioned); change the working directory in the toolbar above.')
@@ -2036,23 +2064,8 @@ useEffect(() => {
     void message.success(zh ? '已复制' : 'Copied')
   }
 
-  return (
-    <>
-      <Drawer
-        placement="right"
-        /* antd 6：width 已弃用，size 接受数字像素（窄屏 100% 全宽经 rootClassName 媒体查询保留）。 */
-        size={480}
-        open={open}
-        onClose={() => setOpen(false)}
-        rootClassName="ai-drawer-root"
-        /* 固定（pin）：无遮罩、点页面/Esc 不关闭，只能图钉取消或头部 X 关闭；
-            头部由 AIChatShell 渲染（Drawer 自带头部隐藏）。 */
-        mask={!pinned}
-        maskClosable={!pinned}
-        keyboard={!pinned}
-        closable={false}
-        styles={{ header: { display: 'none' }, body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
-      >
+  // Shell 元素（抽屉内嵌 / 独立悬浮窗两态共用同一渲染；v7.6）。
+  const shell = (
         <AIChatShell
           open={open}
           zh={zh} hostType="assistant" title={zh ? 'AI 助手' : 'AI Assistant'}
@@ -2091,9 +2104,8 @@ useEffect(() => {
           onRegenerate={regenerateAsst} onContinue={() => {}} onExecutePlan={() => {}}
           savingFile={savingFile}
           mode={chatOnly ? 'chat' : 'edit'} onModeChange={(m) => changeAIMode(m)}
-          modeHint={modeHint} modeTip={modeTip} showModeSegment
-          floatMode={false} onToggleFloat={() => {}} showFloat={false} showCautious={false}
-          panelRef={null}
+          modeTip={modeTip} showModeSegment
+          floatMode={floatMode} onToggleFloat={toggleFloatMode} showCautious={false}
           batchMode={batchMode} onToggleBatch={() => (batchMode ? exitBatch() : setBatchMode(true))}
           checkedIds={checked} onToggleChecked={toggleChecked} onDeleteChecked={deleteChecked}
           packages={[]} pkgId="" onPkgChange={() => {}} applyKind="assistant"
@@ -2373,7 +2385,32 @@ useEffect(() => {
             </>
           )}
         />
+  )
+
+  return (
+    <>
+      {/* v7.6 两态：悬浮窗（独立可拖动/缩放窗口，无遮罩）/ 抽屉（含固定 pin）。 */}
+      {floatMode
+        ? (open ? shell : null)
+        : (
+      <Drawer
+        placement="right"
+        /* antd 6：width 已弃用，size 接受数字像素（窄屏 100% 全宽经 rootClassName 媒体查询保留）。 */
+        size={480}
+        open={open}
+        onClose={() => setOpen(false)}
+        rootClassName="ai-drawer-root"
+        /* 固定（pin）：无遮罩、点页面/Esc 不关闭，只能图钉取消或头部 X 关闭；
+            头部由 AIChatShell 渲染（Drawer 自带头部隐藏）。 */
+        mask={!pinned}
+        maskClosable={!pinned}
+        keyboard={!pinned}
+        closable={false}
+        styles={{ header: { display: 'none' }, body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
+      >
+        {shell}
       </Drawer>
+        )}
 
       <input ref={importInputRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
         onChange={(e) => { void importSessionsFile(e.target.files?.[0] ?? null); e.target.value = '' }} />

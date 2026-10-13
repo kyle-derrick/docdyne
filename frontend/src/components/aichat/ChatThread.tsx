@@ -3,11 +3,13 @@
 // TraceView/AIChatThinking + 操作行（复制/删除/保存/重新生成/继续/按计划执行）。
 // 所有宿主共用；场景差异通过 props 的回调函数注入。
 // v7.4（S8）：内容恢复 AIMarkdown 渲染（S7 迁移时误回退为纯文本）；补齐
-// 助手宿主字段——toolCalls（工具链）/sources（RAG 文件来源）/webSources
-// （网络来源）/stopped（已停止）/usage（用量）与 emptySlot（欢迎+建议卡）。
+// 助手宿主字段——toolCalls/sources/webSources/stopped/usageAI + emptySlot。
+// v7.6：用户操作行移到气泡下方；agent 流式原始行在有 trace 时隐藏（过程
+// 由 TraceView 呈现）；用量（tokens+整体耗时）统一显示在回复内容底部；
+// 消息流离底时显示「回到底部」悬浮按钮。
 import { Button, Tooltip } from 'antd'
-import { Copy, FileText, Paperclip, Play, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, Trash2 } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AIChatThinking, AIToolChain, AIWebSourcesView } from './AIMessageList'
 import type { AIToolCallEntry, AIWebSource } from './turns'
 import AIMarkdown from '../AIMarkdown'
@@ -31,6 +33,7 @@ export interface ChatMessage {
   agentStream?: boolean
   limitPaused?: boolean
   planReady?: boolean
+  /** Agent 循环用量（编辑宿主 runAgentLoop 聚合）。 */
   usage?: TraceUsage
   // ---- 助手宿主字段（编辑宿主不产生；渲染端全部可选） ----
   /** 用户主动停止（保留已生成内容，不视为错误）。 */
@@ -41,7 +44,7 @@ export interface ChatMessage {
   sources?: AISource[]
   /** 联网搜索来源。 */
   webSources?: AIWebSource[]
-  /** 本轮用量（SSE done；tokens + 耗时）。 */
+  /** 本轮用量（SSE done；非 agent 路径）。 */
   usageAI?: AIUsage
 }
 
@@ -49,7 +52,7 @@ export interface ChatThreadProps {
   zh: boolean
   messages: ChatMessage[]
   emptyHint: string
-  /** 空态自定义内容（欢迎语 + 建议卡等；提供时替代 emptyHint 文本）。 */
+  /** 空态自定义内容（assistant：欢迎语 + 建议卡；提供时替代 emptyHint 文本）。 */
   emptySlot?: ReactNode
   generatingLabel: string
   // 操作回调
@@ -75,7 +78,18 @@ export interface ChatThreadProps {
   onScroll: (e: { target: EventTarget | null }) => void
 }
 
-/** 原始 TOOL_CALL 紧凑行。 */
+/** 用量统一提取（agent TraceUsage 与非 agent AIUsage 两种来源）。 */
+function usageOf(msg: ChatMessage): { tokens: number; ms: number } | null {
+  if (msg.usage && (msg.usage.promptTokens || msg.usage.completionTokens)) {
+    return { tokens: msg.usage.promptTokens + msg.usage.completionTokens, ms: msg.usage.durationMS || 0 }
+  }
+  if (msg.usageAI && ((msg.usageAI.prompt_tokens || 0) + (msg.usageAI.completion_tokens || 0) > 0)) {
+    return { tokens: (msg.usageAI.prompt_tokens || 0) + (msg.usageAI.completion_tokens || 0), ms: msg.usageAI.duration_ms || 0 }
+  }
+  return null
+}
+
+/** 原始 TOOL_CALL 紧凑行（无 trace 的兜底展示；有 trace 时由 TraceView 呈现）。 */
 function AgentRawLine({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   return (
@@ -97,10 +111,32 @@ export default function ChatThread({
   checkedIds, onToggleChecked,
   wrapRef, onScroll,
 }: ChatThreadProps) {
+  // 「回到底部」悬浮按钮：滚动离底 >40px 时显示（v7.6）。
+  const [awayFromBottom, setAwayFromBottom] = useState(false)
+  const scrollEl = wrapRef as React.RefObject<HTMLDivElement | null>
+  const probeBottom = () => {
+    const el = scrollEl.current
+    if (!el) return
+    setAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 40)
+  }
+  const handleScroll = (e: { target: EventTarget | null }) => {
+    onScroll(e)
+    probeBottom()
+  }
+  // 消息/流式变化后复测（新内容把容器推高时按钮应出现/消失）。
+  useEffect(probeBottom)
+  const jumpToBottom = () => {
+    const el = scrollEl.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    setAwayFromBottom(false)
+  }
   return (
-    <div className="ai-edit-chat-thread" ref={wrapRef} onScroll={onScroll}>
+    <div className="ai-edit-chat-thread" ref={wrapRef} onScroll={handleScroll}>
       {messages.length === 0 && (emptySlot ?? <div className="ai-edit-chat-empty muted">{emptyHint}</div>)}
-      {messages.map((msg) => (
+      {messages.map((msg) => {
+        const usage = usageOf(msg)
+        return (
         <div key={msg.id} className={`ai-turn ai-turn-${msg.role}`}>
           {batchMode && (
             <input
@@ -139,16 +175,16 @@ export default function ChatThread({
               <div className="ai-avatar" aria-hidden="true">🤖</div>
               <div className="ai-bubble ai-bubble-assistant">
                 {msg.trace && msg.trace.length > 0 ? (
-                  <TraceView stages={msg.trace} running={!!msg.streaming} zh={zh} usage={msg.usage} />
+                  <TraceView stages={msg.trace} running={!!msg.streaming} zh={zh} />
                 ) : (
                   <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
                 )}
                 {/* 外部工具调用链（df_* 平台文件工具 / MCP）。 */}
                 {msg.toolCalls && msg.toolCalls.length > 0 && <AIToolChain toolCalls={msg.toolCalls} zh={zh} />}
                 {msg.content ? (
-                  msg.agentStream && msg.streaming ? (
+                  msg.agentStream && msg.streaming && !(msg.trace && msg.trace.length > 0) ? (
                     <AgentRawLine text={msg.content} />
-                  ) : (
+                  ) : msg.agentStream ? null : (
                     <AIMarkdown text={msg.content} zh={zh} streaming={msg.streaming} />
                   )
                 ) : msg.streaming ? (
@@ -158,7 +194,7 @@ export default function ChatThread({
                 ) : (
                   <span className="muted">{zh ? '（模型未返回内容）' : '(no content)'}</span>
                 )}
-                {msg.streaming && msg.content && <span className="ai-caret" aria-hidden="true" />}
+                {msg.streaming && msg.content && !(msg.trace && msg.trace.length > 0) && <span className="ai-caret" aria-hidden="true" />}
                 {msg.stopped && msg.content && <span className="ai-stopped-tag">{zh ? '已停止' : 'stopped'}</span>}
                 {msg.error && <div className="ai-error-msg">{msg.error}</div>}
                 {/* RAG 检索来源文件链接。 */}
@@ -175,11 +211,10 @@ export default function ChatThread({
                 )}
                 {/* 联网搜索来源（折叠列表）。 */}
                 {msg.webSources && <AIWebSourcesView sources={msg.webSources} zh={zh} />}
-                {/* 本轮用量（tokens + 耗时）。 */}
-                {msg.usageAI && !msg.streaming && (
+                {/* 用量（tokens + 整体耗时；回复内容底部）。 */}
+                {usage && !msg.streaming && (
                   <div className="ai-usage-line muted">
-                    {(msg.usageAI.prompt_tokens || 0) + (msg.usageAI.completion_tokens || 0)} tok
-                    {msg.usageAI.duration_ms > 0 ? ` · ${(msg.usageAI.duration_ms / 1000).toFixed(1)}s` : ''}
+                    {usage.tokens} tok{usage.ms > 0 ? ` · ${(usage.ms / 1000).toFixed(1)}s` : ''}
                   </div>
                 )}
                 {msg.note && <div className="ai-edit-chat-note muted">{msg.note}</div>}
@@ -230,7 +265,15 @@ export default function ChatThread({
             </>
           )}
         </div>
-      ))}
+        )
+      })}
+      {/* 回到底部悬浮按钮（离底时出现）。 */}
+      {messages.length > 0 && awayFromBottom && (
+        <button type="button" className="ai-jump-bottom" aria-label={zh ? '回到底部' : 'Scroll to bottom'}
+          title={zh ? '回到底部（跟随最新输出）' : 'Scroll to bottom'} onClick={jumpToBottom}>
+          <ArrowDown size={15} strokeWidth={2} aria-hidden="true" />
+        </button>
+      )}
     </div>
   )
 }

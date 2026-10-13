@@ -1,4 +1,4 @@
-/* DocFlow AI OnlyOffice 插件 v7.2 — 按编辑器类型的工具套装
+/* DocFlow AI OnlyOffice 插件 v7.6 — 按编辑器类型的工具套装
  *
  * v7.2 增量：会话记录上服务端（/api/v1/ai/conversations，source=plugin 按文件
  * 分域；本机 v7.1 localStorage 记录首次自动迁移，离线时本机只读回退）。
@@ -29,12 +29,21 @@
   var webOn = false, thinkOn = true, editMode = true;
   var editorType = null, docInfo = null, lastReply = '';
   // 贴底跟随（v7.1）：仅当用户处于底部（距底 < 40px）时跟随新内容。
+  // v7.6：离底时显示「回到底部」悬浮按钮（与平台统一）。
   var stick = true;
+  var jump = document.createElement('button');
+  jump.id = 'jump';
+  jump.type = 'button';
+  jump.title = '回到底部（跟随最新输出）';
+  jump.innerHTML = '&#8595;';
+  jump.onclick = function () { stick = true; log.scrollTop = log.scrollHeight; jump.style.display = 'none'; };
+  log.appendChild(jump);
   log.addEventListener('scroll', function () {
     stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    jump.style.display = (stick || log.scrollHeight <= log.clientHeight + 80) ? 'none' : 'flex';
   });
   function stickBottom(force) {
-    if (force) stick = true;
+    if (force) { stick = true; jump.style.display = 'none'; }
     if (stick) log.scrollTop = log.scrollHeight;
   }
 
@@ -424,11 +433,36 @@
     var d = document.createElement(tag);
     if (cls) d.className = cls;
     if (html !== undefined) d.innerHTML = html;
-    log.appendChild(d); stickBottom(false);
+    // 回底按钮恒为流内最后元素（sticky bottom 依赖其在内容之后）。
+    log.insertBefore(d, jump); stickBottom(false);
     return d;
   }
   function setHint(t) { hintEl.textContent = t; }
-  function userBubble(text) { el('div', 'm u', esc(text)); }
+  /** 消息操作行（v7.6 对齐平台：复制在气泡下方）。 */
+  function msgOps(text) {
+    var row = document.createElement('div'); row.className = 'm-ops';
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = '复制';
+    b.onclick = function () {
+      try { navigator.clipboard.writeText(text); } catch (e) {}
+      b.textContent = '已复制';
+      window.setTimeout(function () { b.textContent = '复制'; }, 1200);
+    };
+    row.appendChild(b);
+    return row;
+  }
+  /** 用量行（tokens + 整体耗时；回复底部，v7.6 对齐平台）。 */
+  function usageLine(tok, ms) {
+    if (!tok) return null;
+    var u = document.createElement('div'); u.className = 'usage';
+    u.textContent = tok + ' tok' + (ms > 0 ? ' · ' + (ms / 1000).toFixed(1) + ' s' : '');
+    return u;
+  }
+  function userBubble(text) {
+    var w = el('div', 'u-wrap');
+    var b = document.createElement('div'); b.className = 'm u'; b.textContent = text;
+    w.appendChild(b);
+    w.appendChild(msgOps(text));
+  }
   var thinkEl = null;
   function appendThink(chunk) {
     if (!thinkEl) {
@@ -1583,10 +1617,16 @@
     editorType = readEditorKind() || 'word';
 
     var convo = [{ role: 'system', content: buildSystem() }, { role: 'user', content: text }];
-    var thinkStart = 0, rounds = 0;
+    var thinkStart = 0, rounds = 0, loopStart = Date.now();
     function finishOk(s) {
       settleThink(thinkStart ? Date.now() - thinkStart : 0);
-      if (s) el('div', 'm a', mdToHtml(s));
+      if (s) {
+        // v7.6 对齐平台：回复气泡下方给 复制/用量（tokens + 整体耗时）。
+        var done = el('div', 'm a', mdToHtml(s));
+        done.appendChild(msgOps(s));
+        var us2 = usageLine(totalTok, Date.now() - loopStart);
+        if (us2) done.appendChild(us2);
+      }
       history.push({ role: 'user', content: text }, { role: 'assistant', content: ('完成：' + s).slice(0, 2000) });
       if (history.length > 12) history = history.slice(-12);
       sessSave();
@@ -1595,7 +1635,8 @@
       setHint('已完成（DS 自动保存' + (totalTok ? ' · ' + totalTok + ' tok' : '') + '）');
       if (planMode && s) {
         // 计划完成：气泡下给「按计划执行」按钮（转入执行模式重发计划全文）。
-        var lastBubble = log.querySelector('.m.a:last-child');
+        var bubbles = log.querySelectorAll('.m.a');
+        var lastBubble = bubbles.length ? bubbles[bubbles.length - 1] : null;
         if (lastBubble) {
           var ex = document.createElement('button');
           ex.className = 'act';
@@ -1617,12 +1658,24 @@
     function finishErr(m) { settleThink(0); el('div', 'm a err', esc(m)); sessSave(); setBusyUI(false); controller = null; }
 
     if (!editMode && !planMode) {
-      var acc = '', bub = null;
+      var acc = '', bub = null, chatTok = 0;
       chat(convo, {
         onDelta: function (d) { acc += d; if (!bub) bub = el('div', 'm a'); bub.innerHTML = mdToHtml(acc) + '<span class="caret"></span>'; stickBottom(false); },
         onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
-        onDone: function () { settleThink(thinkStart ? Date.now() - thinkStart : 0); if (bub) bub.innerHTML = mdToHtml(acc); }
-      }).then(function () { lastReply = acc; setBusyUI(false); controller = null; })
+        onDone: function (u) {
+          if (u && typeof u === 'object') chatTok = (u.prompt_tokens || 0) + (u.completion_tokens || 0);
+          settleThink(thinkStart ? Date.now() - thinkStart : 0);
+          if (bub) bub.innerHTML = mdToHtml(acc);
+        }
+      }).then(function () {
+        lastReply = acc;
+        if (bub) {
+          bub.appendChild(msgOps(acc));
+          var us3 = usageLine(chatTok, Date.now() - loopStart);
+          if (us3) bub.appendChild(us3);
+        }
+        setBusyUI(false); controller = null;
+      })
         .catch(function (e) { finishErr(String(e && e.message || e)); });
       return;
     }
@@ -1656,13 +1709,14 @@
       rounds++;
       roundAttempts = 0;
       var runRound = function () {
-        var acc2 = '', raw = null;
+        // v7.6 对齐平台：流式期间不再显示 TOOL_CALL 原始行——过程由思考折叠区
+        // 与工具卡（含运行中入参）呈现，解析成功即落卡。
+        var acc2 = '';
         chat(agentConvoView(convo), {
-          onDelta: function (d) { acc2 += d; if (!raw) raw = el('div', 'raw'); raw.textContent = acc2.slice(-300) + ' ▌'; stickBottom(false); },
+          onDelta: function (d) { acc2 += d; },
           onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
           onDone: function (u) { if (u && typeof u === 'object') totalTok += (u.prompt_tokens || 0) + (u.completion_tokens || 0); }
         }).then(function () {
-        if (raw) raw.remove();
         var parsed = parseReply(acc2);
         if (parsed.type === 'final') { finishOk(parsed.text); return; }
         // 计划模式只读拦截：模型请求了写工具 → 拒绝并引导回计划。
@@ -1698,7 +1752,6 @@
           agentLoop();
         });
         }).catch(function (e) {
-          if (raw) raw.remove();
           var aborted = e && e.name === 'AbortError';
           if (!aborted && roundAttempts < 1) {
             roundAttempts++;
@@ -1728,22 +1781,24 @@
     };
   }
   function syncModeSeg() {
-    var bs = modeSeg.querySelectorAll('button');
-    for (var i = 0; i < bs.length; i++) {
-      var v = bs[i].dataset.v;
-      bs[i].classList.toggle('on', (v === 'edit' && editMode && !planMode) || (v === 'chat' && !editMode && !planMode) || (v === 'plan' && planMode));
-    }
+    // v7.6 对齐平台：单按钮（可修改 ⇄ 仅对话），说明经 title hover 展示。
+    modeSeg.classList.toggle('on', editMode && !planMode);
+    modeSeg.textContent = (editMode && !planMode) ? '可修改' : '仅对话';
+    modeSeg.title = (editMode && !planMode)
+      ? 'AI 通过工具循环自主读文档、执行修改并校验；过程分阶段可折叠，达预算或熔断可「继续」；破坏性操作受谨慎模式确认。'
+      : '仅问答，不改动文档。';
     manualBar.classList.toggle('hidden', editMode || planMode);
     q.placeholder = planMode ? '计划模式：描述目标，AI 只读探查并给出执行计划…' : editMode ? '描述要做的修改…' : '仅对话模式…';
   }
-  modeSeg.addEventListener('click', function (e) {
-    var b = e.target.closest('button[data-v]'); if (!b) return;
-    editMode = b.dataset.v === 'edit';
-    planMode = b.dataset.v === 'plan';
+  modeSeg.addEventListener('click', function () {
+    editMode = !editMode;
+    planMode = false;
     syncModeSeg();
   });
+  syncModeSeg();
   document.getElementById('clear').onclick = function () {
     history = []; lastReply = ''; log.innerHTML = ''; thinkEl = null;
+    log.appendChild(jump); // 清空后重挂回底按钮
     sessSave();
     setHint('已清空当前会话');
   };
@@ -1756,7 +1811,7 @@
     reg = true;
     window.Asc.plugin.init = function () {
       editorType = readEditorKind();
-      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.2');
+      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.6');
       void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () { setHint('初始化失败'); });
     };
     window.Asc.plugin.onMethodReturn = function () {};

@@ -8,7 +8,6 @@
 //   持久化（按文件分域，ConvoPicker 统一选择器：搜索/切换/重命名/删除）；
 // - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
 import { App as AntdApp, Button, Input } from 'antd'
 import { Modal } from './FileBrowser'
 import type { MenuProps } from 'antd'
@@ -763,52 +762,16 @@ export default function AIEditChat({
       : '',
   )
   // 会话历史浮层展开态。
-  // 悬浮窗模式（v7.5）：fixed 浮层 + 可拖动头部；偏好 localStorage 记忆。
+  // 悬浮窗模式（v7.6：拖动/缩放/位置记忆内聚在 AIChatShell，宿主只持布尔）。
   const [floatMode, setFloatMode] = useState(() => {
     try { return window.localStorage.getItem('docflow.ai.edit.floatMode') === '1' } catch { return false }
   })
-  const panelRef = useRef<HTMLElement | null>(null)
   const toggleFloatMode = () => {
     setFloatMode((v) => {
       const next = !v
       try { window.localStorage.setItem('docflow.ai.edit.floatMode', next ? '1' : '0') } catch { /* ignore */ }
-      if (!next && panelRef.current) {
-        // 复位拖动位移（回到 fixed 默认右下角）
-        panelRef.current.style.left = ''
-        panelRef.current.style.top = ''
-        panelRef.current.style.right = '24px'
-        panelRef.current.style.bottom = '24px'
-      }
       return next
     })
-  }
-  // 拖动头部（悬浮态）：pointer 事件移动 fixed 面板。
-  const onHeadPointerDown = (e: ReactPointerEvent) => {
-    if (!floatMode || e.button !== 0) return
-    // 按钮等交互元素不触发拖动（pointer capture 会吃掉它们的 click）
-    const target = e.target as HTMLElement
-    if (target.closest('button, a, input, select, .ant-segmented, .ant-dropdown-trigger, .ant-popover-open')) return
-    const el = panelRef.current
-    if (!el) return
-    const startX = e.clientX
-    const startY = e.clientY
-    const rect = el.getBoundingClientRect()
-    const startL = rect.left
-    const startT = rect.top
-    el.setPointerCapture(e.pointerId)
-    const onMove = (ev: PointerEvent) => {
-      el.style.left = `${Math.max(0, startL + ev.clientX - startX)}px`
-      el.style.top = `${Math.max(0, startT + ev.clientY - startY)}px`
-      el.style.right = 'auto'
-      el.style.bottom = 'auto'
-    }
-    const onUp = () => {
-      el.releasePointerCapture(e.pointerId)
-      el.removeEventListener('pointermove', onMove)
-      el.removeEventListener('pointerup', onUp)
-    }
-    el.addEventListener('pointermove', onMove)
-    el.addEventListener('pointerup', onUp)
   }
   // 命令式访问器经 ref 取（宿主每渲染重建函数，避免 effect 反复重挂）。
   const getTargetRef = useRef(getTarget)
@@ -1487,12 +1450,7 @@ ${planText}` },
 
   if (!aiOn || !open) return null
 
-  // 渲染提示文案（Agent 模式语义）。
-  const modeHint = mode === 'edit'
-    ? (zh ? '可修改：AI 经工具循环直接编辑文档' : 'Can edit: the AI edits via the tool loop')
-    : mode === 'plan'
-      ? (zh ? '计划：AI 只读探查并产出执行计划，可一键执行' : 'Plan: read-only exploration, then execute the plan')
-      : (zh ? '仅对话' : 'Chat only')
+  // 渲染提示文案（Agent 模式语义；v7.6 模式说明经头部单按钮 hover 展示）。
   const modeTip = mode === 'edit'
     ? (zh ? 'AI 通过工具循环自主读文档、执行修改并校验；过程分阶段可折叠，达预算或熔断可「继续」；破坏性操作受谨慎模式确认。' : 'The AI reads, edits and verifies via tools; staged trace, resumable, destructive ops confirmed in cautious mode.')
     : mode === 'plan'
@@ -1532,9 +1490,8 @@ ${planText}` },
         onRegenerate={regenerate} onContinue={(id) => void continueAgent(id)}
         onExecutePlan={(plan) => void executePlan(plan)}
         savingFile={savingFile}
-        mode={mode === 'plan' ? 'edit' : mode} onModeChange={changeMode} modeHint={modeHint} modeTip={modeTip} showModeSegment
+        mode={mode === 'plan' ? 'edit' : mode} onModeChange={changeMode} modeTip={modeTip} showModeSegment
         floatMode={floatMode} onToggleFloat={toggleFloatMode}
-        panelRef={panelRef} onHeadPointerDown={onHeadPointerDown}
         batchMode={batchMode} onToggleBatch={() => (batchMode ? exitBatch() : setBatchMode(true))}
         checkedIds={checked} onToggleChecked={toggleChecked} onDeleteChecked={deleteChecked}
         packages={agentPackages} pkgId={pkgId} onPkgChange={setPkgId} applyKind={applyKind}
