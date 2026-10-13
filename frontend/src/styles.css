@@ -6404,8 +6404,14 @@ kbd {
 /* 历史会话浮层复用全局助手同款（.aiax-conv-pop/.aiax-conv-new/.aiax-conv-list）。 */
 .ai-edit-chat-title {
   font-weight: 600;
-  margin-right: auto;
   color: var(--text);
+  /* 自适应宽度（v7.7）：最长 40% 截断省略，与模式开关保持常规间距。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ai-edit-chat-scope-hint { font-size: 12px; }
 .ai-edit-chat-thread {
@@ -6433,6 +6439,23 @@ kbd {
   background: transparent;
 }
 .ai-edit-chat-note { font-size: 12px; opacity: 0.75; margin-top: 4px; }
+/* 工具阶段前的中间叙述（v7.7：正文前的过程说明行，弱化展示）。 */
+.ai-prologue { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.ai-prologue-line { font-size: 12px; opacity: .7; }
+/* 破坏性工具对话内确认卡（v7.7 谨慎模式，Cherry Studio 式）。 */
+.ai-confirm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger, #dc2626) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger, #dc2626) 7%, transparent);
+}
+.ai-confirm-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; color: var(--danger, #dc2626); }
+.ai-confirm-label { font-size: 12.5px; word-break: break-word; }
+.ai-confirm-ops { display: flex; gap: 8px; }
 /* 本轮用量行（tokens + 耗时；助手宿主 SSE done 附带）。 */
 .ai-usage-line { font-size: 11px; margin-top: 4px; opacity: 0.7; }
 .ai-edit-chat-actions {
@@ -6889,24 +6912,30 @@ kbd {
 /* ==================== AI 编辑对话：模式开关 + 自动应用/撤销（版本保护） ==================== */
 /* 面板头部下方的「可修改 / 仅对话 + 选区 / 全文」单行（v3.9 两行合并省一行），
    模型选择在底部输入区工具栏、发送键最右端。 */
-/* 模式切换单按钮（v7.6：标题后，点击切换 可修改/仅对话，hover 显示说明）。 */
-.ai-mode-toggle {
+/* 模式开关（v7.7：智能/对话 双段胶囊，标题后；hover 显示当前模式说明）。 */
+.ai-mode-seg {
   flex-shrink: 0;
-  padding: 1px 10px;
+  display: inline-flex;
   border: 1px solid var(--border);
   border-radius: 999px;
+  overflow: hidden;
+  background: transparent;
+}
+.ai-mode-seg button {
+  border: none;
   background: transparent;
   color: var(--muted, #888);
+  padding: 1px 10px;
   font-size: 11px;
   line-height: 18px;
   cursor: pointer;
-  transition: color .15s, border-color .15s, background .15s;
+  transition: color .15s, background .15s;
 }
-.ai-mode-toggle:hover { color: var(--primary); border-color: var(--primary); }
-.ai-mode-toggle.on {
+.ai-mode-seg button:hover { color: var(--primary); }
+.ai-mode-seg button.on {
   color: var(--primary);
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  font-weight: 600;
 }
 /* 助手气泡内「已应用于文档 · vN · 时间 + 摘要」小字条与「撤销此修改」。 */
 .ai-applied-bar {
@@ -6996,9 +7025,6 @@ kbd {
 /* df_write_file 条目「已保存（自动留版本）」小字。 */
 /* 记忆面板「自动」小 Tag（kind=auto；不挤压内容列）。 */
 .ai-memory-auto-tag { flex-shrink: 0; margin: 0; line-height: 18px; }
-
-/* AI 助手固定（pin）：Drawer 头部图钉按钮，固定中高亮。 */
-.ai-pin-btn.active { color: var(--primary); }
 
 /* ---------- AI 个人配置面板（双轨制，/settings/aipersonal） ---------- */
 
@@ -7224,7 +7250,32 @@ kbd {
   font-size: 13px;
 }
 .aiax-conv-new:hover { color: var(--primary); border-color: var(--primary); }
-.aiax-conv-list { max-height: 300px; overflow-y: auto; }
+.aiax-conv-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+/* 会话条目（v7.7 自绘列表）：单行 标题…时间 + 悬停操作菜单。 */
+.aiax-conv-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.aiax-conv-item:hover { background: var(--surface-2, var(--card)); }
+.aiax-conv-item.active { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+.aiax-conv-more {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  visibility: hidden;
+}
+.aiax-conv-item:hover .aiax-conv-more, .aiax-conv-item.active .aiax-conv-more { visibility: visible; }
+.aiax-conv-more:hover { color: var(--primary); background: var(--surface-2, var(--card)); }
 /* 会话条目两行：标题 + 相对时间。 */
 .aiax-conv-label { display: flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; width: 100%; }
 .aiax-conv-label .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -7277,6 +7328,8 @@ kbd {
   background: transparent !important;
   border-radius: 0 !important;
   resize: none;
+  /* componentSize=small 的 textarea 竖直内边距为 0——统一恢复呼吸间距。 */
+  padding: 8px 10px 2px;
 }
 /* 单行工具栏：左=引用/技能/开关，右=模型选择。 */
 .chat-tools-bar {
@@ -7468,6 +7521,10 @@ kbd {
   box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
   min-width: 360px;
   min-height: 360px;
+  /* 悬浮态自带实体外观（覆盖 in-drawer 的透明背景/无边框）。 */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .ai-edit-chat-panel.floating .ai-edit-chat-head { cursor: move; user-select: none; }
 /* 悬浮窗右下角缩放手柄（v7.6：pointer 拖拽，尺寸记忆 localStorage）。 */

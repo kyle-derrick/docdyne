@@ -139,7 +139,7 @@ export const EXCALIDRAW_JSON_GUIDE = `Excalidraw elements JSON quick reference (
   - {"type":"ellipse",...same fields} — oval/stadium node.
   - {"type":"text","id","x","y","text":"Standalone note","fontSize":20,"strokeColor":"#868e96"} — plain label; do NOT set width/height (auto-measured).
 - Connector types:
-  - {"type":"arrow","id","x","y","start":{"id":"n1"},"end":{"id":"n2"},"strokeColor":"#1e1e1e","strokeWidth":2,"label":{"text":"Yes"}} — bind endpoints to node ids; x/y and points are computed automatically from bindings, do not hand-calculate them.
+  - {"type":"arrow","id","x","y","start":{"id":"n1"},"end":{"id":"n2"},"strokeColor":"#1e1e1e","strokeWidth":2,"label":{"text":"Yes"}} — bind endpoints to node ids ({"id":"n1"} or plain "n1"); x/y and points are computed automatically from bindings, do not hand-calculate them. Endpoints may reference ids in the SAME array OR existing canvas ids from read_scene.
   - {"type":"line","id","x","y","points":[[0,0],[120,0]]} — plain polyline with points RELATIVE to x/y, for underlines/separators only.
 - Field conventions: colors as hex strings (default strokeColor "#1e1e1e", backgroundColor "transparent"); fillStyle "solid"|"hachure"; roughness 0(architect)/1(default)/2; strokeWidth 2 default; roundness {"type":3} for rounded rectangles; font sizes 16-28.
 - Do NOT output seed/version/versionNonce/isDeleted/updated/groupIds/boundElements — they are generated automatically.
@@ -272,6 +272,8 @@ interface ChatTurn {
   planReady?: boolean
   /** Agent 用量汇总（轮次/输入输出 token/总耗时；SSE done usage 逐轮累计）。 */
   usage?: TraceUsage
+  /** 破坏性工具待确认（v7.7 谨慎模式对话内确认卡）。 */
+  confirmReq?: { label: string }
 }
 
 
@@ -406,7 +408,7 @@ export default function AIEditChat({
   const locale = useLocale()
   const zh = locale === 'zh-CN'
   const aiOn = useAIEnabled()
-  const { message, modal } = AntdApp.useApp()
+  const { message } = AntdApp.useApp()
   const [turns, setTurns] = useState<ChatTurn[]>([])
   // ---- 多会话（v7.2：服务端持久化 /ai/conversations，source=editor，
   //      按文件分域；本机 localStorage 仅作首次迁移源）----
@@ -534,10 +536,16 @@ export default function AIEditChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId, turns])
 
-  /** 切换会话（正文按需拉取；贴底显示最新）。 */
+  /** 切换会话（正文按需拉取；贴底显示最新）。v7.7：目标查找回落 state。 */
   const switchSession = (id: string) => {
-    const target = sessionsRef.current.find((s) => s.id === id)
-    if (!target || id === activeSessIdRef.current) return
+    const target = sessionsRef.current.find((s) => s.id === id) ?? sessions.find((s) => s.id === id)
+    if (!target) {
+      console.warn('[ai-edit] 切换目标不在会话列表：', id, '（refs', sessionsRef.current.length, '/ state', sessions.length, '条）')
+      return
+    }
+    if (id === activeSessIdRef.current) return
+    cancelPendingConfirm()
+    abortRef.current?.abort()
     activeSessIdRef.current = id
     setActiveSessId(id)
     setNotice('')
@@ -558,6 +566,8 @@ export default function AIEditChat({
   }
   /** 新建会话（当前会话保留在服务端历史）。 */
   const newSession = () => {
+    cancelPendingConfirm()
+    abortRef.current?.abort()
     activeSessIdRef.current = ''
     setActiveSessId('')
     syncedLenRef.current = 0
@@ -589,19 +599,28 @@ export default function AIEditChat({
       return next
     })
   }
-  /** 破坏性工具确认（antd confirm，Promise 化；取消=跳过该次调用）。 */
-  /** 破坏性工具确认：antd Modal（z-index 默认 1000 > 浮层 950），永不静默跳过。 */
-  const confirmDestructive = (label: string) => new Promise<boolean>((resolve) => {
-    modal.confirm({
-      title: zh ? `确认执行「${label}」？` : `Confirm "${label}"?`,
-      content: zh ? '谨慎模式：该操作会删除或整篇替换内容。' : 'Cautious mode: this operation deletes or replaces content.',
-      okText: zh ? '执行' : 'Execute',
-      okButtonProps: { danger: true },
-      cancelText: zh ? '跳过' : 'Skip',
-      onOk: () => resolve(true),
-      onCancel: () => resolve(false),
-    })
+  /** 破坏性工具确认（v7.7：对话内确认卡，Cherry Studio 式——在 AI 消息
+   *  气泡内渲染 [确认执行/跳过]，用户点击后恢复循环；替代 antd Modal）。 */
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null)
+  const requestInlineConfirm = (asstTurnId: number, label: string) => new Promise<boolean>((resolve) => {
+    confirmResolveRef.current = resolve
+    patchLastTurn(asstTurnId, () => ({ confirmReq: { label } }))
   })
+  /** 用户在确认卡上做出选择（true=执行 / false=跳过）。 */
+  const settleInlineConfirm = (asstId: number, ok: boolean) => {
+    patchLastTurn(asstId, () => ({ confirmReq: undefined }))
+    const r = confirmResolveRef.current
+    confirmResolveRef.current = null
+    r?.(ok)
+  }
+  /** 中断挂起的确认（停止/切会话/关闭时——按跳过处理解除循环等待）。 */
+  const cancelPendingConfirm = () => {
+    const r = confirmResolveRef.current
+    if (!r) return
+    confirmResolveRef.current = null
+    setTurns((prev) => prev.map((x) => (x.confirmReq ? { ...x, confirmReq: undefined } : x)))
+    r(false)
+  }
 
   // ---- 消息级操作（v7.3：复制/删除问答对/保存到文件 + 批量多选）----
   const [batchMode, setBatchMode] = useState(false)
@@ -781,6 +800,8 @@ export default function AIEditChat({
 
   // 卸载清理：中止进行中的生成。
   useEffect(() => () => { abortRef.current?.abort() }, [])
+  // 卸载同时解除挂起的对话内确认（否则 Promise 永悬）。
+  useEffect(() => () => { confirmResolveRef.current?.(false); confirmResolveRef.current = null }, [])
 
   // 模型列表（仅用于评估思考开关可用性与显式携带所选模型；与全局助手共用
   // getAIModels 缓存）；无本地记忆时回落 default_models.chat 默认模型。
@@ -920,6 +941,8 @@ export default function AIEditChat({
       '输出格式（硬性要求——违反则本轮无效）：每轮回复的完整内容必须恰好是一行 TOOL_CALL {...}（单个工具、合法 JSON、前后不得有任何解释/思考/推理文字），或以 FINAL 开头的最终答复。',
       `禁止输出 "I'll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。`,
       '工作方式：先读（read_*/search_*）再改；局部修改用精确工具、不要整篇重写；一次一个工具，根据结果决定下一步；失败读错误换路径（同样的参数重试同一工具通常不会成功）；关键修改后可用读工具校验；完成后 FINAL + 简明中文总结（改了什么、在哪）。',
+      '只能调用上方列出的工具；df_*（df_list_dir/df_read_file/df_write_file 等）是全局 AI 助手的平台文件工具，本面板不可用——出现「未知工具」说明你调了列表外的名字，回到列表内选。',
+      '破坏性操作（删除/清空/整篇替换）可能触发用户确认：被跳过≠失去写入能力，请改用非破坏性方式（逐块替换/插入）继续，不要重复请求同一操作。',
       'TOOL_CALL 示例：TOOL_CALL {"tool":"read_document","args":{}}',
     ]
     return L.join(String.fromCharCode(10))
@@ -1263,13 +1286,15 @@ ${planText}` },
           // 诊断：完整记录工具集状态（排查 mid-loop 工具丢失问题）
           const allNames = tools.map((t) => t.name).join(', ')
           console.warn('[AgentLoop] 未知工具:', tool, '| 循环工具集:', allNames, '| agentTools:', (agentToolsRef.current ?? []).length, '个', '| pkgId:', pkgIdRef.current, '| round:', round)
-          result = { ok: false, error: `未知工具 ${tool}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个）` }
+          const dfHint = tool.startsWith('df_') ? '；df_* 是全局 AI 助手的平台文件工具，本面板不可用，不要再尝试' : ''
+          result = { ok: false, error: `未知工具 ${tool}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个${dfHint}）` }
         } else if (def.destructive && cautiousRef.current) {
-          // 谨慎模式：破坏性工具执行前确认；取消=跳过（结果回喂，模型自适应）。
-          const ok = await confirmDestructive(def.label(args))
+          // 谨慎模式（v7.7 对话内确认卡）：破坏性工具执行前在气泡内确认；
+          // 跳过=结果回喂（模型自适应换路径），不再弹系统 Modal。
+          const ok = await requestInlineConfirm(asstTurnId, def.label(args))
           result = ok
             ? await def.exec(args).catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
-            : { ok: false, error: '用户在确认弹窗中选择了「跳过」——这不是技术错误，请换一种方式达成目标（如用非破坏性工具），或直接 FINAL 说明原因' }
+            : { ok: false, error: '用户选择了「跳过」该破坏性操作——这不是技术错误，也未失去写入能力：请改用非破坏性方式达成目标（如逐块替换/插入而非删除），不要重复请求同一操作' }
         } else {
           try {
             result = await def.exec(args)
@@ -1445,6 +1470,7 @@ ${planText}` },
   }
 
   const stop = () => {
+    cancelPendingConfirm()
     abortRef.current?.abort()
   }
 
@@ -1489,6 +1515,7 @@ ${planText}` },
         onSaveConversation={(ids) => void openSaveDialog(ids)}
         onRegenerate={regenerate} onContinue={(id) => void continueAgent(id)}
         onExecutePlan={(plan) => void executePlan(plan)}
+        onConfirmTool={(id, ok) => settleInlineConfirm(id, ok)}
         savingFile={savingFile}
         mode={mode === 'plan' ? 'edit' : mode} onModeChange={changeMode} modeTip={modeTip} showModeSegment
         floatMode={floatMode} onToggleFloat={toggleFloatMode}

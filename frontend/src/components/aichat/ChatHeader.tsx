@@ -55,19 +55,30 @@ export default function ChatHeader({
   const [sessOpen, setSessOpen] = useState(false)
   return (
     <div className="ai-edit-chat-head" onPointerDown={onPointerDown}>
-      <span className="ai-edit-chat-title">{title}</span>
-      {/* 模式切换单按钮（v7.6）：点击在 可修改/仅对话 间切换；hover 显示说明。 */}
+      <span className="ai-edit-chat-title" title={title}>{title}</span>
+      {/* 模式开关（v7.7：智能/对话 双段；hover 显示当前模式说明）。 */}
       {mode && onModeChange && (
         <Tooltip title={modeTip}>
-          <button
-            type="button"
-            className={`ai-mode-toggle${mode === 'edit' ? ' on' : ''}`}
-            aria-pressed={mode === 'edit'}
-            aria-label={mode === 'edit' ? (zh ? '当前可修改，点击切换为仅对话' : 'Can edit; click for chat only') : (zh ? '当前仅对话，点击切换为可修改' : 'Chat only; click to enable editing')}
-            onClick={() => onModeChange(mode === 'edit' ? 'chat' : 'edit')}
-          >
-            {mode === 'edit' ? (zh ? '可修改' : 'Can edit') : (zh ? '仅对话' : 'Chat only')}
-          </button>
+          <span className="ai-mode-seg" role="group" aria-label={zh ? '对话模式' : 'Chat mode'}>
+            <button
+              type="button"
+              className={mode === 'edit' ? 'on' : ''}
+              aria-pressed={mode === 'edit'}
+              title={zh ? '智能：可使用工具' : 'Smart: tools enabled'}
+              onClick={() => onModeChange('edit')}
+            >
+              {zh ? '智能' : 'Smart'}
+            </button>
+            <button
+              type="button"
+              className={mode === 'chat' ? 'on' : ''}
+              aria-pressed={mode === 'chat'}
+              title={zh ? '对话：仅问答' : 'Chat only'}
+              onClick={() => onModeChange('chat')}
+            >
+              {zh ? '对话' : 'Chat'}
+            </button>
+          </span>
         </Tooltip>
       )}
       <span className="ai-edit-chat-head-ops">

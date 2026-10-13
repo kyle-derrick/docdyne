@@ -15,7 +15,7 @@ word 元素序号从 1 起；slide 页码从 1 起）。
 | PPT | 13 | get_doc_info / read_slide | set_text / set_slide_title / slide_notes | add_slide / add_text_box / add_shape / slide_insert_image / add_table | delete_slide / move_slide / set_slide_background / set_slide_layout |
 | PDF | — | 查看页 AI（摘要/对话，服务端抽取文本） | —（DS 无 PDF 文档 API，如实边界） | — | — |
 | draw.io | 6 | read_diagram / list_cells | update_cells / delete_cells | insert_cells | replace_diagram（整图） |
-| 白板 (Excalidraw) | 5 | read_scene | update_elements / move_elements / delete_elements | insert_elements（骨架数组） | — |
+| 白板 (Excalidraw) | 6 | read_scene | update_elements / move_elements / delete_elements / connect（a→b 直连） | insert_elements（骨架数组，at 锚点） | — |
 | 富文本 (.dfdoc) | 12 | read_document / read_selection / search_text | replace_text / write_document / delete_block | insert_content（Markdown）/ insert_table / insert_image / insert_link / **insert_embed** | format_text / set_block_type |
 | Monaco 文本 | 6 | read_document / read_selection / search_text | replace_text / write_whole | insert_content | — |
 

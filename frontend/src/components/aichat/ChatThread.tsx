@@ -8,7 +8,7 @@
 // 由 TraceView 呈现）；用量（tokens+整体耗时）统一显示在回复内容底部；
 // 消息流离底时显示「回到底部」悬浮按钮。
 import { Button, Tooltip } from 'antd'
-import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, Trash2 } from 'lucide-react'
+import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, ShieldAlert, Trash2 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { AIChatThinking, AIToolChain, AIWebSourcesView } from './AIMessageList'
 import type { AIToolCallEntry, AIWebSource } from './turns'
@@ -46,6 +46,10 @@ export interface ChatMessage {
   webSources?: AIWebSource[]
   /** 本轮用量（SSE done；非 agent 路径）。 */
   usageAI?: AIUsage
+  /** 工具阶段前的中间叙述（助手宿主；渲染为正文前的过程说明行）。 */
+  prologue?: string[]
+  /** 破坏性工具待确认（v7.7 谨慎模式对话内确认卡；编辑宿主）。 */
+  confirmReq?: { label: string }
 }
 
 export interface ChatThreadProps {
@@ -65,6 +69,8 @@ export interface ChatThreadProps {
   onExecutePlan: (planText: string) => void
   /** 助手消息操作行扩展位（viewer：保存为新版本）。 */
   actionSlot?: (msg: ChatMessage) => ReactNode
+  /** 谨慎模式对话内确认回调（v7.7：破坏性工具 [确认执行/跳过]）。 */
+  onConfirmTool?: (asstId: number, ok: boolean) => void
   // 状态
   busy: boolean
   batchMode: boolean
@@ -106,7 +112,7 @@ function AgentRawLine({ text }: { text: string }) {
 export default function ChatThread({
   zh, messages, emptyHint, emptySlot, generatingLabel,
   onCopy, onDeleteExchange, onSaveConversation, onRegenerate, onContinue, onExecutePlan,
-  actionSlot,
+  actionSlot, onConfirmTool,
   busy, batchMode, savingFile,
   checkedIds, onToggleChecked,
   wrapRef, onScroll,
@@ -178,6 +184,32 @@ export default function ChatThread({
                   <TraceView stages={msg.trace} running={!!msg.streaming} zh={zh} />
                 ) : (
                   <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
+                )}
+                {/* 工具阶段前的中间叙述（「我先了解一下…」类；v7.7 分相）。 */}
+                {msg.prologue && msg.prologue.length > 0 && (
+                  <div className="ai-prologue">
+                    {msg.prologue.map((p, i) => (
+                      <div key={i} className="ai-prologue-line muted">{p}</div>
+                    ))}
+                  </div>
+                )}
+                {/* 破坏性工具对话内确认卡（v7.7 谨慎模式；参考 Cherry Studio）。 */}
+                {msg.confirmReq && (
+                  <div className="ai-confirm-card" role="alertdialog" aria-label={zh ? '操作确认' : 'Action confirmation'}>
+                    <div className="ai-confirm-title">
+                      <ShieldAlert size={13} strokeWidth={2} aria-hidden="true" />
+                      {zh ? '即将执行操作，请确认' : 'Action needs confirmation'}
+                    </div>
+                    <div className="ai-confirm-label">{msg.confirmReq.label}</div>
+                    <div className="ai-confirm-ops">
+                      <Button size="small" type="primary" danger onClick={() => onConfirmTool?.(msg.id, true)}>
+                        {zh ? '确认执行' : 'Confirm'}
+                      </Button>
+                      <Button size="small" onClick={() => onConfirmTool?.(msg.id, false)}>
+                        {zh ? '跳过' : 'Skip'}
+                      </Button>
+                    </div>
+                  </div>
                 )}
                 {/* 外部工具调用链（df_* 平台文件工具 / MCP）。 */}
                 {msg.toolCalls && msg.toolCalls.length > 0 && <AIToolChain toolCalls={msg.toolCalls} zh={zh} />}

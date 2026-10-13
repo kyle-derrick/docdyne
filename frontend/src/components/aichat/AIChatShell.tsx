@@ -100,6 +100,8 @@ export interface AIChatShellProps {
   onRegenerate: (asstId: number) => void
   onContinue: (asstId: number) => void
   onExecutePlan: (planText: string) => void
+  /** 谨慎模式对话内确认回调（v7.7；编辑宿主注入）。 */
+  onConfirmTool?: (asstId: number, ok: boolean) => void
   savingFile: boolean
   // ---- 模式（标题后单按钮；showModeSegment=false 隐藏——viewer 无模式概念）----
   mode: ChatMode
@@ -197,7 +199,7 @@ export default function AIChatShell(p: AIChatShellProps) {
   const panel = (
     <aside
       ref={panelRef}
-      className={`ai-edit-chat-panel${p.floatMode ? ' floating' : ''}${p.hostType === 'assistant' ? ' in-drawer' : ''}`}
+      className={`ai-edit-chat-panel${p.floatMode ? ' floating' : ''}${p.hostType === 'assistant' && !p.floatMode ? ' in-drawer' : ''}`}
       style={p.floatMode && floatRect
         ? { left: floatRect.x, top: floatRect.y, right: 'auto', bottom: 'auto', width: floatRect.w, height: floatRect.h }
         : undefined}
@@ -225,6 +227,7 @@ export default function AIChatShell(p: AIChatShellProps) {
         onCopy={p.onCopy} onDeleteExchange={p.onDeleteExchange}
         onSaveConversation={p.onSaveConversation} onRegenerate={p.onRegenerate}
         onContinue={p.onContinue} onExecutePlan={p.onExecutePlan}
+        onConfirmTool={p.onConfirmTool}
         busy={p.busy} batchMode={p.batchMode} savingFile={p.savingFile}
         checkedIds={p.checkedIds} onToggleChecked={p.onToggleChecked}
         wrapRef={p.wrapRef} onScroll={p.onScroll}

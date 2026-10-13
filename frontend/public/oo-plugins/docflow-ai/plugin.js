@@ -1781,17 +1781,19 @@
     };
   }
   function syncModeSeg() {
-    // v7.6 对齐平台：单按钮（可修改 ⇄ 仅对话），说明经 title hover 展示。
-    modeSeg.classList.toggle('on', editMode && !planMode);
-    modeSeg.textContent = (editMode && !planMode) ? '可修改' : '仅对话';
-    modeSeg.title = (editMode && !planMode)
-      ? 'AI 通过工具循环自主读文档、执行修改并校验；过程分阶段可折叠，达预算或熔断可「继续」；破坏性操作受谨慎模式确认。'
-      : '仅问答，不改动文档。';
+    // v7.7 对齐平台：智能/对话 双段（说明经各按钮 title hover 展示）。
+    var bs = modeSeg.querySelectorAll('button[data-v]');
+    for (var i = 0; i < bs.length; i++) {
+      var v = bs[i].dataset.v;
+      bs[i].classList.toggle('on', (v === 'edit') === (editMode && !planMode) || (v === 'chat') === (!editMode && !planMode));
+    }
     manualBar.classList.toggle('hidden', editMode || planMode);
     q.placeholder = planMode ? '计划模式：描述目标，AI 只读探查并给出执行计划…' : editMode ? '描述要做的修改…' : '仅对话模式…';
   }
-  modeSeg.addEventListener('click', function () {
-    editMode = !editMode;
+  modeSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-v]');
+    if (!b) return;
+    editMode = b.dataset.v === 'edit';
     planMode = false;
     syncModeSeg();
   });

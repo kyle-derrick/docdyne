@@ -92,6 +92,33 @@ const isValidPoints = (v: unknown): boolean =>
       && typeof p[1] === 'number' && Number.isFinite(p[1]),
   )
 
+/** 连线绑定引用宽限归一（v7.7）：模型常见四种写法统一为骨架格式
+ *  start/end:{id}——"n1" 字符串、{id}、{elementId}（正式格式误写）、
+ *  startBinding/endBinding:{elementId}（read_scene 后照抄正式字段）。
+ *  无有效引用返回 null（调用方删除该端绑定）。 */
+const normBindRef = (v: unknown): { id: string } | null => {
+  if (typeof v === 'string') return v ? { id: v } : null
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    const id = typeof o.id === 'string' ? o.id : typeof o.elementId === 'string' ? o.elementId : ''
+    return id ? { id } : null
+  }
+  return null
+}
+
+/** 就地归一单个连线元素的绑定引用（start/end ← startBinding/endBinding 兜底）。 */
+function normalizeConnectorBindings(el: Record<string, unknown>): void {
+  const start = normBindRef(el.start) ?? normBindRef(el.startBinding)
+  const end = normBindRef(el.end) ?? normBindRef(el.endBinding)
+  if (start) el.start = start
+  else delete el.start
+  if (end) el.end = end
+  else delete el.end
+  // 正式格式字段一律剔除（转换器不识别，避免残留歧义）。
+  delete el.startBinding
+  delete el.endBinding
+}
+
 /** 解析并规整 AI 生成的 excalidraw 元素骨架数组（应用前唯一守门）：
  * 1) JSON.parse——失败抛错（调用方回落展示原文）；
  * 2) 逐项过滤非法元素：非对象 / type 缺失或不在白名单 / x、y 非有限数 /
@@ -120,6 +147,8 @@ function parseExcalidrawSkeletons(raw: string, existingIds: Set<string>): Array<
     if (typeof el.y !== 'number' || !Number.isFinite(el.y)) return false
     if (el.type === 'text' && typeof el.text !== 'string') return false
     if (el.type === 'arrow' || el.type === 'line') {
+      // 绑定引用宽限归一（v7.7：字符串/{id}/{elementId}/startBinding 均可）。
+      normalizeConnectorBindings(el)
       const hasBind = (el.start != null && typeof el.start === 'object') || (el.end != null && typeof el.end === 'object')
       if (!hasBind && !isValidPoints(el.points)) return false
     }
@@ -440,9 +469,11 @@ export default function ExcalidrawPage({
   /** AI 上下文目标：白板无选区概念，恒全文（=摘要）。 */
   const aiGetTarget = (): AIEditTarget => ({ hasSelection: false, text: sceneSummary() })
 
-  /** 骨架 JSON → 校验 → 官方转换 → 平移至现有内容下方追加插入（insert_elements
-   * 工具与单轮 aiApply 共用管线）。返回插入的正式元素（含最终 id）。 */
-  const insertSkeletons = async (json: string): Promise<{ ok: true; elements: SceneElements } | { ok: false; error: string }> => {
+  /** 骨架 JSON → 校验 → 官方转换 → 定位插入（insert_elements 工具与单轮
+   * aiApply 共用管线）。定位：调用方给定锚点 at（整批包围盒左上角平移至
+   * 该处，AI 可精确控制落点、免二次移动）；未给 = 追加到现有内容正下方。
+   * 返回插入的正式元素（含最终 id）。 */
+  const insertSkeletons = async (json: string, at?: { x: number; y: number }): Promise<{ ok: true; elements: SceneElements } | { ok: false; error: string }> => {
     const api = excalidrawAPIRef.current
     if (!api) return { ok: false, error: '白板编辑器未就绪' }
     let skeletons: Array<Record<string, unknown>>
@@ -460,37 +491,72 @@ export default function ExcalidrawPage({
       )
       if (!converted.length) return { ok: false, error: '未产生可插入的白板元素' }
       const current = api.getSceneElements()
-      // 追加插入：平移到现有内容正下方（留 60px 间距）避免重叠。
-      const bottom = current.reduce((max, el) => Math.max(max, el.y + (el.height ?? 0)), 0)
-      const offset = current.length ? bottom + 60 : 0
-      const placed = (offset ? converted.map((el) => ({ ...el, y: el.y + offset })) : converted) as SceneElements
-      // 绑定连线端点自算：官方转换器对带 start/end 绑定的骨架不重算 points
-      //（0.17.6 实测），autoFix 给缺 points 的绑定连线补的 [[0,0],[0,0]] 会让
-      // 所有箭头堆到各自原点叠成一团——这里按绑定元素中心自算端点（起点=
-      // 起始元素中心，连线 x/y=起点，points=[[0,0],[Δ]]）；绑定对象含本批
-      // 与既有画布元素。仅重算两端都有（或至少一端有）绑定的连线。
+      // 定位插入：给定锚点 = 整批包围盒左上角平移至锚点（AI 精确落点）；
+      // 未给 = 追加到现有内容正下方（留 60px 间距）避免重叠。
+      let placed = converted as SceneElements
+      if (at && Number.isFinite(at.x) && Number.isFinite(at.y)) {
+        const minX = Math.min(...converted.map((el) => el.x))
+        const minY = Math.min(...converted.map((el) => el.y))
+        placed = converted.map((el) => ({ ...el, x: el.x - minX + at.x, y: el.y - minY + at.y })) as SceneElements
+      } else {
+        const bottom = current.reduce((max, el) => Math.max(max, el.y + (el.height ?? 0)), 0)
+        const offset = current.length ? bottom + 60 : 0
+        placed = (offset ? converted.map((el) => ({ ...el, y: el.y + offset })) : converted) as SceneElements
+      }
+      // 绑定连线端点自算（v7.7 加固）：不依赖官方转换器的绑定处理——直接按
+      // 规整后骨架的 start/end:{id} 引用（解析器已宽限四种写法）从绑定元素
+      // 中心自算端点（起点=起始元素中心，连线 x/y=起点，points=[[0,0],[Δ]]）。
+      // 绑定对象含本批与既有画布元素；官方 startBinding 若保留则作兜底来源。
       const all = [...current, ...placed]
+      const skelById = new Map(skeletons.map((s) => [String(s.id ?? ''), s]))
       const centerOf = (el: { x: number; y: number; width?: number; height?: number }) => ({
         x: el.x + (el.width ?? 0) / 2,
         y: el.y + (el.height ?? 0) / 2,
       })
+      // 元素 id → 需补登的箭头 id（既有元素不可变——记录后统一重建）。
+      const bindAdds = new Map<string, string[]>()
+      const addBind = (targetId: string, arrowId: string) => {
+        const list = bindAdds.get(targetId) ?? []
+        list.push(arrowId)
+        bindAdds.set(targetId, list)
+      }
       for (const el of placed) {
         if (el.type !== 'arrow' && el.type !== 'line') continue
         const e = el as unknown as Record<string, unknown>
-        const sb = e.startBinding as { elementId?: string } | null | undefined
-        const eb = e.endBinding as { elementId?: string } | null | undefined
-        const from = sb?.elementId ? all.find((x) => x.id === sb.elementId) : undefined
-        const to = eb?.elementId ? all.find((x) => x.id === eb.elementId) : undefined
+        const sk = skelById.get(String(el.id)) ?? e
+        const sRef = (sk.start as { id?: string } | null | undefined)?.id
+          ?? (e.startBinding as { elementId?: string } | null | undefined)?.elementId
+        const eRef = (sk.end as { id?: string } | null | undefined)?.id
+          ?? (e.endBinding as { elementId?: string } | null | undefined)?.elementId
+        const from = sRef ? all.find((x) => x.id === sRef) : undefined
+        const to = eRef ? all.find((x) => x.id === eRef) : undefined
         if (!from && !to) continue
         const start = from ? centerOf(from) : { x: Number(e.x) || 0, y: Number(e.y) || 0 }
         const end = to ? centerOf(to) : { x: start.x + 120, y: start.y }
         e.x = start.x
         e.y = start.y
+        e.width = Math.abs(end.x - start.x)
+        e.height = Math.abs(end.y - start.y)
         e.points = [[0, 0], [end.x - start.x, end.y - start.y]]
+        // 绑定关系同步（转换器可能丢弃骨架绑定——这里显式补齐）。
+        if (from) { e.startBinding = { elementId: from.id, focus: 0, gap: 5, fixedPoint: null }; addBind(from.id, String(el.id)) }
+        if (to) { e.endBinding = { elementId: to.id, focus: 0, gap: 5, fixedPoint: null }; addBind(to.id, String(el.id)) }
       }
-      api.updateScene({ elements: [...current, ...placed] })
-      api.scrollToContent(placed)
-      return { ok: true, elements: placed }
+      // 既有/本批元素的 boundElements 重建（含既有画布元素——不可变更新）。
+      const withBindings = (arr: SceneElements): SceneElements =>
+        arr.map((el) => {
+          const adds = bindAdds.get(el.id)
+          if (!adds) return el
+          const te = el as unknown as { boundElements?: Array<{ id: string; type: string }> }
+          const be = Array.isArray(te.boundElements) ? te.boundElements : []
+          const merged = [...be, ...adds.filter((id) => !be.some((b) => b.id === id)).map((id) => ({ id, type: 'arrow' }))]
+          return { ...el, boundElements: merged } as SceneElements[number]
+        })
+      const nextCurrent = withBindings(current)
+      const nextPlaced = withBindings(placed)
+      api.updateScene({ elements: [...nextCurrent, ...nextPlaced] })
+      api.scrollToContent(nextPlaced)
+      return { ok: true, elements: nextPlaced }
     } catch (err) {
       return { ok: false, error: `excalidraw 元素转换失败：${err instanceof Error ? err.message : String(err)}` }
     }
@@ -534,14 +600,80 @@ export default function ExcalidrawPage({
       },
       {
         name: 'insert_elements',
-        desc: '{elements:[骨架对象数组]} → 插入新元素（一次可传整图全部元素；rectangle/ellipse/diamond/text/arrow/line，含 id 供连线引用）——生成新图形/整图用本工具。',
+        desc: '{elements:[骨架对象数组], at?:{x,y}} → 插入新元素（一次可传整图全部元素；rectangle/ellipse/diamond/text/arrow/line，含 id 供连线引用）。at=整批包围盒左上角的目标落点（画布绝对坐标，可精确放置、免二次移动；缺省=现有内容正下方追加）——生成新图形/整图用本工具。',
         label: (a: Record<string, unknown>) => `插入 ${Array.isArray(a.elements) ? a.elements.length : '?'} 元素`,
         exec: async (a: Record<string, unknown>) => {
           const els = a.elements
           if (!Array.isArray(els) || !els.length) return { ok: false, error: 'elements 必填：骨架对象数组（type/x/y 等，见格式规范）' }
-          const r = await insertSkeletons(JSON.stringify(els))
+          const at = (a.at && typeof a.at === 'object' && Number.isFinite(Number((a.at as Record<string, unknown>).x)))
+            ? { x: Number((a.at as Record<string, unknown>).x), y: Number((a.at as Record<string, unknown>).y) || 0 }
+            : undefined
+          const r = await insertSkeletons(JSON.stringify(els), at)
           if (!r.ok) return r
           return { ok: true, inserted: r.elements.length, ids: r.elements.map((el) => el.id) }
+        },
+      },
+      {
+        name: 'connect',
+        desc: '{fromId, toId, label?, strokeColor?} → 在两个既有元素之间加一条绑定箭头（from→to，可选箭头中点标签）——给已有图形加连线一律优先用本工具（端点系统自算，勿手算坐标/points）。',
+        label: (a: Record<string, unknown>) => `连线 ${String(a.fromId ?? '?')} → ${String(a.toId ?? '?')}`,
+        exec: async (a: Record<string, unknown>) => {
+          const api = apiOr()
+          if (!api) return { ok: false, error: '白板编辑器未就绪' }
+          const fromId = String(a.fromId ?? '')
+          const toId = String(a.toId ?? '')
+          const els = sceneEls()
+          const from = els.find((el) => el.id === fromId)
+          const to = els.find((el) => el.id === toId)
+          if (!from || !to) {
+            return { ok: false, error: `元素不存在：fromId=${fromId}${from ? '' : ' ✗'}，toId=${toId}${to ? '' : ' ✗'}——请先 read_scene 拿最新 id` }
+          }
+          const center = (el: { x: number; y: number; width?: number; height?: number }) => ({
+            x: el.x + (el.width ?? 0) / 2,
+            y: el.y + (el.height ?? 0) / 2,
+          })
+          const start = center(from)
+          const end = center(to)
+          const id = `ai-conn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+          try {
+            const { convertToExcalidrawElements } = await import('@excalidraw/excalidraw')
+            const skeleton: Record<string, unknown> = {
+              id,
+              type: 'arrow',
+              x: start.x,
+              y: start.y,
+              width: Math.abs(end.x - start.x),
+              height: Math.abs(end.y - start.y),
+              points: [[0, 0], [end.x - start.x, end.y - start.y]],
+              start: { id: fromId },
+              end: { id: toId },
+              ...(a.label != null && a.label !== '' ? { label: { text: String(a.label) } } : {}),
+              ...(typeof a.strokeColor === 'string' && a.strokeColor ? { strokeColor: a.strokeColor } : {}),
+            }
+            const converted = convertToExcalidrawElements([skeleton] as unknown as Parameters<typeof convertToExcalidrawElements>[0], { regenerateIds: false })
+            if (!converted.length) return { ok: false, error: '箭头转换失败' }
+            const arrow = converted[0] as unknown as Record<string, unknown>
+            // 端点/绑定显式自算（不依赖转换器）：几何 + 双向绑定登记。
+            arrow.x = start.x
+            arrow.y = start.y
+            arrow.width = Math.abs(end.x - start.x)
+            arrow.height = Math.abs(end.y - start.y)
+            arrow.points = [[0, 0], [end.x - start.x, end.y - start.y]]
+            arrow.startBinding = { elementId: fromId, focus: 0, gap: 5, fixedPoint: null }
+            arrow.endBinding = { elementId: toId, focus: 0, gap: 5, fixedPoint: null }
+            const be = (el: { id: string }) => {
+              const t = els.find((x) => x.id === el.id) as unknown as { boundElements?: Array<{ id: string; type: string }> } | undefined
+              const list = Array.isArray(t?.boundElements) ? t!.boundElements! : []
+              return [...list, { id, type: 'arrow' }]
+            }
+            const next = els.map((el) => (
+              el.id === fromId || el.id === toId ? { ...el, boundElements: be(el) } as SceneElements[number] : el
+            ))
+            api.updateScene({ elements: [...next, arrow as unknown as SceneElements[number]] })
+            return { ok: true, id }
+          } catch (err) {
+            return { ok: false, error: `连线创建失败：${err instanceof Error ? err.message : String(err)}` }
+          }
         },
       },
       {
@@ -771,7 +903,7 @@ export default function ExcalidrawPage({
           </EditorLoadErrorBoundary>
           </div>
           {/* AI 对话式创作面板（v7：agentTools 元素级工具循环——read_scene /
-              insert_elements / update_elements / move_elements /
+              insert_elements / connect / update_elements / move_elements /
               delete_elements；单轮生成通道保留为回退）。 */}
           <AIEditChat
             open={aiChatOpen}
@@ -784,7 +916,9 @@ export default function ExcalidrawPage({
             agentTools={aiAgentTools}
             agentSystemExtra={[
               '白板宿主约束：',
-              '- 画新图形/整图：一次 insert_elements 传入全部元素（含标题 text 与连线 arrow）。',
+              '- 画新图形/整图：一次 insert_elements 传入全部元素（含标题 text 与连线 arrow），可用 at:{x,y} 指定整批落点（免插入后再移动）。',
+              '- 给既有元素加连线：一律用 connect {fromId,toId,label?}（端点系统按元素自算）——不要为加线重画/移动元素。',
+              '- 调整/重构连线：保留节点不动，delete_elements 只删旧箭头，再逐条 connect 新连线——不要重建节点（会丢内容与对齐）。',
               '- 改既有内容（颜色/文字/位置/尺寸）：先 read_scene 拿 id，再 update_elements 局部更新——不要重画整图。',
               '- 删除元素连带其标签与绑定箭头自动清理（delete_elements）。',
               '- insert_elements 的元素骨架字段规范（忽略其中关于围栏输出/整体布局区间的表述，坐标系以画布现状为准）：',

@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import { App as AntdApp, Drawer, Button, Input, Popconfirm, Popover, Select, Switch, Tag, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
-import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, Pin, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search } from 'lucide-react'
+import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search } from 'lucide-react'
 import {
   AISkillDef,
   AIUsage,
@@ -107,9 +107,6 @@ export const AI_MCP_STORAGE_KEY = 'docflow.ai.mcp'
 export const AI_DOCS_STORAGE_KEY = 'docflow.ai.docs'
 /** 平台文件工具（df_* 直接读写工作目录内文件）开关持久化 key（默认开）。 */
 export const AI_FILES_STORAGE_KEY = 'docflow.ai.files'
-
-/** AI 助手固定（pin）持久化 key。 */
-export const AI_PIN_STORAGE_KEY = 'docflow.ai.pinned'
 
 /** 助手模式持久化 key（'chat' = 仅对话（不修改/不操作文件）；缺省/其他 = 智能）。 */
 export const AI_MODE_STORAGE_KEY = 'docflow.ai.mode'
@@ -1011,6 +1008,9 @@ interface ChatTurn extends AIChatTurnData {
   /** assistant 回答来源：重试时据此分发（chat 重发最后一问 / summarize 重跑摘要）。 */
   kind?: 'chat' | 'summarize'
   usage?: AIUsage | null
+  /** 工具阶段前的中间叙述（v7.7：服务端工具循环会把每轮叙述并入正文，
+   *  客户端在首个 tool 事件时把已有正文转为前置说明并清空，最终回答独立呈现）。 */
+  prologue?: string[]
 }
 
 // ---------- 多会话（历史会话；服务端 ai_conversations 持久化） ----------
@@ -1220,25 +1220,6 @@ useEffect(() => {
   useEffect(() => {
     void getMe().then((m) => setAiUid(m.id)).catch(() => setAiUid(currentUserId() ?? 'anon'))
   }, [])
-  // 助手固定（pin）：固定后无遮罩、点页面/Esc 不关闭（localStorage 记忆）。
-  const [pinned, setPinned] = useState(() => {
-    try {
-      return window.localStorage.getItem(AI_PIN_STORAGE_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-  const togglePinned = () => {
-    setPinned((p) => {
-      const next = !p
-      try {
-        window.localStorage.setItem(AI_PIN_STORAGE_KEY, next ? '1' : '0')
-      } catch {
-        /* ignore */
-      }
-      return next
-    })
-  }
   // 悬浮窗模式（v7.6）：助手脱离抽屉为独立可拖动/缩放窗口（与编辑页同款，
   // 拖动/缩放/记忆内聚 AIChatShell）。
   const [floatMode, setFloatMode] = useState(() => {
@@ -1585,19 +1566,18 @@ useEffect(() => {
       console.warn('[ai-assistant] 切换目标不在会话列表：', id, '（refs', convosRef.current.length, '/ state', convos.length, '条）')
       return
     }
-    if (id !== convoIdRef.current) {
-      abortRef.current?.abort()
-      sticky.scrollToBottom()
-      convoIdRef.current = id
-      setConvoId(id)
-      setInput('')
-      setAttached([])
-      exitBatch()
-      if (target.messages.length > 0) {
-        convoSyncedLenRef.current = target.messages.length
-        applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
-        return
-      }
+    if (id === convoIdRef.current) return
+    abortRef.current?.abort()
+    sticky.scrollToBottom()
+    convoIdRef.current = id
+    setConvoId(id)
+    setInput('')
+    setAttached([])
+    exitBatch()
+    if (target.messages.length > 0) {
+      convoSyncedLenRef.current = target.messages.length
+      applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+      return
     }
     void aiGetConversation(id)
       .then((row) => {
@@ -1946,14 +1926,22 @@ useEffect(() => {
             if (ws.length > 0) updateTurn(assistantId, () => ({ webSources: ws }))
           },
           onDelta: (chunk) => updateTurn(assistantId, (x) => ({ content: x.content + chunk })),
+          // 工具阶段开始：已有正文（「我先了解一下…」类叙述）转为前置说明并清空，
+          // 之后各工具轮的叙述同样入 prologue——最终回答独立成段（v7.7）。
+          onTool: (tool) => {
+            updateTurn(assistantId, (x) => ({
+              prologue: x.content.trim() ? [...(x.prologue ?? []), x.content.trim()] : x.prologue,
+              content: x.content.trim() ? '' : x.content,
+              toolCalls: [...(x.toolCalls ?? []), toolEntryFrom(tool)],
+            }))
+          },
           onSources: (sources) => updateTurn(assistantId, () => ({ sources })),
           // 推理思考增量：聚合到独立折叠区（首个增量记录起始时间）。
           onThinking: (text) => updateTurn(assistantId, (x) => ({
             thinking: (x.thinking ?? '') + text,
             thinkingStartedAt: x.thinkingStartedAt ?? Date.now(),
           })),
-          // 工具调用生命周期：执行前追加 running 条目，执行后合并终态/摘要。
-          onTool: (tool) => updateTurn(assistantId, (x) => ({ toolCalls: [...(x.toolCalls ?? []), toolEntryFrom(tool)] })),
+          // 工具调用生命周期：执行后合并终态/摘要（执行前见上方 onTool 分相处理）。
           onToolResult: (result) => updateTurn(assistantId, (x) => ({ toolCalls: applyToolResult(x.toolCalls ?? [], result) })),
           onDone: (usage) => updateTurn(assistantId, () => ({ usage })),
         },
@@ -2123,22 +2111,6 @@ useEffect(() => {
               onDocs={toggles.setDocs} onFiles={toggles.setFiles} />
           )}
           skillSlot={<AISkillButton zh={zh} onPick={(s) => setInput(renderSkillPrompt(s.prompt))} />}
-          extraHeaderSlot={(
-            <Tooltip title={pinned
-              ? (zh ? '已固定：点击页面 / Esc 不会关闭助手，点击图钉取消固定' : 'Pinned: clicking the page or Esc will not close the assistant; click the pin to unpin')
-              : (zh ? '固定后点击页面不会关闭助手' : 'Pin: clicking the page will not close the assistant')}>
-              <Button
-                size="small"
-                type="text"
-                className={`ai-pin-btn${pinned ? ' active' : ''}`}
-                aria-label={zh ? '固定助手' : 'Pin assistant'}
-                aria-pressed={pinned}
-                onClick={togglePinned}
-              >
-                <Pin size={13} strokeWidth={2} aria-hidden="true" />
-              </Button>
-            </Tooltip>
-          )}
           belowHeaderSlot={(
             <div className="aiax-toolbar">
               {/* 助手人设（三源合并：平台 plat: 前缀 → 内置 → 自定义）。 */}
@@ -2389,7 +2361,7 @@ useEffect(() => {
 
   return (
     <>
-      {/* v7.6 两态：悬浮窗（独立可拖动/缩放窗口，无遮罩）/ 抽屉（含固定 pin）。 */}
+      {/* v7.7 两态：悬浮窗（独立可拖动/缩放窗口，无遮罩）/ 抽屉（标准遮罩）。 */}
       {floatMode
         ? (open ? shell : null)
         : (
@@ -2400,11 +2372,7 @@ useEffect(() => {
         open={open}
         onClose={() => setOpen(false)}
         rootClassName="ai-drawer-root"
-        /* 固定（pin）：无遮罩、点页面/Esc 不关闭，只能图钉取消或头部 X 关闭；
-            头部由 AIChatShell 渲染（Drawer 自带头部隐藏）。 */
-        mask={!pinned}
-        maskClosable={!pinned}
-        keyboard={!pinned}
+        /* 头部由 AIChatShell 渲染（Drawer 自带头部隐藏）。 */
         closable={false}
         styles={{ header: { display: 'none' }, body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
       >
