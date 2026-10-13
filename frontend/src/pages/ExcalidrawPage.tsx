@@ -928,6 +928,7 @@ export default function ExcalidrawPage({
               '- 调整/重构连线：保留节点不动，delete_elements 只删旧箭头，再逐条 connect 新连线——不要重建节点（会丢内容与对齐）。',
               '- 改既有内容（颜色/文字/位置/尺寸）：先 read_scene 拿 id，再 update_elements 局部更新——不要重画整图。',
               '- 删除元素连带其标签与绑定箭头自动清理（delete_elements）。',
+              '- 【自检循环】每批改动后 read_scene 验证：无重叠、无悬空连线、标签完整、间距均匀；发现问题先修复再继续，全部通过才 FINAL 总结。',
               '- insert_elements 的元素骨架字段规范（忽略其中关于围栏输出/整体布局区间的表述，坐标系以画布现状为准）：',
               EXCALIDRAW_JSON_GUIDE,
             ].join('\n')}

@@ -2798,18 +2798,20 @@ export default function FileBrowser({
       )}
 
       {error && <div className="banner error">{error}</div>}
-      {/* 加载态：紧凑骨架行（避免闪空白；内容到达后 180ms 淡入）。 */}
-      {loading && (
+      {/* 加载态（v7.12）：已有内容时保留旧列表（半透明 + 顶部细进度条），
+          消除切换目录时骨架行在 table 上方闪现的跳动；仅首载无内容时用骨架。 */}
+      {loading && visibleItems.length === 0 && (
         <div className="files-loading-skeleton soft-fade" aria-busy="true" aria-label={msg('loading')}>
           {Array.from({ length: 6 }, (_, i) => <div key={i} className="files-loading-row" />)}
         </div>
       )}
+      {loading && visibleItems.length > 0 && <div className="files-loading-bar" aria-hidden="true" />}
       {!loading && visibleItems.length === 0 && !error && (
         <div className="empty">{directoryQuery.trim() || searchMode ? msg('noMatch') : emptyHint ?? (locale === 'zh-CN' ? '此目录为空，上传文件或新建文件夹开始使用' : 'This folder is empty. Upload a file or create a folder to get started.')}</div>
       )}
 
       {visibleItems.length > 0 && viewMode === 'list' && (
-        <table className="file-table soft-fade" key={`list-${currentFolderId ?? 'root'}`}>
+        <table className={`file-table soft-fade${loading ? ' stale-loading' : ''}`} key={`list-${currentFolderId ?? 'root'}`}>
           <thead>
             <tr>
               <th className="col-check">
@@ -2956,7 +2958,7 @@ export default function FileBrowser({
           进入，文件卡片点击预览；右上「⋯」打开与列表行一致的操作菜单；
           选择状态与列表视图共享（多选 + 批量工具条两视图通用）。 */}
       {visibleItems.length > 0 && viewMode === 'grid' && (
-        <div className="file-grid soft-fade" key={`grid-${currentFolderId ?? 'root'}`}>
+        <div className={`file-grid soft-fade${loading ? ' stale-loading' : ''}`} key={`grid-${currentFolderId ?? 'root'}`}>
           {visibleItems.map((item) => {
             const size = sizeCache.current.get(item.id) ?? 0
             return (

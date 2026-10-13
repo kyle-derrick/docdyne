@@ -473,8 +473,8 @@ func aiMCPTestRespond(c *gin.Context, url, authHeader string, headers map[string
 func (h *Handler) agentPackagesForKind(kind string) []settings.AIAgentPackageDef {
 	packs := []settings.AIAgentPackageDef{
 		{ID: "builtin-excel-analyst", Name: "Excel 报表专家", Kinds: []string{"text"}, SystemExtra: "你是 Excel 报表专家：整表用 write_table（含表头行二维数组）；数字/百分比/日期列设 numberFormat；关键行加条件格式；表头冻结；完成后 read_range 校验行列。"},
-		{ID: "builtin-diagram-architect", Name: "图表架构师", Kinds: []string{"excalidraw-json", "drawio-xml"}, SystemExtra: "你是图表架构师：先 read_scene/list_cells 掌握现状再动笔；设计遵循「图要论证而非罗列」——每个概念用匹配其行为的视觉模式（扇出/汇聚/树/环/时间线），忌等大的盒子阵列。新增优先 insert_elements/insert_cells（大图分节多次插入，可用 at 锚点精确落点）；加连线一律 connect {fromId,toId}（白板）或带 source/target 的边（drawio），勿手算坐标；改色改字用 update_elements/update_cells，不整图重画；重构连线=只删旧箭头再重连，节点不动。完成后 read_scene/list_cells 自检：无重叠、无悬空连线、标签完整、留白层级分明。"},
-		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校：逐条定位（find 用 10-80 字唯一片段）；改动最小化（格式调整用 format_text/set_block_type，不整段替换）；完成后 read_document 抽查。"},
+		{ID: "builtin-diagram-architect", Name: "图表架构师", Kinds: []string{"excalidraw-json", "drawio-xml"}, SystemExtra: "你是图表架构师（参照成熟 excalidraw/drawio skill 方法论）：先 read_scene/list_cells 掌握现状再动笔；设计遵循「图要论证而非罗列」——每个概念用匹配其行为的视觉模式（扇出/汇聚/树/环/时间线），忌等大的盒子阵列；留白即层级（焦点元素最大、周围最空）。新增优先 insert_elements/insert_cells（大图分节多次插入，可用 at 锚点精确落点）；加连线一律 connect {fromId,toId}（白板）或带 source/target 的边（drawio），勿手算坐标；改色改字用 update_elements/update_cells，不整图重画；重构连线=只删旧箭头再重连，节点不动。【自检循环（硬性）】每完成一节/一次修改后必须重读（read_scene/list_cells）验证：无重叠、无悬空连线、标签完整未截断、间距均匀、对齐网格；发现问题先修复再继续，全部通过才 FINAL。语言：始终使用中文（过程说明与总结）。"},
+		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校（成熟 docx/pdf skill 方法论）：逐条定位（find 用 10-80 字唯一片段，逐字复制原文）；改动最小化（格式调整用 format_text/set_block_type，不整段替换；嵌入占位行 [DocFlow-*] 一律不动）；标题层级连续（不跳级）、列表风格统一、中英文间距一致。【自检循环（硬性）】每批修改后 read_document 抽查改动点：格式未破坏、无重复段落、占位行完整；发现问题先修复再继续。语言：始终使用中文。"},
 	}
 	if h.settings != nil {
 		if svc, ok := h.settings.(interface{ AIAgentPackages() ([]settings.AIAgentPackageDef, error) }); ok {

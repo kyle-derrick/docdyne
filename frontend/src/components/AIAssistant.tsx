@@ -1885,6 +1885,10 @@ useEffect(() => {
           : (zh ? persona.zhPrompt : persona.enPrompt)
     }
     const sysPrefix: AIMessage[] = []
+    // v7.12：输出语言跟随页面语言（思考/过程说明/最终答复）。
+    sysPrefix.push({ role: 'system', content: zh
+      ? '语言要求：始终使用中文——思考过程、工具间说明与最终答复全部中文（代码/标识符除外）。'
+      : 'Language: always reply in English (thinking, process notes and final answer).' })
     if (personaPrompt) sysPrefix.push({ role: 'system', content: personaPrompt })
     // 仅对话模式：系统提示显式声明不读写文件（与 use_files:false 双保险）。
     if (chatOnly) sysPrefix.push({ role: 'system', content: '当前为仅对话模式：不要尝试读写文件' })

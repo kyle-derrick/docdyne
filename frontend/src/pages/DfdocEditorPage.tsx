@@ -762,6 +762,8 @@ export default function DfdocEditorPage({
             '- 整篇重写是最后手段（改动覆盖大半文档才用）：rewrite 前必须 read_document；若 read 返回 truncated=true，用 search_text 补齐尾部再写，切勿凭残文重建。',
             '- 行内样式用 format_text，段落级样式（标题/列表/代码块/引用）用 set_block_type——不要用整段替换实现格式调整。',
             '- 插入图片优先 insert_image {name}（平台文件）；组合其它文档用 insert_embed {name}（drawio/白板/Office/文件卡片），at:"end" 追加到文末；插入后不要整篇重写（会把刚插的块抹掉）——继续用局部工具。',
+            '- 格式守门：标题层级连续不跳级、列表风格统一、中英文间距一致、无连续空行；[DocFlow-*] 占位行原样保留。',
+            '- 【自检循环】每批修改后 read_document 抽查改动点（格式未破坏/无重复/占位行完整），发现问题先修复再继续；全部完成才 FINAL 总结。',
           ].join('\n')}
         />
       </div>

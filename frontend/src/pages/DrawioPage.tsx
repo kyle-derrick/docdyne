@@ -179,9 +179,14 @@ function fixDrawioXML(xml: string): string {
 // ---- v7 Agent 工具的 XML DOM 操作（元素级读/增/改/删，均作用于当前
 //      mxGraphModel；改完统一走 fixDrawioXML 守门 + load/export 应用链路）----
 
-/** 解析 XML 文本 → {doc, root}；非法或无 root 抛错。 */
+/** 解析 XML 文本 → {doc, root}；非法或无 root 抛错。v7.12：明文
+ * <mxfile><diagram><mxGraphModel>… 嵌套自动解包（压缩形态经
+ * normalizeDrawioXML 异步解压后再进入本函数——红点根因修复）。 */
 function parseDrawioDoc(xml: string): { doc: Document; root: Element } {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  let work = xml
+  const m = /<diagram[^>]*>([\s\S]*?)<\/diagram>/i.exec(work)
+  if (m && /<mxGraphModel[\s>]/i.test(m[1])) work = m[1].trim()
+  const doc = new DOMParser().parseFromString(work, 'application/xml')
   if (doc.querySelector('parsererror')) throw new Error('invalid XML')
   const root = doc.getElementsByTagName('mxGraphModel')[0]?.getElementsByTagName('root')[0]
     ?? doc.getElementsByTagName('root')[0]
@@ -195,6 +200,30 @@ function drawioCells(root: Element): Element[] {
     const id = c.getAttribute('id') ?? ''
     return !!id && id !== '0' && id !== '1'
   })
+}
+
+/** 规范化 drawio XML（v7.12）：<mxfile><diagram>base64(raw-deflate)</diagram>
+ * 压缩形态解压为明文 mxGraphModel（fflate）；明文嵌套由 parseDrawioDoc 解包。
+ * 工具读取统一先过本函数——read_diagram/list_cells 不再因压缩形态报
+ * missing mxGraphModel/root。失败原样返回（解析层给明确错误）。 */
+export async function normalizeDrawioXML(xml: string): Promise<string> {
+  const work = String(xml ?? '')
+  const m = /<diagram[^>]*>([\s\S]*?)<\/diagram>/i.exec(work)
+  if (!m) return work
+  const inner = m[1].trim()
+  if (/<mxGraphModel[\s>]/i.test(inner)) return inner
+  if (inner && /^[A-Za-z0-9+/=\r\n]+$/.test(inner)) {
+    try {
+      const { inflateSync } = await import('fflate')
+      const bin = atob(inner.replace(/[\r\n]/g, ''))
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      return new TextDecoder().decode(inflateSync(bytes))
+    } catch {
+      return work
+    }
+  }
+  return work
 }
 
 /** mxCell 概要（list_cells 返回 / AI 定位用）。 */
@@ -499,7 +528,13 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   /** v7 drawio Agent 工具集：单元格级读/列/增/改/删 + 整图替换——局部修改
    *  不再需要输出整份 XML（id 定位、样式键值合并、悬空边清理）。 */
   const aiAgentTools: AIEditTool[] = useMemo(() => {
-    const currentXML = () => (xmlRef.current.trim() ? xmlRef.current : EMPTY_DRAWIO_XML)
+    /** 当前 XML（v7.12：先规范化——压缩 mxfile 解压为明文并回写 xmlRef）。 */
+    const currentXML = async () => {
+      const raw = xmlRef.current.trim() ? xmlRef.current : EMPTY_DRAWIO_XML
+      const normalized = await normalizeDrawioXML(raw)
+      if (normalized !== raw) xmlRef.current = normalized
+      return normalized
+    }
     /** 改动应用：返回 string=失败原因，void=成功（已 load+export 落版本）。 */
     const apply = (doc: Document): Promise<string | void> => applyDiagramXML(new XMLSerializer().serializeToString(doc))
     return [
@@ -508,7 +543,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         desc: '{} → 读当前图表完整 XML（超 12000 字截断；小图优先用本工具掌握全貌）。',
         label: () => '读取图表 XML',
         exec: async () => {
-          const xml = currentXML()
+          const xml = await currentXML()
           return { ok: true, cells: drawioCells(parseDrawioDoc(xml).root).length, xml: xml.slice(0, 12000), truncated: xml.length > 12000 }
         },
       },
@@ -517,7 +552,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         desc: '{} → 单元格清单（id/类型/文本/坐标尺寸/连线端点/样式摘要，最多 150 个）——修改前先读，拿单元格 id。',
         label: () => '列出单元格',
         exec: async () => {
-          const { root } = parseDrawioDoc(currentXML())
+          const { root } = parseDrawioDoc(await currentXML())
           return { ok: true, cells: drawioCells(root).slice(0, 150).map(drawioCellInfo) }
         },
       },
@@ -537,7 +572,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
           }
           let doc: Document, root: Element
           try {
-            ({ doc, root } = parseDrawioDoc(currentXML()))
+            ({ doc, root } = parseDrawioDoc(await currentXML()))
           } catch (e) {
             return { ok: false, error: `当前图表解析失败：${e instanceof Error ? e.message : String(e)}` }
           }
@@ -584,7 +619,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
           if (!updates.length) return { ok: false, error: 'updates 必填：[{id, …}]' }
           let doc: Document, root: Element
           try {
-            ({ doc, root } = parseDrawioDoc(currentXML()))
+            ({ doc, root } = parseDrawioDoc(await currentXML()))
           } catch (e) {
             return { ok: false, error: `当前图表解析失败：${e instanceof Error ? e.message : String(e)}` }
           }
@@ -642,7 +677,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
           if (!ids.size) return { ok: false, error: 'ids 必填' }
           let doc: Document, root: Element
           try {
-            ({ doc, root } = parseDrawioDoc(currentXML()))
+            ({ doc, root } = parseDrawioDoc(await currentXML()))
           } catch (e) {
             return { ok: false, error: `当前图表解析失败：${e instanceof Error ? e.message : String(e)}` }
           }
@@ -804,6 +839,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
               '- 画新图/补元素：insert_cells {xml}（mxCell 片段，顶点先于引用它的边，顶点须带 mxGeometry）；一次可传整图。',
               '- 改既有元素（文本/颜色/位置/尺寸）：先 list_cells 或 read_diagram 拿 id，再 update_cells 局部更新（styleSet 键值合并改样式）——不要重画整图。',
               '- 删除元素连带引用它的边自动清理（delete_cells）；整图重排才用 replace_diagram。',
+              '- 【自检循环】每批改动后 list_cells 验证：无重叠、无悬空边、标签完整、间距均匀；发现问题先修复再继续，全部通过才 FINAL 总结。',
               '- insert_cells/replace_diagram 的 XML 规范（忽略其中「输出单个代码块」的表述）：',
               DRAWIO_XML_GUIDE,
             ].join('\n')}

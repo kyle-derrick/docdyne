@@ -10,7 +10,7 @@
 import { Button, Tooltip } from 'antd'
 import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, ShieldAlert, Trash2 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { AIChatThinking, AIToolChain, AIWebSourcesView } from './AIMessageList'
+import { AIChatThinking, AIWebSourcesView } from './AIMessageList'
 import type { AIToolCallEntry, AIWebSource } from './turns'
 import AIMarkdown from '../AIMarkdown'
 import type { AISource, AIUsage } from '../../api'
@@ -109,6 +109,22 @@ function AgentRawLine({ text }: { text: string }) {
   )
 }
 
+/** 由宿主字段合成过程阶段（v7.12：助手/查看器无显式 trace 时统一走
+ * TraceView——prologue→note、thinking→think、toolCalls→tool）。 */
+function synthStages(msg: ChatMessage): TraceStage[] | undefined {
+  if (msg.trace && msg.trace.length > 0) return msg.trace
+  const out: TraceStage[] = []
+  let key = 1
+  for (const p of msg.prologue ?? []) {
+    if (p.trim()) out.push({ key: key++, kind: 'note', text: p.trim() })
+  }
+  if (msg.thinking) out.push({ key: key++, kind: 'think', text: msg.thinking, ms: msg.thinkingMS })
+  for (const tc of msg.toolCalls ?? []) {
+    out.push({ key: key++, kind: 'tool', label: tc.label, input: tc.input, output: tc.output ?? tc.errorText, status: tc.status })
+  }
+  return out.length > 0 ? out : undefined
+}
+
 export default function ChatThread({
   zh, messages, emptyHint, emptySlot, generatingLabel,
   onCopy, onDeleteExchange, onSaveConversation, onRegenerate, onContinue, onExecutePlan,
@@ -182,19 +198,11 @@ export default function ChatThread({
             <>
               <div className="ai-avatar" aria-hidden="true">🤖</div>
               <div className="ai-bubble ai-bubble-assistant">
-                {msg.trace && msg.trace.length > 0 ? (
-                  <TraceView stages={msg.trace} running={!!msg.streaming} zh={zh} />
-                ) : (
-                  <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
-                )}
-                {/* 工具阶段前的中间叙述（「我先了解一下…」类；v7.7 分相）。 */}
-                {msg.prologue && msg.prologue.length > 0 && (
-                  <div className="ai-prologue">
-                    {msg.prologue.map((p, i) => (
-                      <div key={i} className="ai-prologue-line muted">{p}</div>
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  const stages = synthStages(msg)
+                  if (stages) return <TraceView stages={stages} running={!!msg.streaming} zh={zh} />
+                  return <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
+                })()}
                 {/* 破坏性工具对话内确认卡（v7.7 谨慎模式；参考 Cherry Studio）。 */}
                 {msg.confirmReq && (
                   <div className="ai-confirm-card" role="alertdialog" aria-label={zh ? '操作确认' : 'Action confirmation'}>
@@ -213,10 +221,8 @@ export default function ChatThread({
                     </div>
                   </div>
                 )}
-                {/* 外部工具调用链（df_* 平台文件工具 / MCP）。 */}
-                {msg.toolCalls && msg.toolCalls.length > 0 && <AIToolChain toolCalls={msg.toolCalls} zh={zh} />}
                 {msg.content ? (
-                  msg.agentStream && msg.streaming && !(msg.trace && msg.trace.length > 0) ? (
+                  msg.agentStream && msg.streaming && !synthStages(msg) ? (
                     <AgentRawLine text={msg.content} />
                   ) : msg.agentStream ? null : (
                     <AIMarkdown text={msg.content} zh={zh} streaming={msg.streaming} />
