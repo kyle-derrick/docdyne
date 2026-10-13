@@ -95,6 +95,16 @@
 - [x] 6. 富文本编辑器去类型大标题（直接文件名，单行）
 - [x] 7. 富文本宿主规范补强（rewrite 前必读/占位行逐字/插入后勿重写）
 
+## v7.9 增量（对话内上传附件，04e7d34）
+- [x] 隐藏附件空间「AI 对话附件」（spaces.hidden，migration 055）：不入
+      文件管理/空间切换器；上传复用 /uploads 管线（parent=空间根）
+- [x] GET /ai/attachment-space 确保空间（openapi 已同步）
+- [x] 生命周期：chip 移除即删文件；会话删除联动清理 files[].upload=true
+      （事件回放收集；user 回合 files 随事件持久化）
+- [x] 图片两级：vision 模型原生多模态（openai image_url dataURL /
+      anthropic base64 source，≤8 张）；非 vision 走 ai.ocr 转文字
+- [x] 浏览器全链路实测 + E2E 17/17 + 生产 migration 055 已应用
+
 ## 遗留观察项
 - 「未知工具」偶发：诊断日志已部署（5a5f978 + AgentLoop 启动日志），
   等真实复现时取控制台输出
