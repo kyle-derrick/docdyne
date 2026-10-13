@@ -15,11 +15,13 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentProps } from 'react'
 import { App as AntdApp, Button } from 'antd'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { History as HistoryIcon } from 'lucide-react'
 import { FileWithVersion, fetchFileText, getFileMeta, uploadFileVersion } from '../api'
 import ExcalidrawViewer from '../components/ExcalidrawViewer'
 import { EditorLoadError, EditorLoadErrorBoundary } from '../components/EditorLoadError'
 import type { AIEditTarget } from '../components/AIEditChat'
 import AIEditChat, { AIEditChatButton } from '../components/AIEditChat'
+import VersionHistoryModal from '../components/VersionHistoryModal'
 import type { AIEditTool, AIQuickCommand } from '../components/AIEditChat'
 import { EXCALIDRAW_JSON_GUIDE } from '../components/AIEditChat'
 import { closeEditorWithFallback, safeReturnTo } from '../editorNavigation'
@@ -326,8 +328,11 @@ export default function ExcalidrawPage({
   // AI 对话面板（AIEditChat）展开态（收起不清空会话）与头部下拉快捷指令。
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiQuick, setAiQuick] = useState<AIQuickCommand | null>(null)
-  // 编辑器重挂 key（AI 撤销回退 reload 时强制重载 initialData）。
-  const [reloadKey] = useState(0)
+  // 编辑器重挂 key（AI 撤销回退/版本回滚 reload 时强制重载 initialData）。
+  const [reloadKey, setReloadKey] = useState(0)
+  // 版本历史（v7.7）。
+  const [verHistOpen, setVerHistOpen] = useState(false)
+  const [reloadTick, setReloadTick] = useState(0)
   // 「保存并退出」流程抑制 beforeunload（v2.7 根治）：保存成功后 closeEditor
   // 会 window.close()，若此刻仍挂着 dirty 的 beforeunload 监听，浏览器弹
   // 原生「离开页面？」——保存已成功却拦退出是误报。close 前置位本标记。
@@ -370,7 +375,7 @@ export default function ExcalidrawPage({
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId])
+  }, [fileId, reloadTick])
 
   // onChange：仅写 ref（高频触发，不 setState 避免逐笔重渲染）；脏标记按
   // 序列化 JSON 与初始基线对比（serializeAsJSON 只落持久化字段，选中态、
@@ -840,6 +845,8 @@ export default function ExcalidrawPage({
             {/* AI 统一入口：完整 AIEditChat 右侧面板（applyKind=
                 excalidraw-json）：可修改模式下 AI 生成官方元素 JSON 自动转换
                 为白板原生元素追加画布（版本保护可撤销）。 */}
+            <Button size="small" icon={<HistoryIcon size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file}
+              onClick={() => setVerHistOpen(true)}>{locale === 'zh-CN' ? '历史版本' : 'History'}</Button>
             <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} kind="excalidraw-json" disabled={saving || !initial} />
             <Button size="small" disabled={saving || !initial} loading={saving} onClick={() => void save(false)}>
               {msg('save')}
@@ -927,7 +934,14 @@ export default function ExcalidrawPage({
           />
         </div>
       ))}
-    </div>
+          {verHistOpen && file && (
+        <VersionHistoryModal
+          file={file}
+          onClose={() => setVerHistOpen(false)}
+          onChanged={() => { dirtyRef.current = false; setReloadTick((t) => t + 1); setReloadKey((k) => k + 1) }}
+        />
+      )}
+</div>
   )
 }
 

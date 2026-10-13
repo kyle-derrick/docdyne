@@ -14,6 +14,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntdApp, Button } from 'antd'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { History as HistoryIcon } from 'lucide-react'
+import VersionHistoryModal from '../components/VersionHistoryModal'
 import {
   EMPTY_DRAWIO_XML,
   FileWithVersion,
@@ -258,6 +260,9 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   const viewerLang = locale === 'zh-CN' ? 'zh' : ''
 
   const [file, setFile] = useState<FileWithVersion | null>(null)
+  // 版本历史（v7.7）与回滚重载 tick。
+  const [verHistOpen, setVerHistOpen] = useState(false)
+  const [reloadTick, setReloadTick] = useState(0)
   const [editorURL, setEditorURL] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -321,7 +326,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, viewMode, locale])
+  }, [fileId, viewMode, locale, reloadTick])
 
   // 退出编辑器：显式返回打开时记录的文件页，不依赖 noopener 新窗口中不可靠的
   // history。脚本可关闭由 window.open 创建的窗口；普通标签页则确定性导航。
@@ -680,14 +685,6 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       {!viewMode && <div className="editor-head">
         <Button type="text" size="small" onClick={exitWithConfirm}>← 返回</Button>
         <h2 className="editor-title">{file?.name ?? '加载中…'}</h2>
-        {versionNo !== undefined && <span className="badge current">当前版本 v{versionNo}</span>}
-        {saving && <span className="badge uploading">保存中…</span>}
-        {/* AI 统一入口：完整 AIEditChat 右侧面板（applyKind=drawio-xml，可
-            修改模式下 AI 生成完整 drawio XML 自动替换画布并落新版本、版本
-            保护可撤销）。原「AI 生成」mermaid 小弹窗（AIDrawio）已下线。
-            与下方提示均并入顶栏同一行（不新增行挤压编辑区高度）。 */}
-        <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} kind="drawio-xml" disabled={loading || !!frameError} />
-        {!viewMode && <span className="muted drawio-save-hint">Ctrl+S 保存（不退出）</span>}
         {/* 官方 draw.io MCP 提示（顶栏行内，宽度不足省略收缩；title 悬浮看全文）。 */}
         {!frameError && aiOn && (
           <span
@@ -701,7 +698,17 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
               : 'Tip: add the official draw.io MCP to generate/preview diagrams in chat'}
           </span>
         )}
-      </div>}
+        {versionNo !== undefined && <span className="badge current">当前版本 v{versionNo}</span>}
+        {saving && <span className="badge uploading">保存中…</span>}
+        {/* AI 统一入口：完整 AIEditChat 右侧面板（applyKind=drawio-xml，可
+            修改模式下 AI 生成完整 drawio XML 自动替换画布并落新版本、版本
+            保护可撤销）。原「AI 生成」mermaid 小弹窗（AIDrawio）已下线。
+            与下方提示均并入顶栏同一行（不新增行挤压编辑区高度）。 */}
+        <Button size="small" icon={<HistoryIcon size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file}
+          onClick={() => setVerHistOpen(true)}>{locale === 'zh-CN' ? '历史版本' : 'History'}</Button>
+        <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} kind="drawio-xml" disabled={loading || !!frameError} />
+        {!viewMode && <span className="muted drawio-save-hint">Ctrl+S 保存（不退出）</span>}
+              </div>}
 
       {!viewMode && notice && !frameError && <div className="banner ok editor-hint">{notice}</div>}
       {error && !frameError && <div className="banner error">{error}</div>}
@@ -778,7 +785,14 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
           />
         </div>
       ))}
-    </div>
+          {verHistOpen && file && (
+        <VersionHistoryModal
+          file={file}
+          onClose={() => setVerHistOpen(false)}
+          onChanged={() => { dirtyRef.current = false; setReloadTick((t) => t + 1) }}
+        />
+      )}
+</div>
   )
 }
 

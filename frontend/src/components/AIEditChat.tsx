@@ -111,17 +111,27 @@ export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'richtext-
  * 双语 intro 仍按现有 locale 机制（见 send()）。仅增强提示词，不影响
  * extractDrawioXML/应用逻辑。导出供宿主页（DrawioPage Agent 工具循环）
  * 复用作 insert_cells/replace_diagram 载荷格式规范。 */
-export const DRAWIO_XML_GUIDE = `drawio XML quick reference:
-- Structure: prefer the simplified form <mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>...cells...</root></mxGraphModel> (drawio auto-wraps mxfile/diagram; a full <mxfile>...</mxfile> is also accepted).
-- Node (shape): <mxCell id="2" value="Label" style="..." vertex="1" parent="1"><mxGeometry x="40" y="40" width="160" height="60" as="geometry"/></mxCell>.
-- Edge (connector): <mxCell id="5" value="Yes" style="..." edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell>; define endpoint nodes first, then reference their ids via source/target.
-- Common styles: rounded=1;whiteSpace=wrap;html=1; (rounded box) / ellipse;whiteSpace=wrap;html=1; (oval) / rhombus;whiteSpace=wrap;html=1; (decision diamond) / text;html=1; (plain label); edges default to edgeStyle=orthogonalEdgeStyle;rounded=0;. Tune with fillColor / strokeColor / fontSize / fontStyle=1 (bold).
-- Layout: pick left-to-right or top-down flow; keep node gaps >=40; main-flow step 160-200, branch step 100 on the cross axis; put branch labels ("Yes"/"No") in the edge value.
-- ids: incrementing numeric strings "2","3",...; keep id="0" (root) and id="1" (default parent) fixed; every cell gets parent="1" unless grouping.
-- Edge integrity (mandatory): source/target MUST reference ids of cells defined in the SAME model, preferably defined BEFORE the edge; never invent or forward-reference missing ids; an edge with no valid endpoints must be omitted. Every vertex MUST carry an explicit <mxGeometry> with concrete x/y/width/height — never rely on defaults.
-- Overlap (mandatory): never let two node boxes intersect; align on a grid (x/y multiples of 20), keep >=40px spacing in both axes.
-- Editing an existing diagram: keep the ids of unchanged elements and only modify their style/geometry/value, or add/remove cells; never renumber the whole model.
-- The XML must be well-formed; escape < > & " ' inside value attributes.`
+export const DRAWIO_XML_GUIDE = `drawio diagram skill (methodology + XML reference). Diagrams must ARGUE, not DISPLAY: if you removed all text, the structure alone should still communicate the concept.
+
+DESIGN METHOD (before writing XML):
+1. Map each concept to a visual pattern mirroring its behavior — fan-out (one source, radial edges to many), convergence (many into one), tree (grouping containers or plain hierarchy), cycle/loop (edge returning to start, label "retry/feedback"), timeline (horizontal spine with event nodes), swimlanes (parent-grouped rows per actor/phase), side-by-side comparison. Each major concept uses a DIFFERENT pattern — never a uniform grid of equal boxes.
+2. Shape semantics: decision=rhombus, process=rounded rect, start/end=ellipse, note/annotation=text cell (no box), container=plain rect with dashed=1 and verticalAlign=top for section grouping ONLY when grouping carries meaning.
+3. Concrete content for technical/real systems: real step/event/API names in values, edge labels carry branch conditions ("Yes"/"No"/"retry"), never generic "Process A".
+4. Hierarchy: the focal node is the largest with the most whitespace around it; every relationship has an edge — position alone shows nothing.
+5. Build large diagrams section by section (insert_cells per section, cross-section edges last) and re-read (read_diagram/list_cells) to verify before continuing.
+6. Edge routing: orthogonal (default) follows flow direction; avoid edges crossing nodes — leave lane gaps; branch step 100 on the cross axis.
+
+XML REFERENCE:
+- Structure: simplified form <mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>...cells...</root></mxGraphModel> (full <mxfile> also accepted).
+- Node: <mxCell id="2" value="Label" style="..." vertex="1" parent="1"><mxGeometry x="40" y="40" width="160" height="60" as="geometry"/></mxCell>.
+- Edge: <mxCell id="5" value="Yes" style="..." edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell>; define endpoint nodes first.
+- Styles: rounded=1;whiteSpace=wrap;html=1; (rounded box) / ellipse;whiteSpace=wrap;html=1; (oval) / rhombus;whiteSpace=wrap;html=1; (decision) / text;html=1; (plain label) / dashed=1 (container/note); edges default edgeStyle=orthogonalEdgeStyle;rounded=0; tune fillColor/strokeColor/fontSize/fontStyle=1 (bold).
+- Semantic colors: fillColor=#dae8fc;strokeColor=#6c8ebf (blue), #d5e8d4;#82b366 (green), #ffe6cc;#d79b00 (orange), #f8cecc;#b85450 (red/pink) to group related nodes; keep neutral edges.
+- Layout: ONE flow direction (left-right or top-down); node gaps >=40; main-flow step 160-200; 20px grid alignment.
+- ids: incrementing numeric strings "2","3",...; keep id="0"/"1" fixed; parent="1" unless grouping.
+- Hard rules: source/target MUST reference ids defined in the SAME model, defined BEFORE the edge; never invent ids; every vertex carries explicit <mxGeometry> with concrete x/y/width/height; no two node boxes intersect.
+- Editing existing diagrams: keep ids of unchanged cells; modify style/geometry/value only, or add/remove cells; never renumber the whole model.
+- XML must be well-formed; escape < > & " ' inside value attributes.`
 
 /** excalidraw-json 通道 system 指令附加的元素 JSON 生成规范（以本地
  * @excalidraw/excalidraw 0.17.6 的 types/element/types.d.ts 字段定义与
@@ -130,24 +140,27 @@ export const DRAWIO_XML_GUIDE = `drawio XML quick reference:
  * 自动补全 seed/versionNonce/文本量宽/绑定端点等派生字段）。技术规范
  * 统一英文（同 DRAWIO_XML_GUIDE 约定）。导出供宿主页（ExcalidrawPage
  * Agent 工具循环）复用作 insert_elements 载荷格式规范。 */
-export const EXCALIDRAW_JSON_GUIDE = `Excalidraw elements JSON quick reference (element skeletons):
-- Output ONE \`\`\`excalidraw-json fenced block containing a JSON ARRAY of element objects; no text outside the fence.
-- Every element object MUST have "type" and numeric "x"/"y". Give each element a short unique string "id" (e.g. "n1","n2") so arrows can reference nodes; other elements may reference an id via start/end.
-- Shape types (all accept optional strokeColor/backgroundColor/fillStyle/roughness/strokeWidth/strokeStyle/opacity/roundness):
-  - {"type":"rectangle","id","x","y","width","height","label":{"text":"Centered label","fontSize":20}} — rounded box; label auto-centers inside.
-  - {"type":"diamond",...same fields} — decision diamond; use bigger width/height for long labels.
-  - {"type":"ellipse",...same fields} — oval/stadium node.
-  - {"type":"text","id","x","y","text":"Standalone note","fontSize":20,"strokeColor":"#868e96"} — plain label; do NOT set width/height (auto-measured).
-- Connector types:
-  - {"type":"arrow","id","x","y","start":{"id":"n1"},"end":{"id":"n2"},"strokeColor":"#1e1e1e","strokeWidth":2,"label":{"text":"Yes"}} — bind endpoints to node ids ({"id":"n1"} or plain "n1"); x/y and points are computed automatically from bindings, do not hand-calculate them. Endpoints may reference ids in the SAME array OR existing canvas ids from read_scene.
-  - {"type":"line","id","x","y","points":[[0,0],[120,0]]} — plain polyline with points RELATIVE to x/y, for underlines/separators only.
-- Field conventions: colors as hex strings (default strokeColor "#1e1e1e", backgroundColor "transparent"); fillStyle "solid"|"hachure"; roughness 0(architect)/1(default)/2; strokeWidth 2 default; roundness {"type":3} for rounded rectangles; font sizes 16-28.
-- Do NOT output seed/version/versionNonce/isDeleted/updated/groupIds/boundElements — they are generated automatically.
-- Layout: place the whole diagram inside a 1200x800 region starting at (0,0); pick one flow direction (top-down or left-right) and keep >=40px gaps between elements; process node 160-200 wide and 60-80 tall; align nodes on a grid; add a standalone {"type":"text"} title at the top-left of the group.
-- Binding integrity (mandatory): arrow start/end MUST reference ids of elements present in the SAME array, declared BEFORE the arrow; never invent ids; an arrow with no valid bound endpoint must be omitted. Shapes MUST carry explicit width/height — never rely on defaults.
-- Overlap (mandatory): no two shape bounding boxes may intersect; align on a 20px grid; if unsure, spread elements generously — the renderer nudges overlaps apart, so precise non-overlap layout is expected from you.
-- Accent sparingly: strokeColor+backgroundColor pairs like #1971c2/#a5d8ff (blue), #2f9e44/#d3f9d8 (green), #e8590c/#ffe8cc (orange), #c2255c/#ffdeeb (pink) to group related nodes; keep connectors neutral #1e1e1e or #868e96.
-- The output must be strictly valid JSON (double quotes, no trailing commas, no comments).`
+export const EXCALIDRAW_JSON_GUIDE = `Excalidraw diagram skill (methodology + element skeletons). Diagrams must ARGUE, not DISPLAY: if you removed all text, the structure alone should still communicate the concept.
+
+DESIGN METHOD (do this before writing elements):
+1. Map each concept to a visual pattern that mirrors its behavior — fan-out (one spawns many, radial arrows), convergence (many merge into one), tree (hierarchy: line trunk + free-floating text, no boxes), cycle (loop with arrow returning to start), timeline (line + small 10-20px ellipse dots + free-floating labels beside each), assembly line (before -> [process] -> after), side-by-side comparison, cloud (overlapping ellipses for abstract state). Each major concept uses a DIFFERENT pattern — never a uniform grid of equal boxes.
+2. Shape semantics: decision=diamond, process=rectangle, start/end/trigger/result=ellipse, markers=small dots, labels/annotations=FREE-FLOATING text (no container). Default to no container — keep <30% of text inside boxes; typography (fontSize 28 titles / 20 subtitles / 16 details + color) creates hierarchy by itself.
+3. Hierarchy through scale + whitespace: hero element ~300x150 with the most empty space around it; primary 180-90; secondary 120x60. Every relationship must have an arrow or line — position alone shows nothing.
+4. Depth: for technical/real systems use CONCRETE content — real event/step/API names and short example snippets as small text elements, not generic "Input/Process/Output" placeholders. For abstract mental models, simple shapes are fine.
+5. Build large diagrams SECTION BY SECTION (multiple tool calls): section 1 = entry/summary flow, then one section per phase (own nodes + internal arrows), cross-section arrows last via bindings. Never try to one-shot a comprehensive diagram.
+6. After each section, re-read the canvas (read_scene) and fix overlaps/clipping/arrow targets before continuing — render-validate loop, 2-3 passes are normal.
+
+ELEMENT SKELETONS (convertToExcalidrawElements semantics; derived fields auto-filled):
+- Every element MUST have "type" and numeric "x"/"y"; give short unique string "id" ("n1","n2"...) for arrow references.
+- {"type":"rectangle","id","x","y","width","height","label":{"text":"...","fontSize":20}} — rounded box, label auto-centers; same fields for "diamond" (decision; bigger for long labels) and "ellipse" (start/end/stadium).
+- {"type":"text","id","x","y","text":"Standalone note","fontSize":20,"strokeColor":"#868e96"} — free-floating label; do NOT set width/height.
+- {"type":"arrow","id","x","y","start":{"id":"n1"},"end":{"id":"n2"},"label":{"text":"Yes"}} — bind endpoints to node ids ({"id":"n1"} or plain "n1"); x/y/points computed automatically from bindings, never hand-calculate. Endpoints may reference ids in the SAME array OR existing canvas ids from read_scene.
+- {"type":"line","id","x","y","points":[[0,0],[120,0]]} — plain polyline with points RELATIVE to x/y: underlines/separators/timeline spines/tree branches.
+- Conventions: strokeColor default "#1e1e1e"; semantic pairs stroke+fill #1971c2/#a5d8ff (blue), #2f9e44/#d3f9d8 (green), #e8590c/#ffe8cc (orange), #c2255c/#ffdeeb (pink) to group related nodes; connectors neutral #1e1e1e/#868e96. fillStyle "solid"|"hachure". roughness 0 (clean/modern default) | 1 (hand-drawn). strokeWidth 1 thin lines/dividers, 2 standard, 3 emphasis sparingly. fontSize 16-28. roundness {"type":3} for rounded rects.
+- Do NOT output seed/version/versionNonce/isDeleted/updated/groupIds/boundElements — auto-generated.
+- Layout: whole diagram inside 1200x800 from (0,0); ONE flow direction (top-down or left-right); >=40px gaps; 20px grid alignment; process nodes 160-200 wide, 60-80 tall; standalone title text at top-left.
+- Hard rules: arrow start/end MUST reference ids declared BEFORE the arrow (same array or existing canvas); never invent ids; a shape MUST carry explicit width/height; no two shape bounding boxes may intersect — spread generously rather than overlap.
+- Output strictly valid JSON (double quotes, no trailing commas, no comments).`
 
 export type AIQuickCommand =
   | { kind: 'send'; instruction: string; editMode: boolean }
@@ -1094,7 +1107,8 @@ ${planText}` },
       '用只读工具探查，FINAL 输出结构化摘要（发现清单 + 关键事实 + 相关位置/数值），不修改任何内容。',
       '可用工具：',
       ...readonlyTools.map((t) => `- ${t.name}：${t.desc}`),
-      '输出格式（硬性）：每轮恰好一行 TOOL_CALL {...}，或 FINAL 开头的摘要。',
+      '只能调用上方列出的工具；df_*（df_list_dir/df_read_file 等）是全局助手的平台文件工具，此处不可用，不要尝试。',
+      '输出格式（硬性）：每轮恰好一行 TOOL_CALL {...}；探查完成（或无更多可查）时必须以 FINAL 开头输出摘要，不要以 TOOL_CALL 行收尾。',
     ].join(String.fromCharCode(10))
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: goal }]
     let failStreak = 0
@@ -1121,7 +1135,7 @@ ${planText}` },
           if (++failStreak >= 4) return { ok: false, error: `子任务连败熔断：${parsed.call.tool}` }
         } else { failStreak = 1; lastFailSig = sig }
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify(parsed.call)}` })
-        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(r).slice(0, 3000)}` })
+        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(r).slice(0, 15000)}` })
       }
       return { ok: false, error: `子任务达预算（${maxRounds} 轮）未出摘要` }
     } catch (err) {
@@ -1322,7 +1336,7 @@ ${planText}` },
           lastFailSig = sig
         }
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify({ tool, args })}` })
-        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 3000)}` })
+        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 15000)}` })
       }
       if (finalText) {
         patchLastTurn(asstTurnId, () => ({

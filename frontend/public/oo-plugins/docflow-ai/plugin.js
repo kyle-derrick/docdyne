@@ -1813,8 +1813,22 @@
     reg = true;
     window.Asc.plugin.init = function () {
       editorType = readEditorKind();
-      setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.6');
-      void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () { setHint('初始化失败'); });
+      // v7.7：初始化失败自动重试两次（宿主页 cookie/CSRF 轮换时序），仍失败
+      // 给出可操作提示（此前一律「初始化失败」无从下手）。
+      var attempt = function (n) {
+        return refresh().then(function () { return loadModels().then(renderModels); })
+          .then(function () { setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.7'); })
+          .catch(function (e) {
+            console.warn('[docflow-ai] init failed:', e && e.status, 'retry left:', n);
+            if (n > 0) {
+              setHint('初始化重试中…');
+              window.setTimeout(function () { void attempt(n - 1); }, 1500);
+              return;
+            }
+            setHint('初始化失败（登录态可能过期）——刷新文档页后重试');
+          });
+      };
+      void attempt(2);
     };
     window.Asc.plugin.onMethodReturn = function () {};
     window.Asc.plugin.button = function () {};

@@ -7,7 +7,9 @@ import { App as AntdApp, Button } from 'antd'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { marked } from 'marked'
 import { fetchFileText, getFileMeta, listDocumentComments, searchFiles, uploadFileVersion } from '../api'
-import type { DocumentComment } from '../api'
+import type { DocumentComment, FileItem } from '../api'
+import { History } from 'lucide-react'
+import VersionHistoryModal from '../components/VersionHistoryModal'
 import type { AIEditTarget } from '../components/AIEditChat'
 import AIEditChat, { AIEditChatButton } from '../components/AIEditChat'
 import type { AIEditTool } from '../components/AIEditChat'
@@ -207,6 +209,8 @@ export default function DfdocEditorPage({
     && !!collabState.selfConnId
     && collabState.leaderConnId === collabState.selfConnId
 
+  // 回滚/新版本后的内容重载 tick（v7.7）。
+  const [reloadTick, setReloadTick] = useState(0)
   useEffect(() => {
     let alive = true
     setLoading(true)
@@ -229,7 +233,7 @@ export default function DfdocEditorPage({
       })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId])
+  }, [fileId, reloadTick])
 
   const save = useCallback(async () => {
     if (saving) return
@@ -315,7 +319,9 @@ export default function DfdocEditorPage({
   // 头部下拉快捷指令（打开面板后由 AIEditChat 消费一次）。
   const [aiQuick, setAiQuick] = useState<AIQuickCommand | null>(null)
   // 撤销回退后的编辑器重挂 key（Tiptap initialJSON 仅挂载时生效）。
-  const [editorReloadKey] = useState(0)
+  const [editorReloadKey, setEditorReloadKey] = useState(0)
+  // 版本历史弹层（v7.7：编辑页内回滚/对比/上传新版本）。
+  const [verHistOpen, setVerHistOpen] = useState(false)
 
   /** 选区读取：Tiptap state.selection（空选区回退全文）；嵌入块/图片/文件
    * 卡片经 docToAIText 序列化为占位行带出（AI 可见 + 提示词约束保留）。 */
@@ -335,7 +341,7 @@ export default function DfdocEditorPage({
       if (!ed) return
       // 文本级替换后整文重建：嵌入占位行原样保留（docToAIText 序列化含占位，
       // next 若未破坏占位行即无损；aiMarkdownToHTML 不识别占位 → 交回占位还原）。
-      ed.chain().focus().insertContentAt({ from: 0, to: ed.state.doc.content.size }, aiMarkdownToHTML(next)).run()
+      ed.chain().insertContentAt({ from: 0, to: ed.state.doc.content.size }, aiMarkdownToHTML(next)).run()
       markDirty()
     }
     /** 文档位置 → 顶层块范围（set_block_type/delete_block 的块定位）。 */
@@ -366,7 +372,20 @@ export default function DfdocEditorPage({
         name: 'read_document',
         desc: '{} → 读当前文档全文（嵌入卡片序列化为 [DocFlow-Embed/Image/File] 占位行——受保护内容，改写时必须原样保留）。',
         label: () => '读取全文',
-        exec: async () => ({ ok: true, data: { text: docText().slice(0, 20000) } }),
+        exec: async () => {
+          const full = docText()
+          const LIMIT = 40000
+          const truncated = full.length > LIMIT
+          return {
+            ok: true,
+            data: {
+              text: truncated ? full.slice(0, LIMIT) + `
+…（已截断：全文共 ${full.length} 字，超出 ${full.length - LIMIT} 字未显示）` : full,
+              length: full.length,
+              truncated,
+            },
+          }
+        },
       },
       {
         name: 'read_selection',
@@ -423,11 +442,11 @@ export default function DfdocEditorPage({
           if (!ed) return { ok: false, error: '编辑器未就绪' }
           const { from, to } = ed.state.selection
           if (a.at === 'selection' && to > from) {
-            ed.chain().focus().insertContentAt({ from, to }, aiMarkdownToHTML(md)).run()
+            ed.chain().insertContentAt({ from, to }, aiMarkdownToHTML(md)).run()
           } else if (a.at === 'cursor') {
-            ed.chain().focus().insertContentAt(from, aiMarkdownToHTML(md)).run()
+            ed.chain().insertContentAt(from, aiMarkdownToHTML(md)).run()
           } else {
-            ed.chain().focus().insertContentAt(ed.state.doc.content.size, aiMarkdownToHTML(md)).run()
+            ed.chain().insertContentAt(ed.state.doc.content.size, aiMarkdownToHTML(md)).run()
           }
           markDirty()
           return { ok: true }
@@ -508,7 +527,7 @@ export default function DfdocEditorPage({
           const ed = tiptapRef.current
           if (!ed) return { ok: false, error: '编辑器未就绪' }
           const pos = a.at === 'cursor' ? ed.state.selection.from : ed.state.doc.content.size
-          ed.chain().focus().insertContentAt(pos, html).run()
+          ed.chain().insertContentAt(pos, html).run()
           markDirty()
           return { ok: true }
         },
@@ -523,7 +542,7 @@ export default function DfdocEditorPage({
           const at = a.at === 'cursor' ? ed.state.selection.from : ed.state.doc.content.size
           const url = String(a.url ?? '')
           if (url) {
-            ed.chain().focus().insertContentAt(at, { type: 'image', attrs: { src: url } }).run()
+            ed.chain().insertContentAt(at, { type: 'image', attrs: { src: url } }).run()
             markDirty()
             return { ok: true }
           }
@@ -534,7 +553,7 @@ export default function DfdocEditorPage({
           if (!/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(hit.name)) {
             return { ok: false, error: `${hit.name} 不是图片文件（可用 insert_embed 嵌入其它类型）` }
           }
-          ed.chain().focus().insertContentAt(at, { type: 'docflowImage', attrs: { fileId: hit.id, title: hit.name, width: 100 } }).run()
+          ed.chain().insertContentAt(at, { type: 'docflowImage', attrs: { fileId: hit.id, title: hit.name, width: 100 } }).run()
           markDirty()
           return { ok: true, inserted: hit.name }
         },
@@ -558,7 +577,7 @@ export default function DfdocEditorPage({
                 ? 'office'
                 : 'file'
           const at = a.at === 'cursor' ? ed.state.selection.from : ed.state.doc.content.size
-          ed.chain().focus().insertContentAt(at, { type: 'docflowEmbed', attrs: { kind, fileId: hit.id, title: hit.name } }).run()
+          ed.chain().insertContentAt(at, { type: 'docflowEmbed', attrs: { kind, fileId: hit.id, title: hit.name } }).run()
           markDirty()
           return { ok: true, kind, inserted: hit.name }
         },
@@ -574,7 +593,7 @@ export default function DfdocEditorPage({
           if (!ed || !text || !url) return { ok: false, error: 'text/url 必填' }
           const at = a.at === 'cursor' ? ed.state.selection.from : ed.state.doc.content.size
           const safe = url.replace(/"/g, '%22')
-          ed.chain().focus().insertContentAt(at, `<a href="${safe}">${text.replace(/</g, '&lt;')}</a>`).run()
+          ed.chain().insertContentAt(at, `<a href="${safe}">${text.replace(/</g, '&lt;')}</a>`).run()
           markDirty()
           return { ok: true }
         },
@@ -670,10 +689,10 @@ export default function DfdocEditorPage({
               <div className="text-editor-back">
                 <Button type="text" size="small" onClick={exitWithConfirm}>{msg('back')}</Button>
               </div>
+              {/* v7.7：去掉类型大标题（省一行）——直接显示文件名 + 状态徽标。 */}
               <div>
-                <h1>{locale === 'zh-CN' ? '富文本文档' : 'Rich text document'}</h1>
+                <h1 className="text-editor-file-title">{name}</h1>
                 <div className="muted">
-                  {name}
                   {dirty && <span className="badge uploading text-editor-dirty-badge">{locale === 'zh-CN' ? '未保存' : 'Unsaved'}</span>}
                   {collabLeader && dirty && <span className="badge uploading text-editor-dirty-badge">{locale === 'zh-CN' ? '协作自动保存' : 'Autosaving'}</span>}
                 </div>
@@ -683,6 +702,10 @@ export default function DfdocEditorPage({
               {/* AI 对话（主点击开面板；下拉快捷指令引导走编辑指令模式：
                   润色/重构全文/修正错别字/摘要/自定义，打开面板自动发送）。 */}
               <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} kind="richtext-patch" disabled={saving} />
+              <Button size="small" icon={<History size={14} strokeWidth={2} aria-hidden="true" />} disabled={loading}
+                onClick={() => setVerHistOpen(true)}>
+                {locale === 'zh-CN' ? '历史版本' : 'History'}
+              </Button>
               <Button
                 type="primary"
                 size="small"
@@ -735,12 +758,26 @@ export default function DfdocEditorPage({
           agentSystemExtra={[
             '富文本宿主约束：',
             '- 定位统一用 find（10-80 字、取自单一段落内的唯一原文片段，逐字复制）。',
-            '- [DocFlow-Embed kind="…" fileId="…" title="…"] / [DocFlow-Image …] / [DocFlow-File …] 占位行是嵌入的图表/白板/图片/文件块，受保护：不得作为 find、不得改写其文本；整篇重写（write_document）时必须逐字保留。',
+            '- [DocFlow-Embed kind="…" fileId="…" title="…"] / [DocFlow-Image …] / [DocFlow-File …] 占位行是嵌入的图表/白板/图片/文件块，受保护：不得作为 find、不得改写其文本；整篇重写（write_document）时必须把它们逐字放入 md（先 read_document 抄录占位行再写回）。',
+            '- 整篇重写是最后手段（改动覆盖大半文档才用）：rewrite 前必须 read_document；若 read 返回 truncated=true，用 search_text 补齐尾部再写，切勿凭残文重建。',
             '- 行内样式用 format_text，段落级样式（标题/列表/代码块/引用）用 set_block_type——不要用整段替换实现格式调整。',
-            '- 插入图片优先 insert_image {name}（平台文件）；组合其它文档用 insert_embed {name}（drawio/白板/Office/文件卡片）。',
+            '- 插入图片优先 insert_image {name}（平台文件）；组合其它文档用 insert_embed {name}（drawio/白板/Office/文件卡片），at:"end" 追加到文末；插入后不要整篇重写（会把刚插的块抹掉）——继续用局部工具。',
           ].join('\n')}
         />
       </div>
+      {verHistOpen && (
+        <VersionHistoryModal
+          file={{ id: fileId, name } as unknown as FileItem}
+          onClose={() => setVerHistOpen(false)}
+          onChanged={() => {
+            // 回滚/新版本：重拉内容并重挂编辑器（dirty 清零防误存覆盖）。
+            dirtyRef.current = false
+            setDirty(false)
+            setReloadTick((t) => t + 1)
+            setEditorReloadKey((k) => k + 1)
+          }}
+        />
+      )}
     </main>
   )
 }

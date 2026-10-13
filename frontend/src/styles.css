@@ -2785,6 +2785,16 @@ svg.lucide {
   margin: 0 0 4px;
   font-size: 20px;
 }
+/* v7.7：文件名标题（替代类型大标题 + 副行文件名的两行结构，紧凑单行）。 */
+.text-editor-head h1.text-editor-file-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .markdown-preview {
   flex: 1;

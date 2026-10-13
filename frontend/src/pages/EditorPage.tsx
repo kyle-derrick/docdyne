@@ -13,6 +13,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button } from 'antd'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import VersionHistoryModal from '../components/VersionHistoryModal'
+import { History } from 'lucide-react'
 import {
   ApiError,
   FileWithVersion,
@@ -106,6 +108,8 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   const colorMode = useColorMode()
 
   const [file, setFile] = useState<FileWithVersion | null>(null)
+  // 版本历史（v7.7：编辑页内回滚/对比/上传新版本）。
+  const [verHistOpen, setVerHistOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   /** 页面级加载失败（EditorLoadError 错误卡）：api.js 拉取失败 / DocsAPI
@@ -354,6 +358,8 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         <h2 className="editor-title">{file?.name ?? '加载中…'}</h2>
         {versionNo !== undefined && <span className="badge current">当前版本 v{versionNo}</span>}
         <Button size="small" onClick={() => void refreshVersion('版本已刷新')}>刷新版本</Button>
+        <Button size="small" icon={<History size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file}
+          onClick={() => setVerHistOpen(true)}>历史版本</Button>
         {/* 保存并退出（v2.6）：触发 DS 立即保存 + 返回文件页。 */}
         <Button size="small" type="primary" onClick={saveAndExit}>保存并退出</Button>
       </div>}
@@ -389,6 +395,13 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
           编辑器内 DocFlow AI 插件面板（见上方 plugins 注入，从插件图标展开），
           页内不再渲染外部 AI 面板。 */}
       {!error && !loadError && <div className="editor-shell" ref={shellRef} />}
-    </div>
+          {verHistOpen && file && (
+        <VersionHistoryModal
+          file={file}
+          onClose={() => setVerHistOpen(false)}
+          onChanged={() => { void refreshVersion('已按历史版本操作刷新') }}
+        />
+      )}
+</div>
   )
 }
