@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,6 +121,34 @@ type ChatRequest struct {
 	OnThinking func(string)
 	// Stream true 时经 onDelta 流式回调增量。
 	Stream bool
+	// Images 原生多模态图片输入（v7.9：视觉模型直接看图——对话上传的图片
+	// 附件；provider 层并入最后一条 user 消息：openai 兼容 image_url
+	// dataURL / anthropic base64 source 块。非视觉模型在 HTTP 层走 OCR
+	// 转文字，不会进入本字段）。
+	Images []InputImage
+}
+
+// InputImage 一张随请求内联的图片（Mime 如 image/png；Data 原始字节，
+// provider 层负责 base64）。
+type InputImage struct {
+	Mime string
+	Data []byte
+}
+
+// ModelSupportsVision 判定所选 Provider/模型是否具备视觉能力（providerID
+// 空 = 默认 Provider；模型未标注按 false）。HTTP 层据此决定图片附件走
+// 原生多模态（req.Images）还是 OCR 转文字（v7.9）。
+func (s *Service) ModelSupportsVision(providerID, modelID string) bool {
+	p, model, _, err := s.resolveChatTarget(providerID, modelID, "chat")
+	if err != nil {
+		return false
+	}
+	for _, m := range p.Models {
+		if m.ID == model {
+			return m.Capabilities.Vision
+		}
+	}
+	return false
 }
 
 // effectiveToolMaxRounds 解析本请求的工具轮次上限：显式 ToolMaxRounds > 0
@@ -447,8 +476,69 @@ func (s *Service) recordUsage(provider settings.AIProvider, model string, req Ch
 // ---------- openai_compatible ----------
 
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role string `json:"role"`
+	// Content 为 string 或多模态 parts（[]ocrVisionPart——图片输入时最后
+	// 一条 user 消息 content 变数组；v7.9）。
+	Content any `json:"content"`
+}
+
+// withOpenAIImages 把请求图片并入 msgs 最后一条 user 消息（content 变
+// 多模态 parts：text + image_url dataURL×N）。无图片或无 user 消息原样返回。
+func withOpenAIImages(msgs []openAIMessage, images []InputImage) []openAIMessage {
+	if len(images) == 0 || len(msgs) == 0 {
+		return msgs
+	}
+	idx := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return msgs
+	}
+	text, _ := msgs[idx].Content.(string)
+	parts := []ocrVisionPart{{Type: "text", Text: text}}
+	for _, img := range images {
+		parts = append(parts, ocrVisionPart{Type: "image_url", ImageURL: &ocrImageURL{
+			URL: "data:" + img.Mime + ";base64," + base64.StdEncoding.EncodeToString(img.Data),
+		}})
+	}
+	msgs[idx].Content = parts
+	return msgs
+}
+
+// withAnthropicImages 同 withOpenAIImages（anthropic 消息为 map 形态：
+// content 变 [{type:text},{type:image,source:{type:base64,...}}×N]）。
+func withAnthropicImages(msgs []map[string]any, images []InputImage) []map[string]any {
+	if len(images) == 0 || len(msgs) == 0 {
+		return msgs
+	}
+	idx := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if r, _ := msgs[i]["role"].(string); r == "user" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return msgs
+	}
+	text, _ := msgs[idx]["content"].(string)
+	blocks := []map[string]any{{"type": "text", "text": text}}
+	for _, img := range images {
+		blocks = append(blocks, map[string]any{
+			"type": "image",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": img.Mime,
+				"data":       base64.StdEncoding.EncodeToString(img.Data),
+			},
+		})
+	}
+	msgs[idx]["content"] = blocks
+	return msgs
 }
 
 // openAIToolCallDelta 为流式 delta.tool_calls 元素（index 渐进聚合；
@@ -519,6 +609,7 @@ func (s *Service) chatOpenAI(ctx context.Context, p settings.AIProvider, model s
 	for _, m := range req.Messages {
 		msgs = append(msgs, openAIMessage{Role: m.Role, Content: m.Content})
 	}
+	msgs = withOpenAIImages(msgs, req.Images)
 	body := map[string]any{
 		"model":       model,
 		"messages":    msgs,
@@ -1316,6 +1407,7 @@ func (s *Service) chatOpenAITools(ctx context.Context, p settings.AIProvider, mo
 	for _, m := range req.Messages {
 		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
 	}
+	msgs = withAnthropicImages(msgs, req.Images)
 	var res ChatResult
 	var content strings.Builder
 	emit := func(text string) {
@@ -1574,6 +1666,7 @@ func (s *Service) chatAnthropicTools(ctx context.Context, p settings.AIProvider,
 	for _, m := range req.Messages {
 		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
 	}
+	msgs = withAnthropicImages(msgs, req.Images)
 	if req.Think && maxTokens <= AnthropicThinkBudgetTokens {
 		maxTokens = AnthropicThinkBudgetTokens + 1024
 	}

@@ -1,7 +1,7 @@
 // ChatInput：统一 AI 对话输入区（阶段一 S3）。
 // 从 AIEditChat 提取——工具栏（技能包/引用/开关/模型/发送）+ textarea。
 import { Button, Dropdown, Input, Tooltip } from 'antd'
-import { Package, Paperclip, ShieldAlert } from 'lucide-react'
+import { Package, Paperclip, ShieldAlert, Upload } from 'lucide-react'
 import { CHAT_SEND_ICON, CHAT_STOP_ICON } from './icons'
 
 export interface SkillPackage {
@@ -30,8 +30,8 @@ export interface ChatInputProps {
   cautious: boolean
   onCautiousToggle: () => void
   showCautious?: boolean
-  // 引用文件
-  attachedFiles: Array<{ fileId: string; fileName: string }>
+  // 引用文件（upload=true 为对话上传附件，chip 虚线标记）
+  attachedFiles: Array<{ fileId: string; fileName: string; upload?: boolean }>
   onFileDetach: (fileId: string) => void
   // 模型选择
   modelSlot?: React.ReactNode
@@ -55,8 +55,11 @@ export default function ChatInput({
       {attachedFiles.length > 0 && (
         <div className="ai-attach-chips">
           {attachedFiles.map((f) => (
-            <span key={f.fileId} className="ai-attach-chip">
-              <Paperclip size={10} strokeWidth={2} aria-hidden="true" />
+            <span key={f.fileId} className={`ai-attach-chip${f.upload ? ' upload' : ''}`}
+              title={f.upload ? '对话附件（不入文件管理，随会话删除）' : f.fileName}>
+              {f.upload
+                ? <Upload size={10} strokeWidth={2} aria-hidden="true" />
+                : <Paperclip size={10} strokeWidth={2} aria-hidden="true" />}
               <span className="ai-attach-chip-name" title={f.fileName}>{f.fileName}</span>
               <button type="button" onClick={() => onFileDetach(f.fileId)}>×</button>
             </span>

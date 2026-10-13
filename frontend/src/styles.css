@@ -7304,6 +7304,20 @@ kbd {
   gap: 4px;
 }
 .chat-input-wrap .ai-attach-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+/* 对话上传附件 chip（v7.9：虚线边框区分引用文件；随会话删除）。 */
+.ai-attach-chip.upload { border-style: dashed; }
+/* 引用弹层的上传入口（v7.9）。 */
+.ai-attach-upload-row { display: flex; flex-direction: column; gap: 2px; }
+.ai-attach-upload {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 6px 8px;
+  border: 1px dashed var(--border); border-radius: 8px;
+  background: transparent; color: var(--text);
+  cursor: pointer; font-size: 12.5px;
+}
+.ai-attach-upload:hover { color: var(--primary); border-color: var(--primary); }
+.ai-attach-upload:disabled { opacity: .6; cursor: default; }
+.ai-attach-upload-hint { font-size: 11px; }
 /* 统一输入框（圆角边框，内含输入区+工具栏）。 */
 .chat-input-box {
   display: flex;

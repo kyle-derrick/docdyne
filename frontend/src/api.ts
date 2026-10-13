@@ -3567,6 +3567,11 @@ export async function aiDeleteConversation(id: string): Promise<void> {
   await api(`/api/v1/ai/conversations/${id}`, { method: 'DELETE' })
 }
 
+/** AI 对话附件隐藏空间（GET /ai/attachment-space；确保存在并返回上传 parent）。 */
+export async function aiGetAttachmentSpace(): Promise<{ space_id: string; root_id: string }> {
+  return api('/api/v1/ai/attachment-space')
+}
+
 // ---------- 平台 AI 设置扩展（OCR / 平台人设 / 技能模板 / 记忆编辑） ----------
 
 /** 图片 OCR 设置（GET/PUT /admin/settings/ai 的 ocr 块）。 */

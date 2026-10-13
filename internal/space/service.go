@@ -280,15 +280,67 @@ func (s *Service) CreateSpace(owner uuid.UUID, name, description string) (Space,
 	return sp, root, nil
 }
 
-// ListSpaces 返回用户可见的空间（直接成员或用户组命中）。
+// ListSpaces 返回用户可见的空间（直接成员或用户组命中；隐藏系统空间
+// ——如「AI 对话附件」——不出现在用户列表/切换器）。
 func (s *Service) ListSpaces(user uuid.UUID) ([]Space, error) {
-	return s.repo.ListForUser(user)
+	list, err := s.repo.ListForUser(user)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Space, 0, len(list))
+	for _, sp := range list {
+		if !sp.Hidden {
+			out = append(out, sp)
+		}
+	}
+	return out, nil
 }
 
 // ListSpacesDetailed 返回用户所属空间的列表条目（我的角色/成员数/存储
-// 用量，/spaces 页卡片数据）。
+// 用量，/spaces 页卡片数据；隐藏系统空间同样过滤）。
 func (s *Service) ListSpacesDetailed(user uuid.UUID) ([]SpaceInfo, error) {
-	return s.repo.ListForUserStats(user)
+	list, err := s.repo.ListForUserStats(user)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SpaceInfo, 0, len(list))
+	for _, sp := range list {
+		if !sp.Hidden {
+			out = append(out, sp)
+		}
+	}
+	return out, nil
+}
+
+// AttachmentSpaceName 隐藏附件空间的固定名称（每用户一个）。
+const AttachmentSpaceName = "AI 对话附件"
+
+// EnsureAttachmentSpace 返回用户的「AI 对话附件」隐藏空间（无则创建）：
+// AI 对话直接上传的附件文件落于此空间根目录——不在文件管理的任何用户
+// 空间中出现，随会话删除（见 HTTP 层会话删除联动清理）。
+// 系统空间不计入 max_spaces_per_user（绕过 CreateSpace 的数量校验直接建）。
+func (s *Service) EnsureAttachmentSpace(owner uuid.UUID) (Space, files.File, error) {
+	list, err := s.repo.ListForUser(owner)
+	if err != nil {
+		return Space{}, files.File{}, err
+	}
+	for _, sp := range list {
+		if sp.Hidden && sp.OwnerID == owner && sp.Name == AttachmentSpaceName {
+			root, err := s.repo.SpaceRoot(sp.ID)
+			if err != nil {
+				return Space{}, files.File{}, err
+			}
+			return sp, root, nil
+		}
+	}
+	now := s.now()
+	sp := Space{ID: uuid.New(), Name: AttachmentSpaceName, Description: "AI 对话上传的附件（随会话删除）", QuotaBytes: s.defaultQuota(), OwnerID: owner, Hidden: true, CreatedAt: now}
+	ownerMember := Member{SpaceID: sp.ID, UserID: owner, Role: RoleOwner, CreatedAt: now}
+	root := files.File{ID: uuid.New(), Name: "根目录", OwnerID: owner, SpaceID: sp.ID, Type: "folder", IsRoot: true, CreatedAt: now}
+	if err := s.repo.CreateSpaceWithRoot(sp, ownerMember, root); err != nil {
+		return Space{}, files.File{}, err
+	}
+	return sp, root, nil
 }
 
 // Get 返回空间信息（软删排除）。

@@ -5282,6 +5282,30 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /ai/attachment-space:
+    get:
+      tags: [AI]
+      operationId: aiAttachmentSpace
+      summary: 确保「AI 对话附件」隐藏空间存在并返回上传目录
+      description: >-
+        返回当前用户的隐藏附件空间（无则创建）：{space_id, root_id}。
+        对话内直接上传的附件落入该空间根目录（parent_id=root_id 走既有
+        /uploads 管线），不出现在用户可见空间列表；随会话删除（会话删除
+        时联动清理 files[].upload=true 的文件）。图片附件在对话上下文中
+        经 ai.ocr 配置的视觉模型 OCR 转文字注入。
+      responses:
+        '200':
+          description: 附件空间信息
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [space_id, root_id]
+                properties:
+                  space_id: { type: string, format: uuid }
+                  root_id: { type: string, format: uuid }
+        '503':
+          description: spaces 未配置
   /ai/conversations:
     get:
       tags: [AI]

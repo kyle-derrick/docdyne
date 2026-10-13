@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import { App as AntdApp, Drawer, Button, Input, Popconfirm, Popover, Select, Switch, Tag, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
-import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search } from 'lucide-react'
+import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search, Upload } from 'lucide-react'
 import {
   AISkillDef,
   AIUsage,
@@ -53,6 +53,8 @@ import {
   listSpaces,
   searchFiles,
   uploadFile,
+  deleteFile,
+  aiGetAttachmentSpace,
   AIMemoryItem,
 } from '../api'
 import type { ChatSkillGroup, Space } from '../api'
@@ -1018,11 +1020,12 @@ interface ChatTurn extends AIChatTurnData {
 // 跨设备一致）；localStorage docflow.ai.convos.{uid} 仅作首次迁移源
 //（服务端为空且本机有历史时一次性上迁）。
 
-/** 会话内持久化消息（仅 role/content/ts；附件/来源等展示态不入库）。 */
+/** 会话内持久化消息（role/content/ts + user 回合的引用文件 chips）。 */
 export interface AIConvoMessage {
   role: 'user' | 'assistant'
   content: string
   ts: number
+  files?: AIAttachFile[]
 }
 
 /** 历史会话条目（≤30 个，超出服务端裁最旧；单会话消息 ≤50 条）。 */
@@ -1333,7 +1336,7 @@ useEffect(() => {
       if (top && top.messages.length > 0) {
         convoIdRef.current = top.id
         setConvoId(top.id)
-        applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+        applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) })))
       }
     } catch {
       // 服务端不可达：保持空会话（不打断助手使用）。
@@ -1357,7 +1360,14 @@ useEffect(() => {
       const now = Date.now()
       const msgs: AIConvoMessage[] = turns
         .filter((x) => !x.error && x.content.trim())
-        .map((x) => ({ role: x.role, content: x.content, ts: now }))
+        .map((x) => ({
+          role: x.role,
+          content: x.content,
+          ts: now,
+          // v7.9：user 回合的引用/上传文件随事件持久化（上传附件随会话删除的
+          // 依据：files[].upload=true 的条目在会话删除时联动清理文件）。
+          ...(x.role === 'user' && x.files && x.files.length > 0 ? { files: x.files } : {}),
+        }))
       const synced = convoSyncedLenRef.current
       const persist = msgs.slice(-AI_CONVO_MSG_MAX)
       if (persist.length < synced) {
@@ -1576,7 +1586,7 @@ useEffect(() => {
     exitBatch()
     if (target.messages.length > 0) {
       convoSyncedLenRef.current = target.messages.length
-      applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+      applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) })))
       return
     }
     void aiGetConversation(id)
@@ -1585,7 +1595,7 @@ useEffect(() => {
         const msgs = (row.messages as unknown as AIConvoMessage[]).filter((m) => m && typeof m.content === 'string')
         convosRef.current = convosRef.current.map((c) => (c.id === id ? { ...c, messages: msgs } : c))
         convoSyncedLenRef.current = msgs.length
-        applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content })))
+        applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) })))
       })
       .catch(() => {
         if (convoIdRef.current === id) void message.error(zh ? '会话内容加载失败' : 'Failed to load conversation')
@@ -2017,6 +2027,44 @@ useEffect(() => {
     setAttached([])
   }
 
+  // ---- 对话内上传附件（v7.9）：隐藏「AI 对话附件」空间 + 随会话删除 ----
+  const attachRootRef = useRef<string | null>(null)
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
+  /** 上传若干文件为对话附件（隐藏空间；上传后作为 chip 随消息发送）。 */
+  const uploadAttachments = async (files: FileList | File[]) => {
+    const list = Array.from(files)
+    if (!list.length) return
+    setUploadingCount((n) => n + list.length)
+    try {
+      if (!attachRootRef.current) {
+        const sp = await aiGetAttachmentSpace()
+        attachRootRef.current = sp.root_id
+      }
+      for (const f of list) {
+        try {
+          const sess = await uploadFile(f, attachRootRef.current, () => {})
+          const fid = sess.file_id
+          if (!fid) throw new Error(zh ? '上传未完成' : 'upload incomplete')
+          void message.success(zh ? `已上传附件：${f.name}` : 'Attachment uploaded')
+          setAttached((prev) => [...prev, { fileId: fid, fileName: f.name, upload: true }])
+        } catch (err) {
+          void message.error(err instanceof Error ? err.message : (zh ? '附件上传失败' : 'Upload failed'))
+        } finally {
+          setUploadingCount((n) => Math.max(0, n - 1))
+        }
+      }
+    } catch {
+      void message.error(zh ? '附件空间不可用' : 'Attachment space unavailable')
+      setUploadingCount(0)
+    }
+  }
+  /** 移除附件 chip：上传的附件同时删除文件（隐藏空间内，无其它引用价值）。 */
+  const detachAttach = (fileId: string, upload?: boolean) => {
+    setAttached((prev) => prev.filter((x) => x.fileId !== fileId))
+    if (upload) void deleteFile(fileId).catch(() => { /* 已删/不可删忽略 */ })
+  }
+
   /** 引用文件弹层：多选切换（重复点击取消引用）。 */
   const toggleAttach = (item: { id: string; name: string }) => {
     setAttached((prev) => (prev.some((f) => f.fileId === item.id)
@@ -2098,7 +2146,7 @@ useEffect(() => {
           checkedIds={checked} onToggleChecked={toggleChecked} onDeleteChecked={deleteChecked}
           packages={[]} pkgId="" onPkgChange={() => {}} applyKind="assistant"
           cautious={false} onCautiousToggle={() => {}}
-          attachedFiles={attached} onFileDetach={(fid) => setAttached((prev) => prev.filter((x) => x.fileId !== fid))}
+          attachedFiles={attached} onFileDetach={(fid) => detachAttach(fid, attached.find((x) => x.fileId === fid)?.upload)}
           modelSlot={models.length > 0 ? (
             <AIModelSelect models={models} modelKey={modelKey} modelExplicit={modelExplicit}
               onSelect={(v) => { setModelKey(v); setModelExplicit(true) }} zh={zh} />
@@ -2301,6 +2349,18 @@ useEffect(() => {
                 }}
                 content={
                   <div className="ai-attach-pop">
+                    {/* v7.9：直接上传附件（隐藏「AI 对话附件」空间，不进文件管理，
+                        随会话删除）。 */}
+                    <div className="ai-attach-upload-row">
+                      <button type="button" className="ai-attach-upload" disabled={uploadingCount > 0}
+                        onClick={() => uploadInputRef.current?.click()}>
+                        <Upload size={13} strokeWidth={2} aria-hidden="true" />
+                        <span>{uploadingCount > 0 ? (zh ? `上传中（${uploadingCount}）…` : `Uploading (${uploadingCount})…`) : (zh ? '上传文件为本轮附件' : 'Upload as attachment')}</span>
+                      </button>
+                      <span className="muted ai-attach-upload-hint">{zh ? '不入文件管理 · 随会话删除' : 'Not in files · removed with chat'}</span>
+                    </div>
+                    <input ref={uploadInputRef} type="file" multiple style={{ display: 'none' }}
+                      onChange={(e) => { const fs = e.target.files; if (fs && fs.length) void uploadAttachments(fs); e.target.value = '' }} />
                     <Input
                       allowClear
                       size="small"

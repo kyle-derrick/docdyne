@@ -668,6 +668,7 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	api.PUT("/ai/conversations/:id", h.aiConvoUpdate)
 	api.POST("/ai/conversations/:id/events", h.aiConvoEvents)
 	api.DELETE("/ai/conversations/:id", h.aiConvoDelete)
+	api.GET("/ai/attachment-space", h.aiAttachmentSpace)
 	api.POST("/ai/chat", auth.RequireScope(auth.ScopeAIChat), h.aiChat)
 	api.POST("/ai/summarize", auth.RequireScope(auth.ScopeAIChat), h.aiSummarize)
 	// 文件版本管理：版本列表与 current_version 回滚（新版本经上传链路 file_id 写入）。

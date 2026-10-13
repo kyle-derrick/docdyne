@@ -69,8 +69,11 @@ type Space struct {
 	QuotaBytes  int64      `gorm:"not null;default:0" json:"quota_bytes"`
 	OwnerID     uuid.UUID  `gorm:"type:uuid;not null;index" json:"-"`
 	IsDefault   bool       `gorm:"not null;default:false" json:"is_default"`
-	CreatedAt   time.Time  `json:"created_at"`
-	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
+	// Hidden 系统管理空间（如「AI 对话附件」）：不出现在用户可见空间列表
+	//（/spaces 与文件页切换器）；管理端列表不受过滤（migration 055）。
+	Hidden    bool       `gorm:"not null;default:false" json:"hidden"`
+	CreatedAt time.Time  `json:"created_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // SpaceInfo 为「我的空间」列表条目（GET /spaces）：空间基础字段 + 我的

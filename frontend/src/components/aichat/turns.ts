@@ -121,10 +121,12 @@ export function normalizeWebSources(raw: unknown): AIWebSource[] {
 
 import type { AISource } from '../../api'
 
-/** 引用文件（随对话发送 fileIds；用户气泡 📎 chips 展示）。 */
+/** 引用文件（随对话发送 fileIds；用户气泡 📎 chips 展示）。
+ *  upload=true 为对话内直接上传的附件（隐藏「AI 对话附件」空间，随会话删除）。 */
 export interface AIAttachFile {
   fileId: string
   fileName: string
+  upload?: boolean
 }
 
 /** 对话消息统一展示模型（AI 助手 / 编辑器侧栏共用渲染）。 */

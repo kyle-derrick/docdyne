@@ -398,9 +398,10 @@ func (h *Handler) aiChat(c *gin.Context) {
 
 	// 上下文拼装：fileIds 抽取文本进 system；query 走 RAG-lite。
 	var sources []ai.Source
+	var inputImages []ai.InputImage
 	if req.Context != nil {
 		if len(req.Context.FileIDs) > 0 {
-			block, srcs, err := h.aiFileContextBlock(userSvc, user, req.Context.FileIDs)
+			block, srcs, imgs, err := h.aiFileContextBlock(c.Request.Context(), userSvc, user, req.Context.FileIDs, userSvc.ModelSupportsVision(provider.ID, model))
 			if err != nil {
 				aiErrorJSON(c, err)
 				return
@@ -409,6 +410,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 				messages = appendContextSystem(messages, block)
 				sources = append(sources, srcs...)
 			}
+			inputImages = imgs
 		}
 	}
 
@@ -491,7 +493,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	}
 
 	if !stream {
-		res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{ProviderID: provider.ID, Model: model, Messages: messages, Think: think, UseMCP: useMCP, PlatformTools: platformTools, ToolExecutor: toolExec, Stream: false}, nil)
+		res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{ProviderID: provider.ID, Model: model, Messages: messages, Think: think, UseMCP: useMCP, PlatformTools: platformTools, ToolExecutor: toolExec, Stream: false, Images: inputImages}, nil)
 		if err != nil {
 			auditDone(audit.StatusFailure, "", "")
 			aiErrorJSON(c, err)
@@ -535,7 +537,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	}
 	res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{
 		ProviderID: provider.ID, Model: model, Messages: messages, Think: think, UseMCP: useMCP,
-		PlatformTools: platformTools, ToolExecutor: toolExec, Stream: true, OnTool: onTool,
+		PlatformTools: platformTools, ToolExecutor: toolExec, Stream: true, OnTool: onTool, Images: inputImages,
 		// 推理思考增量（openai reasoning_content / anthropic thinking_delta）
 		// 独立流出，前端折叠思考区展示（不计入正文 delta）。
 		OnThinking: func(text string) {
@@ -571,14 +573,17 @@ func appendContextSystem(messages []ai.Message, block string) []ai.Message {
 }
 
 // aiFileContextBlock 抽取 fileIds 文本拼装上下文块（每文件截断；越权文件
-// 跳过）。返回块文本与实际纳入的来源列表。
-func (h *Handler) aiFileContextBlock(_ *ai.Service, user uuid.UUID, fileIDs []string) (string, []ai.Source, error) {
+// 跳过）。v7.9 图片附件两级支持：所选模型具备视觉能力（visionOK）→ 原生
+// 多模态（返回 images 由调用方并入 ChatRequest.Images，模型直接看图）；
+// 否则经 OCR 转文字纳入上下文（ai.ocr 配置的视觉模型）；再不行回落占位说明。
+func (h *Handler) aiFileContextBlock(ctx context.Context, svc *ai.Service, user uuid.UUID, fileIDs []string, visionOK bool) (string, []ai.Source, []ai.InputImage, error) {
 	src := aiFileContentSource{files: h.aiFiles, storage: h.storage}
 	if h.aiFiles == nil || h.storage == nil {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 	var b strings.Builder
 	var sources []ai.Source
+	var images []ai.InputImage
 	for _, raw := range fileIDs {
 		id, err := uuid.Parse(strings.TrimSpace(raw))
 		if err != nil {
@@ -589,13 +594,29 @@ func (h *Handler) aiFileContextBlock(_ *ai.Service, user uuid.UUID, fileIDs []st
 			continue // 不存在/越权/无版本：跳过（不泄露存在性）
 		}
 		text, ok := ai.ExtractText(meta.Name, meta.MimeType, data)
+		isImage := strings.HasPrefix(meta.MimeType, "image/")
+		switch {
+		case !ok && isImage && visionOK && len(data) > 0 && len(images) < 8:
+			// 原生多模态：图片直接随请求内联（≤8 张；上下文块只留说明行）。
+			images = append(images, ai.InputImage{Mime: meta.MimeType, Data: data})
+			b.WriteString(fmt.Sprintf("\n文件：%s（图片，已作为图像输入随本消息发送）\n", meta.Name))
+			sources = append(sources, ai.Source{FileID: meta.ID.String(), Name: meta.Name, URL: "/view/" + meta.ID.String()})
+			continue
+		case !ok && isImage:
+			// 非视觉模型：OCR 转文字（ai.ocr 视觉模型；未配置/失败回落占位）。
+			if _, blob, berr := h.aiFiles.CurrentVersion(user, id); berr == nil && blob.StorageKey != "" {
+				if ocrText, oerr := svc.ExtractImageText(ctx, blob.StorageKey, meta.MimeType, meta.Name, meta.Size); oerr == nil && ocrText != "" {
+					text, ok = ocrText, true
+				}
+			}
+		}
 		if !ok {
 			text = fmt.Sprintf("（%s 暂不支持全文抽取；描述：%s）", meta.Name, meta.Description)
 		}
 		b.WriteString(fmt.Sprintf("\n文件：%s（链接 /view/%s）\n%s\n", meta.Name, meta.ID.String(), ai.TruncateForPrompt(text)))
 		sources = append(sources, ai.Source{FileID: meta.ID.String(), Name: meta.Name, URL: "/view/" + meta.ID.String()})
 	}
-	return b.String(), sources, nil
+	return b.String(), sources, images, nil
 }
 
 // startAIStream 写出 SSE 响应头（进入流式后错误一律经 event: error）。

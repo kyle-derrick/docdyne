@@ -181,6 +181,8 @@ func (h *Handler) aiConvoUpdate(c *gin.Context) {
 }
 
 // aiConvoDelete DELETE /api/v1/ai/conversations/:id：删除会话（204）。
+// v7.9：删除前先回放会话，删除后联动清理其上传附件（files[].upload=true
+// 的文件，best-effort——「随会话一起删除」）。
 func (h *Handler) aiConvoDelete(c *gin.Context) {
 	if h.aiConversations == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai conversations is not configured"})
@@ -190,7 +192,7 @@ func (h *Handler) aiConvoDelete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	found, err := h.aiConversations.DeleteAIConversation(userID(c), id)
+	row, found, err := h.aiConversations.GetAIConversation(userID(c), id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to delete conversation"})
 		return
@@ -199,6 +201,12 @@ func (h *Handler) aiConvoDelete(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
+	messages := row.Messages
+	if _, err := h.aiConversations.DeleteAIConversation(userID(c), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to delete conversation"})
+		return
+	}
+	h.deleteConversationAttachments(userID(c), messages)
 	c.Status(http.StatusNoContent)
 }
 
