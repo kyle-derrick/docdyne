@@ -79,6 +79,22 @@
       显式补齐双向绑定；新增 connect {fromId,toId,label?} 直连工具；
       insert_elements 支持 at:{x,y} 锚点；重构规范=删旧箭头再 connect
 
+## v7.8 增量（用户反馈七项，e50cc32）
+- [x] 1. draw.io MCP 提示移到标题后
+- [x] 2. 四编辑页接入版本历史（VersionHistoryModal 复用：回滚/对比/上传
+      新版本；回滚后重载内容与编辑器）
+- [x] 3+4. 生成质量根因（据生产 ai_conversation_events trace 复盘）：
+      富文本 focus()+链式 insertContentAt 时序性整文替换 → 去 focus()；
+      read_document 静默截断 + TOOL_RESULT 3000 字上限 → 模型误判丢失、
+      盲目重写抹掉内嵌块（用户所见"加了又去掉"的真相）→ 截断标记 +
+      上限 15000；子代理 df_* 幻觉加固；图表指南移植
+      coleam00/excalidraw-diagram-skill 方法论（视觉模式/形状语义/容器
+      纪律/分节构建/自检），内置图表架构师技能包同步强化
+- [x] 5. 插件 v7.7（?v=18）：初始化失败自动重试 + 可操作提示；
+      "UI 未变"多为已打开 DS 会话持有旧 iframe（重开文档即新）
+- [x] 6. 富文本编辑器去类型大标题（直接文件名，单行）
+- [x] 7. 富文本宿主规范补强（rewrite 前必读/占位行逐字/插入后勿重写）
+
 ## 遗留观察项
 - 「未知工具」偶发：诊断日志已部署（5a5f978 + AgentLoop 启动日志），
   等真实复现时取控制台输出
