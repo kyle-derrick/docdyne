@@ -1305,6 +1305,14 @@ useEffect(() => {
   const loadConvos = async () => {
     try {
       let metas = await aiListConversations({ source: 'assistant' })
+      // v7.10：清理空壳会话（message_count=0 且无事件——历史部署窗口期事件
+      // 写入失败所致）：既消除「点击谁都是欢迎页（看似切换无效）」，也解除
+      // 本机历史迁移阻塞（服务端须为空才迁移 localStorage 旧历史）。
+      const shellIds = metas.filter((m) => (m.message_count ?? 0) === 0).map((m) => m.id)
+      if (shellIds.length > 0) {
+        for (const sid of shellIds) void aiDeleteConversation(sid).catch(() => { /* 静默 */ })
+        metas = metas.filter((m) => !shellIds.includes(m.id))
+      }
       // 首次迁移：服务端为空且本机有旧 localStorage 历史时一次性上迁
       //（最旧→最新创建，保持 updatedAt 顺序），随后重取列表。
       if (metas.length === 0) {

@@ -84,7 +84,11 @@ export default function TraceView({ stages, running, zh }: { stages: TraceStage[
                     ? (zh ? `已思考${st.ms ? `（${(st.ms / 1000).toFixed(1)}s）` : ''}` : `Thought${st.ms ? ` (${(st.ms / 1000).toFixed(1)}s)` : ''}`)
                     : (st.label || 'tool')}
                 </span>
-                {st.kind === 'tool' && st.status && <span className={`ai-trace-dot ${st.status}`} aria-hidden="true" />}
+                {st.kind === 'tool' && st.status && (
+                  <span className={`ai-trace-status ${st.status}`}>
+                    {st.status === 'running' ? (zh ? '执行中…' : 'Running') : st.status === 'error' ? (zh ? '失败' : 'Failed') : (zh ? '成功' : 'OK')}
+                  </span>
+                )}
               </button>
               {stageOpen(st.key) && (st.kind === 'think' ? st.text : (st.input || st.output)) && (
                 <div

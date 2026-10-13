@@ -1,17 +1,11 @@
 <!doctype html>
-<!-- DocFlow AI OnlyOffice 插件（v7.6，UI 对齐平台统一设计）：
-     - 工具套装：word 26 / excel 19 / ppt 13 个编辑器工具，全 1 基索引；
-       excel 新增 write_table 组合工具（整表写入+表头样式）。
-     - v7.6：模式收敛为头部单按钮（可修改⇄仅对话，hover 说明）；用户/回复
-       气泡下方复制操作；回复底部 tok 用量+整体耗时；移除流式 TOOL_CALL
-       原始行（过程由思考折叠区+工具卡呈现）；离底显示「回到底部」按钮。
-     - v7.2：会话记录服务端持久化（历史/切换/新建/删除，跨设备一致；
-       本机旧记录首次自动迁移）。
-     - v7.1：贴底跟随滚动（上滚不被顶回）、输入框自适应加高（2-5 行）。
-     - 编辑器类型/文件标识从同源 localStorage 读取（宿主页 EditorPage 写入）。
-     - 发送/停止按钮与平台统一（发送⇄停止切换）。
-     - 思考/工具/消息严格按时间顺序排列（无分区）。
-     - 详见 plugin.js。插件改动时必须递增下方 plugin.js?v= 破缓存。 -->
+<!-- DocFlow AI OnlyOffice 插件宿主（v8）：面板 UI 由平台 SPA 的 /office-ai
+     路由承载（与站内 AI 对话同一套 AIChatShell/AIEditChat 组件——真正统一）；
+     本页仅保留 DS 文档沙箱的工具运行时与 postMessage 桥（plugin.js v8）：
+     - iframe → /office-ai（同源，登录态/会话/技能包/谨慎模式全复用平台）
+     - oa:ready / oa:tools（工具清单+指南下发）/ oa:exec / oa:result
+     工具仍在 OnlyOffice 沙箱内经 Asc.plugin.callCommand 执行（plugin.js）。
+     插件改动时必须递增下方 plugin.js?v= 破缓存。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
@@ -20,134 +14,13 @@
 <script src="/onlyoffice/sdkjs-plugins/v1/plugins.js?v=6"
         onerror="var fb=document.createElement('script');fb.src='https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js';document.head.appendChild(fb);"></script>
 <style>
-  :root {
-    color-scheme: light;
-    --brand: #4f7cff; --brand-weak: rgba(79, 124, 255, .12); --brand-hover: #3d6ae8;
-    --bg: #f7f8fa; --surface: #fff; --fg: #1f2430; --muted: #8a8f98; --line: rgba(16, 24, 40, .12);
-    --card: #f4f5f7; --ok: #237a35; --bad: #d5382e;
-  }
-  html[data-theme-type="dark"] {
-    color-scheme: dark;
-    --bg: #131722; --surface: #161a22; --fg: #e6e8ee; --card: rgba(127,127,127,.14); --line: rgba(127,127,127,.24);
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body { margin: 0; font: 13px/1.6 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column; background: var(--surface); color: var(--fg); }
-  button { font: inherit; cursor: pointer; }
-  header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex-shrink: 0; background: var(--card); }
-  .logo { width: 20px; height: 20px; border-radius: 6px; background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
-  header .title { font-weight: 600; font-size: 13px; }
-  /* 模式开关（v7.7 对齐平台：智能/对话 双段胶囊）。 */
-  .seg2 { flex-shrink: 0; display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
-  .seg2 button { border: none; background: transparent; color: var(--muted); padding: 1px 10px; font-size: 11px; line-height: 18px; cursor: pointer; }
-  .seg2 button:hover { color: var(--brand); }
-  .seg2 button.on { color: var(--brand); background: var(--brand-weak); font-weight: 600; }
-  .iconbtn { border: none; background: transparent; color: var(--muted); border-radius: 6px; padding: 4px 6px; }
-  .iconbtn:hover { color: var(--fg); background: var(--card); }
-  .spacer { flex: 1; }
-  /* 消息流（严格时间序：思考、工具卡、气泡同层级排列） */
-  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
-  .m { max-width: 94%; padding: 8px 10px; border-radius: 10px; word-break: break-word; }
-  .m.u { align-self: flex-end; background: var(--brand); color: #fff; border-bottom-right-radius: 3px; white-space: pre-wrap; }
-  .m.a { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 3px; }
-  .m.a.err { color: var(--bad); }
-  .m.a h1, .m.a h2, .m.a h3 { margin: 6px 0 2px; font-size: 14px; }
-  .m.a code { font-family: ui-monospace, Consolas, monospace; background: rgba(127,127,127,.16); border-radius: 4px; padding: 0 4px; font-size: 12px; }
-  .m.a pre { background: rgba(127,127,127,.12); border-radius: 8px; padding: 8px; overflow-x: auto; }
-  .m.a ul { margin: 4px 0; padding-left: 18px; }
-  .m.a table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
-  .m.a th, .m.a td { border: 1px solid var(--line); padding: 3px 8px; }
-  /* 消息操作行 + 用量行（v7.6 对齐平台：复制在气泡下方；tok 用量在回复底部）。 */
-  .m-ops { display: flex; gap: 6px; margin-top: 4px; }
-  .m-ops button { border: none; background: transparent; color: var(--muted); font-size: 11px; padding: 1px 6px; border-radius: 6px; cursor: pointer; }
-  .m-ops button:hover { color: var(--brand); background: var(--card); }
-  .u-wrap { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; max-width: 94%; }
-  .usage { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  /* 回到底部（v7.6 对齐平台：离底时出现）。 */
-  #jump { position: sticky; bottom: 10px; align-self: center; margin-top: -36px; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: none; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.18); z-index: 6; }
-  #jump:hover { color: var(--brand); border-color: var(--brand); }
-  .caret { display: inline-block; width: 7px; height: 13px; background: var(--brand); vertical-align: -2px; animation: blink 1s steps(2) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-  .think { font-size: 12px; color: var(--muted); }
-  .think summary { cursor: pointer; user-select: none; }
-  .think .t { margin: 4px 0 0; padding: 4px 8px; border-left: 2px solid var(--line); white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
-  /* 工具卡（与思考同级，时间序排列） */
-  .tcall { border: 1px solid var(--line); border-radius: 10px; padding: 5px 10px; font-size: 12px; }
-  .tcall .t-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
-  .tcall .t-args { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
-  .tcall .t-res { font-size: 11.5px; color: var(--muted); max-height: 100px; overflow-y: auto; white-space: pre-wrap; }
-  .tcall.ok .t-head { color: var(--ok); }
-  .tcall.bad .t-head { color: var(--bad); }
-  .tcall .spin { width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--brand); border-radius: 50%; animation: spin .8s linear infinite; flex-shrink: 0; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  /* 工具栏 */
-  .bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; flex-shrink: 0; flex-wrap: wrap; row-gap: 4px; }
-  .bar.tools { border-top: 1px solid var(--line); }
-  .bar.manual.hidden { display: none; }
-  .tgl { border: 1px solid var(--line); background: transparent; color: var(--fg); padding: 3px 10px; border-radius: 999px; font-size: 12px; }
-  .tgl.on { background: var(--brand-weak); border-color: var(--brand); color: var(--brand); }
-  select#model { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 3px 6px; font-size: 12px; max-width: 140px; }
-  .act { border: 1px solid var(--line); background: transparent; color: var(--fg); padding: 3px 10px; border-radius: 8px; font-size: 12px; }
-  /* 输入区（v7.1：textarea 自适应加高 2-5 行，发送键随高拉伸） */
-  .bar.input { padding-top: 0; align-items: stretch; }
-  .hint { padding: 2px 12px 6px; font-size: 11px; color: var(--muted); flex-shrink: 0; }
-  #q { flex: 1; resize: none; min-height: 48px; max-height: 120px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: var(--surface); color: var(--fg); overflow-y: auto; }
-  #q:focus { outline: none; border-color: var(--brand); }
-  /* 发送/停止（与平台 chat-send-btn 同款圆角方块；高度随输入框拉伸） */
-  .send-grp { display: flex; flex-direction: column; gap: 4px; }
-  #send, #stop { border: none; border-radius: 6px; width: 52px; min-height: 48px; height: auto; display: inline-flex; align-items: center; justify-content: center; background: var(--brand); color: #fff; padding: 0; }
-  /* 历史会话浮层（v7.1） */
-  body { position: relative; }
-  .sess-panel { position: absolute; top: 42px; left: 8px; right: 8px; z-index: 30; display: none; flex-direction: column; gap: 6px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
-  .sess-empty { padding: 10px 2px; text-align: center; font-size: 12px; color: var(--muted); }
-  .sess-item { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 12.5px; }
-  .sess-item:hover { background: var(--card); }
-  .sess-item.active { background: var(--brand-weak); color: var(--brand); }
-  .sess-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sess-item .tm { flex-shrink: 0; min-width: 4.5em; text-align: right; font-size: 11px; color: var(--muted); }
-  .sess-item .del { border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 4px; font-size: 11px; }
-  .sess-item .del:hover { color: var(--bad); background: var(--card); }
-  .sess-new { width: 100%; border: 1px dashed var(--line); background: transparent; color: var(--fg); border-radius: 8px; padding: 6px; cursor: pointer; font-size: 12px; }
-  .sess-search { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; background: var(--surface); color: var(--fg); }
-  .sess-search:focus { outline: none; border-color: var(--brand); }
-  .sess-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
-  #send:disabled { opacity: .35; cursor: not-allowed; }
-  #send svg, #stop svg { width: 16px; height: 16px; }
-  #stop { background: var(--bad); display: none; }
-  #stop .sq { width: 14px; height: 14px; background: #fff; border-radius: 2px; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; font: 13px/1.6 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  #spa { flex: 1; width: 100%; height: 100%; border: none; }
 </style>
 </head>
 <body>
-  <header>
-    <span class="logo">AI</span>
-    <span class="title">DocFlow AI</span>
-    <span class="seg2" id="mode">
-      <button data-v="edit" class="on" title="AI 通过工具循环自主读文档、执行修改并校验；过程分阶段可折叠，达预算或熔断可「继续」；破坏性操作受谨慎模式确认。">智能</button>
-      <button data-v="chat" title="仅问答，不改动文档。">对话</button>
-    </span>
-    <span class="spacer"></span>
-    <button class="iconbtn" id="sess" title="历史会话">🕘</button>
-    <button class="iconbtn" id="clear" title="清空当前会话">🗑</button>
-  </header>
-  <div class="sess-panel" id="sessPanel"></div>
-  <div id="log"></div>
-  <div class="bar tools">
-    <button class="tgl" id="web" title="联网搜索">联网</button>
-    <button class="tgl on" id="think" title="深度思考">思考</button>
-    <button class="tgl" id="cautious" title="谨慎模式：删除/替换类工具执行前确认">谨慎</button>
-    <select id="model"><option value="">默认模型</option></select>
-    <span class="spacer"></span>
-  </div>
-  <div class="bar manual hidden" id="manualBar">
-    <button class="act" id="insert">插入到光标</button>
-    <button class="act" id="replace">替换选中</button>
-  </div>
-  <div class="bar input">
-    <textarea id="q" placeholder="描述要做的修改…"></textarea>
-    <button id="send" title="发送（Enter）" aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
-    <button id="stop" title="停止" aria-label="停止"><span class="sq"></span></button>
-  </div>
-  <div class="hint" id="hint">Enter 发送 · Shift+Enter 换行</div>
-  <script src="plugin.js?v=18"></script>
+  <iframe id="spa" src="/office-ai" title="DocFlow AI"></iframe>
+  <script src="plugin.js?v=19"></script>
 </body>
 </html>

@@ -1,343 +1,18 @@
-/* DocFlow AI OnlyOffice 插件 v7.6 — 按编辑器类型的工具套装
- *
- * v7.2 增量：会话记录上服务端（/api/v1/ai/conversations，source=plugin 按文件
- * 分域；本机 v7.1 localStorage 记录首次自动迁移，离线时本机只读回退）。
- *
- * v7.1 增量（滚动与输入）：
- * - 贴底跟随：用户上滚阅读历史时不被流式输出顶回底部，回到底部自动恢复，
- *   发送/切换会话强制贴底（与主应用各对话面板一致）；
- * - 输入框自适应加高：默认约 2 行，最高约 5 行（超出滚动）。
- *
- * v7.0 要点（见 CHANGELOG）：真实函数 + toString 序列化运行时；全编辑器
- * 1 基坐标；excel write_table 组合工具；word 26 / excel 19 / ppt 13 工具；
- * 提示词按编辑器类型分节；缓存版本号机制（plugin.js 改动须递增 ?v=）。 */
+/* DocFlow AI OnlyOffice 插件 v8（SPA 桥接宿主）——UI 已迁平台 /office-ai
+ * 路由（同一套 AIChatShell/AIEditChat 组件：会话/技能包/谨慎模式/多模态
+ * 附件全复用）。本文件仅保留：
+ *  1) OnlyOffice 文档沙箱工具运行时（word 26 / excel 19 / ppt 13，ES5，
+ *     callCommand 序列化注入——约束勿破坏，见下方运行时段注释）；
+ *  2) postMessage 桥：iframe(SPA) ⇄ 本页 ⇄ DS 沙箱。
+ *     oa:ready → 下发 {kind, tools[], guide, docs}；oa:exec {id,tool,args}
+ *     → runTool（http 平台文件工具优先，回落沙箱执行）→ oa:result {id,r}。
+ * 编辑器类型/文件标识从同源 localStorage 读取（宿主页 EditorPage 写入）。 */
 (function () {
   'use strict';
-  var log = document.getElementById('log');
-  var q = document.getElementById('q');
-  var hintEl = document.getElementById('hint');
-  var sendBtn = document.getElementById('send');
-  var stopBtn = document.getElementById('stop');
-  var webBtn = document.getElementById('web');
-  var thinkBtn = document.getElementById('think');
-  var modelSel = document.getElementById('model');
-  var modeSeg = document.getElementById('mode');
-  var manualBar = document.getElementById('manualBar');
-  var sessBtn = document.getElementById('sess');
-  var sessPanel = document.getElementById('sessPanel');
-  var history = [], busy = false, token = '', controller = null;
-  var webOn = false, thinkOn = true, editMode = true;
-  var editorType = null, docInfo = null, lastReply = '';
-  // 贴底跟随（v7.1）：仅当用户处于底部（距底 < 40px）时跟随新内容。
-  // v7.6：离底时显示「回到底部」悬浮按钮（与平台统一）。
-  var stick = true;
-  var jump = document.createElement('button');
-  jump.id = 'jump';
-  jump.type = 'button';
-  jump.title = '回到底部（跟随最新输出）';
-  jump.innerHTML = '&#8595;';
-  jump.onclick = function () { stick = true; log.scrollTop = log.scrollHeight; jump.style.display = 'none'; };
-  log.appendChild(jump);
-  log.addEventListener('scroll', function () {
-    stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-    jump.style.display = (stick || log.scrollHeight <= log.clientHeight + 80) ? 'none' : 'flex';
-  });
-  function stickBottom(force) {
-    if (force) { stick = true; jump.style.display = 'none'; }
-    if (stick) log.scrollTop = log.scrollHeight;
-  }
+  var token = '';
+  var editorType = null;
+  var docInfo = null;
 
-  var planMode = false;
-  // 谨慎模式（B1）：破坏性工具执行前 window.confirm，默认开（localStorage 记忆）。
-  var cautious = true;
-  try { cautious = window.localStorage.getItem('docflow.ai.agent.cautious') !== '0'; } catch (e) {}
-  function destructiveTool(name) {
-    return /^(delete_|clear_)/.test(String(name)) || name === 'replace_diagram' || name === 'write_document';
-  }
-  /** 只读工具判定（计划模式可用子集）。 */
-  function readonlyTool(name) { return /^(read_|search_|list_|get_|find_)/.test(String(name)); }
-  /** 会话压缩视图（pi/opencode 式滑动窗口）：超 60 条丢中段并注入说明、
-   *  尾段旧 TOOL_RESULT 截短；不改写原始 convo（「继续」仍用全量）。 */
-  function agentConvoView(convo) {
-    if (convo.length <= 60) return convo;
-    var keepTail = 36;
-    var head = convo.slice(0, 2);
-    var tail = convo.slice(-keepTail);
-    var dropped = convo.length - head.length - tail.length;
-    var out = head.slice();
-    out.push({ role: 'user', content: '（系统注：此前 ' + dropped + ' 条历史消息已压缩省略——如需早期信息请用读工具重新获取）' });
-    for (var i = 0; i < tail.length; i++) {
-      var m = tail[i];
-      if (i < 8 && m.role === 'user' && String(m.content).indexOf('TOOL_RESULT ') === 0 && String(m.content).length > 600) {
-        m = { role: 'user', content: String(m.content).slice(0, 300) + '…（已压缩，原 ' + String(m.content).length + ' 字）' };
-      }
-      out.push(m);
-    }
-    return out;
-  }
-
-  /* ---- 会话记录（v7.2：服务端持久化 /api/v1/ai/conversations，
-   *      source=plugin 按文件分域；本机 localStorage 仅首次迁移源）----
-   * 空会话不入库；每会话截 40 条；scope 超限服务端裁最旧（30 个）。 */
-  var fileKey = 'docflow.ai.plugin.convs.default';
-  try {
-    var fj = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
-    if (fj && fj.id) fileKey = 'docflow.ai.plugin.convs.' + fj.id;
-  } catch (e) {}
-  var sessions = [];   // [{id,title,updatedAt}] 服务端元信息镜像
-  var activeId = '';
-  /** 带鉴权 JSON 请求（401 自动 refresh 重试一次）。 */
-  function apiJSON(path, opts) {
-    opts = opts || {};
-    var send = function () {
-      var h = { Authorization: 'Bearer ' + token };
-      if (opts.body) h['Content-Type'] = 'application/json';
-      return fetch(path, { method: opts.method || 'GET', headers: h, body: opts.body });
-    };
-    return send().then(function (r) {
-      if (r.status === 401) {
-        return refresh().then(function () { return send(); });
-      }
-      return r;
-    }).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.status === 204 ? null : r.json();
-    });
-  }
-  function sessQuery() {
-    try {
-      var fj2 = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
-      if (fj2 && fj2.id) return 'source=plugin&file_id=' + encodeURIComponent(fj2.id);
-    } catch (e) {}
-    return 'source=plugin';
-  }
-  function sessTitleOf(msgs) {
-    for (var i = 0; i < msgs.length; i++) if (msgs[i].role === 'user') return String(msgs[i].content).replace(/\s+/g, ' ').slice(0, 18);
-    return '';
-  }
-  function normalizeMsgs(arr) {
-    var out = [];
-    if (Array.isArray(arr)) {
-      for (var i = 0; i < arr.length; i++) {
-        var m = arr[i];
-        if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content) {
-          out.push({ role: m.role, content: m.content });
-        }
-      }
-    }
-    return out;
-  }
-  /** 服务端列表 → 本地 metas；恢复最近一条正文。 */
-  function sessApplyMetas(metas) {
-    sessions = [];
-    for (var i = 0; i < metas.length; i++) {
-      sessions.push({ id: String(metas[i].id), title: String(metas[i].title || ''), updatedAt: new Date(metas[i].updated_at).getTime() || Date.now() });
-    }
-    sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-    activeId = (sessions[0] && sessions[0].id) || '';
-    if (!activeId) { history = []; renderHistory(); return Promise.resolve(); }
-    return apiJSON('/api/v1/ai/conversations/' + activeId).then(function (d) {
-      history = normalizeMsgs(d && d.conversation && d.conversation.messages).slice(0, 40);
-      renderHistory();
-    });
-  }
-  /** 本机 v7.1 记录一次性迁移上服务端（成功后清本机 key）。 */
-  function sessMigrateLocal() {
-    var local = [];
-    try {
-      var parsed = JSON.parse(window.localStorage.getItem(fileKey) || 'null');
-      if (parsed && Array.isArray(parsed.list)) local = parsed.list;
-    } catch (e) { local = []; }
-    if (!local.length) return Promise.resolve(false);
-    var chain = Promise.resolve();
-    var oldest = local.slice().reverse();
-    for (var i = 0; i < oldest.length; i++) {
-      (function (s) {
-        chain = chain.then(function () {
-          var msgs = normalizeMsgs(s.messages).slice(0, 40);
-          if (!msgs.length) return null;
-          return apiJSON('/api/v1/ai/conversations', { method: 'POST', body: JSON.stringify({ source: 'plugin', title: s.title || sessTitleOf(msgs) || '历史会话' }) })
-            .then(function (d) { return apiJSON('/api/v1/ai/conversations/' + d.conversation.id + '/events', { method: 'POST', body: JSON.stringify({ kind: 'snapshot', messages: msgs }) }); });
-        });
-      })(oldest[i]);
-    }
-    return chain.then(function () {
-      try { window.localStorage.removeItem(fileKey); } catch (e) {}
-      return true;
-    }).catch(function () { return false; });
-  }
-  /** 载入：服务端列表（空则先迁移本机）→ 恢复最近一条；失败回退本机只读。 */
-  function sessLoad() {
-    return apiJSON('/api/v1/ai/conversations?' + sessQuery())
-      .then(function (d) {
-        var metas = (d && d.conversations) || [];
-        if (metas.length === 0) {
-          return sessMigrateLocal().then(function () { return apiJSON('/api/v1/ai/conversations?' + sessQuery()); });
-        }
-        return d;
-      })
-      .then(function (d) { return sessApplyMetas((d && d.conversations) || []); })
-      .catch(function () {
-        // 离线/服务端不可达：本机只读回退（仅展示，不写回）。
-        var local = [];
-        try { var parsed = JSON.parse(window.localStorage.getItem(fileKey) || 'null'); if (parsed && Array.isArray(parsed.list)) local = parsed.list; } catch (e) {}
-        sessions = [];
-        activeId = '';
-        history = [];
-        if (local.length) {
-          sessions = local.map(function (s) { return { id: s.id, title: s.title || '', updatedAt: s.updatedAt || Date.now() }; });
-          activeId = sessions[0].id;
-          history = normalizeMsgs(local[0].messages).slice(0, 40);
-        }
-        renderHistory();
-      });
-  }
-  /** 保存：当前 history → 活跃会话（无则先创建）；更新本地 metas。 */
-  function sessSave() {
-    var persist = history.slice(-40);
-    if (!persist.length) { renderSessions(); return; }
-    var cur = null;
-    for (var i = 0; i < sessions.length; i++) if (sessions[i].id === activeId) cur = sessions[i];
-    var title = (cur && cur.title) || sessTitleOf(persist) || '新会话';
-    var run = (activeId && cur)
-      ? Promise.resolve(activeId)
-      : apiJSON('/api/v1/ai/conversations', { method: 'POST', body: JSON.stringify({ source: 'plugin', title: title }) }).then(function (d) {
-          activeId = d.conversation.id;
-          return activeId;
-        });
-    run.then(function (cid) {
-      return apiJSON('/api/v1/ai/conversations/' + cid + '/events', { method: 'POST', body: JSON.stringify({ kind: 'turn', messages: persist }) });
-    }).then(function () {
-      var others = sessions.filter(function (s) { return s.id !== activeId; });
-      others.push({ id: activeId, title: title, updatedAt: Date.now() });
-      others.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-      sessions = others.slice(0, 300);
-      renderSessions();
-    }).catch(function () {
-      setHint('会话保存失败（服务端不可达）');
-    });
-  }
-  /** 把 history 回放为消息气泡（切换/恢复会话时重建 log）。 */
-  function renderHistory() {
-    log.innerHTML = '';
-    thinkEl = null;
-    for (var i = 0; i < history.length; i++) {
-      if (history[i].role === 'user') userBubble(history[i].content);
-      else el('div', 'm a', mdToHtml(String(history[i].content)));
-    }
-    stickBottom(true);
-  }
-  /** 会话浮层：骨架只建一次（搜索框常驻——重建会丢输入焦点），列表随
-   *  过滤词与会话集局部重绘；标题本地即时过滤（300 条量级零延迟）。 */
-  var sessFilterEl = null, sessListEl = null, sessFilter = '';
-  function initSessionsPanel() {
-    if (!sessPanel || sessListEl) return;
-    var nb = document.createElement('button');
-    nb.className = 'sess-new';
-    nb.textContent = '＋ 新建会话';
-    nb.onclick = function () {
-      activeId = '';
-      history = [];
-      renderHistory();
-      sessPanel.style.display = 'none';
-      setHint('已新建会话');
-    };
-    sessFilterEl = document.createElement('input');
-    sessFilterEl.type = 'search';
-    sessFilterEl.className = 'sess-search';
-    sessFilterEl.placeholder = '搜索会话标题';
-    sessFilterEl.setAttribute('aria-label', '搜索会话');
-    sessFilterEl.oninput = function () { sessFilter = sessFilterEl.value.trim().toLowerCase(); renderSessionList(); };
-    sessListEl = document.createElement('div');
-    sessListEl.className = 'sess-list';
-    sessPanel.appendChild(nb);
-    sessPanel.appendChild(sessFilterEl);
-    sessPanel.appendChild(sessListEl);
-  }
-  function renderSessionList() {
-    if (!sessListEl) return;
-    sessListEl.innerHTML = '';
-    var q = sessFilter;
-    var shown = 0;
-    for (var i = 0; i < sessions.length; i++) {
-      var s = sessions[i];
-      if (q && (s.title || '').toLowerCase().indexOf(q) < 0) continue;
-      shown++;
-      (function (row) {
-        var el2 = document.createElement('div');
-        el2.className = 'sess-item' + (row.id === activeId ? ' active' : '');
-        var t = document.createElement('span'); t.className = 't'; t.title = row.title || ''; t.textContent = row.title || '（未命名）';
-        var tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = fmtTime(row.updatedAt);
-        var del = document.createElement('button'); del.className = 'del'; del.title = '删除会话'; del.textContent = '✕';
-        del.onclick = function (ev) {
-          ev.stopPropagation();
-          apiJSON('/api/v1/ai/conversations/' + row.id, { method: 'DELETE' }).catch(function () {});
-          sessions = sessions.filter(function (x) { return x.id !== row.id; });
-          if (row.id === activeId) {
-            if (sessions[0]) { activeId = sessions[0].id; history = []; renderHistory(); void loadSessionBody(activeId); }
-            else { activeId = ''; history = []; renderHistory(); }
-          }
-          renderSessionList();
-        };
-        el2.appendChild(t); el2.appendChild(tm); el2.appendChild(del);
-        el2.onclick = function () {
-          if (row.id === activeId) { sessPanel.style.display = 'none'; return; }
-          activeId = row.id;
-          history = [];
-          renderHistory();
-          sessPanel.style.display = 'none';
-          setHint('加载会话…');
-          void loadSessionBody(activeId);
-        };
-        sessListEl.appendChild(el2);
-      })(s);
-    }
-    if (!sessions.length) {
-      var em = document.createElement('div');
-      em.className = 'sess-empty';
-      em.textContent = '暂无历史会话';
-      sessListEl.appendChild(em);
-    } else if (!shown) {
-      var nm = document.createElement('div');
-      nm.className = 'sess-empty';
-      nm.textContent = '没有匹配的会话';
-      sessListEl.appendChild(nm);
-    }
-  }
-  function renderSessions() {
-    if (!sessPanel) return;
-    initSessionsPanel();
-    renderSessionList();
-  }
-  /** 拉取会话正文 → 回放（切换/删除当前后接管）。 */
-  function loadSessionBody(id) {
-    return apiJSON('/api/v1/ai/conversations/' + id).then(function (d) {
-      if (activeId !== id) return;
-      history = normalizeMsgs(d && d.conversation && d.conversation.messages).slice(0, 40);
-      renderHistory();
-      setHint('已切换会话');
-    }).catch(function () {
-      setHint('会话加载失败');
-    });
-  }
-  if (sessBtn && sessPanel) {
-    sessBtn.onclick = function (e) {
-      e.stopPropagation();
-      var show = sessPanel.style.display !== 'block';
-      if (show) renderSessions();
-      sessPanel.style.display = show ? 'block' : 'none';
-    };
-    sessPanel.onclick = function (e) { e.stopPropagation(); };
-    document.addEventListener('click', function () { sessPanel.style.display = 'none'; });
-  }
-
-  /* ---- 输入框自适应加高（v7.1：默认约 2 行，最高约 5 行）---- */
-  function growInput() {
-    q.style.height = 'auto';
-    q.style.height = Math.min(120, Math.max(48, q.scrollHeight)) + 'px';
-  }
-  q.addEventListener('input', growInput);
-  try { if (/theme-type=(dark)/.exec(window.location.search)) document.documentElement.dataset.themeType = 'dark'; } catch (e) {}
   function readEditorKind() {
     try { var k = window.localStorage.getItem('docflow.ai.editor.kind');
       if (k === 'word' || k === 'cell' || k === 'slide' || k === 'pdf') return k;
@@ -351,147 +26,6 @@
     return fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'same-origin', headers: h })
       .then(function (r) { if (!r.ok) throw { status: r.status }; return r.json(); })
       .then(function (d) { token = d.access_token || ''; });
-  }
-  function loadModels() {
-    return fetch('/api/v1/ai/models', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var items = [];
-        var provs = Array.isArray(d && d.providers) ? d.providers : [];
-        for (var pi = 0; pi < provs.length; pi++) {
-          var pv = provs[pi] || {}; var raw = Array.isArray(pv.models) ? pv.models : [];
-          for (var i = 0; i < raw.length; i++) {
-            var m = raw[i] || {}, caps = m.capabilities || {};
-            if (caps && typeof caps === 'object' && caps.kind !== 'chat') continue;
-            items.push({ id: (pv.id || '') + '/' + (m.id || ''), label: (pv.name || pv.id || '') + ' / ' + (m.id || ''), providerId: pv.id || '', modelId: m.id || '' });
-          }
-        }
-        return items;
-      }).catch(function () { return []; });
-  }
-  function renderModels(items) {
-    var saved = ''; try { saved = window.localStorage.getItem('docflow.ai.model') || ''; } catch (e) {}
-    modelSel.innerHTML = '';
-    var o = document.createElement('option'); o.value = ''; o.textContent = '默认模型'; modelSel.appendChild(o);
-    for (var i = 0; i < items.length; i++) {
-      var opt = document.createElement('option');
-      opt.value = items[i].id; opt.textContent = items[i].label;
-      if (saved === items[i].id) opt.selected = true;
-      modelSel.appendChild(opt);
-    }
-  }
-  function currentModel() {
-    var v = modelSel.value; if (!v) return null;
-    var i = v.lastIndexOf('/');
-    return { providerId: v.slice(0, i), modelId: v.slice(i + 1) };
-  }
-  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function inlineMd(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>'); }
-  function mdToHtml(md) {
-    var L = String(md).replace(/\r/g, '').split('\n');
-    var out = [], lo = false, co = false, cb = [], tb = [];
-    var fl = function () { if (lo) { out.push('</ul>'); lo = false; } };
-    var ft = function () {
-      if (!tb.length) return;
-      var rows = tb.filter(function (r) { return !/^\|[\s:|-]+\|?$/.test(r); });
-      if (rows.length) {
-        var h = ['<table>'];
-        for (var i = 0; i < rows.length; i++) {
-          var cs = rows[i].replace(/^\||\|$/g, '').split('|');
-          h.push('<tr>' + cs.map(function (c, j) { return (i === 0 ? '<th>' : '<td>') + inlineMd(c.trim()) + (i === 0 ? '</th>' : '</td>'); }).join('') + '</tr>');
-        }
-        h.push('</table>'); out.push(h.join(''));
-      }
-      tb = [];
-    };
-    for (var i = 0; i < L.length; i++) {
-      var ln = L[i];
-      if (/^```/.test(ln)) {
-        if (co) { out.push('<pre><code>' + esc(cb.join('\n')) + '</code></pre>'); cb = []; co = false; }
-        else { fl(); ft(); co = true; }
-        continue;
-      }
-      if (co) { cb.push(ln); continue; }
-      if (/^\|.*\|/.test(ln)) { fl(); tb.push(ln.trim()); continue; }
-      ft();
-      var h = /^(#{1,3})\s+(.*)$/.exec(ln);
-      if (h) { fl(); out.push('<h' + h[1].length + '>' + inlineMd(h[2]) + '</h' + h[1].length + '>'); continue; }
-      if (/^\s*[-*]\s+/.test(ln)) {
-        if (!lo) { out.push('<ul>'); lo = true; }
-        out.push('<li>' + inlineMd(ln.replace(/^\s*[-*]\s+/, '')) + '</li>');
-        continue;
-      }
-      fl();
-      if (ln.trim() === '') continue;
-      out.push('<p>' + inlineMd(ln) + '</p>');
-    }
-    fl(); ft();
-    if (co) out.push('<pre><code>' + esc(cb.join('\n')) + '</code></pre>');
-    return out.join('');
-  }
-  function el(tag, cls, html) {
-    var d = document.createElement(tag);
-    if (cls) d.className = cls;
-    if (html !== undefined) d.innerHTML = html;
-    // 回底按钮恒为流内最后元素（sticky bottom 依赖其在内容之后）。
-    log.insertBefore(d, jump); stickBottom(false);
-    return d;
-  }
-  function setHint(t) { hintEl.textContent = t; }
-  /** 消息操作行（v7.6 对齐平台：复制在气泡下方）。 */
-  function msgOps(text) {
-    var row = document.createElement('div'); row.className = 'm-ops';
-    var b = document.createElement('button'); b.type = 'button'; b.textContent = '复制';
-    b.onclick = function () {
-      try { navigator.clipboard.writeText(text); } catch (e) {}
-      b.textContent = '已复制';
-      window.setTimeout(function () { b.textContent = '复制'; }, 1200);
-    };
-    row.appendChild(b);
-    return row;
-  }
-  /** 用量行（tokens + 整体耗时；回复底部，v7.6 对齐平台）。 */
-  function usageLine(tok, ms) {
-    if (!tok) return null;
-    var u = document.createElement('div'); u.className = 'usage';
-    u.textContent = tok + ' tok' + (ms > 0 ? ' · ' + (ms / 1000).toFixed(1) + ' s' : '');
-    return u;
-  }
-  function userBubble(text) {
-    var w = el('div', 'u-wrap');
-    var b = document.createElement('div'); b.className = 'm u'; b.textContent = text;
-    w.appendChild(b);
-    w.appendChild(msgOps(text));
-  }
-  var thinkEl = null;
-  function appendThink(chunk) {
-    if (!thinkEl) {
-      thinkEl = el('details', 'think', '<summary>思考中…</summary>');
-      thinkEl.open = true;
-      var b = document.createElement('div'); b.className = 't'; thinkEl.appendChild(b); thinkEl._b = b;
-    }
-    thinkEl._b.textContent += chunk;
-    if (thinkEl._b.textContent.length > 12000) thinkEl._b.textContent = '…' + thinkEl._b.textContent.slice(-12000);
-    stickBottom(false);
-  }
-  function settleThink(ms) {
-    if (!thinkEl) return;
-    thinkEl.open = false;
-    thinkEl.firstChild.textContent = '已深度思考' + (ms > 0 ? '（用时 ' + (ms / 1000).toFixed(1) + ' s）' : '');
-  }
-  function toolCard(tool, args) {
-    return el('div', 'tcall',
-      '<div class="t-head"><span class="spin"></span><span>🔧 ' + esc(tool) + '</span></div>' +
-      '<div class="t-args">' + esc(JSON.stringify(args)).slice(0, 250) + '</div>');
-  }
-  function toolDone(card, ok, payload) {
-    var sp = card.querySelector('.t-head span:last-child');
-    var name = sp ? sp.textContent : '?';
-    card.classList.add(ok ? 'ok' : 'bad');
-    card.querySelector('.t-head').innerHTML = (ok ? '✅ ' : '⚠️ ') + esc(name);
-    var r = document.createElement('div'); r.className = 't-res';
-    r.textContent = (typeof payload === 'string' ? payload : JSON.stringify(payload)).slice(0, 400);
-    card.appendChild(r); stickBottom(false);
   }
 
   /* ====================================================================
@@ -1484,9 +1018,10 @@
     ].join('\n'),
     pdf: ''
   };
+  /* buildSystem 供调试/诊断保留（v8 主提示词由 SPA 侧 AIEditChat 组装，
+   * 本页经 oa:tools 下发 KIND_GUIDES/TOOL_DOCS 素材）。 */
   function buildSystem() {
     var k = editorType || 'pdf';
-    if (planMode) return buildPlanSystem(k);
     var L = [
       '你是 DocFlow 内置文档编辑 Agent，运行在 OnlyOffice 编辑器侧栏中。',
       '当前编辑器类型：' + k + '。你操作的是当前打开的编辑器文档——不是平台文件系统。',
@@ -1506,350 +1041,63 @@
   }
 
   /** 计划模式 system：只读工具探查 + FINAL 输出分步执行计划。 */
-  function buildPlanSystem(k) {
-    var docs = (TOOL_DOCS[k] || TOOL_DOCS.pdf).split('\n').filter(function (line) {
-      var m = /^([a-z_]+)\s*\{/.exec(line.trim());
-      return !m || readonlyTool(m[1]);
-    }).join('\n');
-    var L = [
-      '你是 DocFlow 内置文档编辑 Agent，运行在 OnlyOffice 编辑器（' + k + '）侧栏中，当前为计划模式。',
-      '计划模式：只能调用只读工具探查文档现状，不得修改；探查完成后以 FINAL 输出一份可执行的修改计划（分步骤，说明每步将使用的工具与参数要点）。',
-      '',
-      '可用工具（只读子集；每轮恰好一行 TOOL_CALL {...}，或 FINAL 给出计划）：',
-      docs,
-      '跨工具：list_files {name?} / read_file {name} → 平台文件检索/读取（参考）。',
-      '',
-      '输出格式（硬性）：每轮恰好一行 TOOL_CALL {"tool":…,"args":{…}}，或 FINAL 开头的执行计划。'
-    ];
-    if (docInfo && docInfo.ok) L.push('', '【初始文档结构】' + JSON.stringify(docInfo).slice(0, 2000));
-    return L.join('\n');
-  }
-
-  function extractCallJson(t) {
-    var k = 0, found = [];
-    while (found.length < 8) {
-      var at = t.indexOf('TOOL_CALL', k); if (at < 0) break;
-      var b = t.indexOf('{', at); if (b < 0) break;
-      var d = 0, inS = false, esc = false, end = -1;
-      for (var i = b; i < t.length; i++) {
-        var ch = t.charAt(i);
-        if (esc) { esc = false; continue; }
-        if (ch === '\\') { if (inS) esc = true; continue; }
-        if (ch === '"') { inS = !inS; continue; }
-        if (inS) continue;
-        if (ch === '{') d++; else if (ch === '}') { d--; if (d === 0) { end = i; break; } }
-      }
-      if (end < 0) break;
-      found.push(t.slice(b, end + 1)); k = end + 1;
+  /* ==================== v8 SPA 桥 ====================
+   * iframe(/office-ai) ⇄ 本页 ⇄ DS 沙箱。同源 postMessage（'*' 目标仅
+   * 同源可达，无跨源泄露面）。 */
+  var DESTRUCTIVE_RE = /^(delete_|clear_|replace_all|replace_element|replace_diagram|write_whole)/;
+  function toolsForKind(k) {
+    var reg = rt_tools();
+    var list = [];
+    for (var name in reg) {
+      if (!Object.prototype.hasOwnProperty.call(reg, name)) continue;
+      var spec = reg[name];
+      if (spec.kinds && spec.kinds.indexOf(k) < 0) continue;
+      list.push({ name: name, destructive: DESTRUCTIVE_RE.test(name) });
     }
-    for (var j = found.length - 1; j >= 0; j--) {
-      try { var c = JSON.parse(found[j]);
-        var tn = c.tool || c.name;
-        var ta = c.args || c.arguments || {};
-        if (tn && typeof tn === 'string') return { type: 'tool', call: { tool: tn, args: ta } };
-      } catch (e) {}
-    }
-    return null;
+    return list;
   }
-  function parseReply(t) {
-    t = t.trim();
-    if (t.indexOf('FINAL') === 0) return { type: 'final', text: t.slice(5).trim() || t };
-    var c = extractCallJson(t);
-    return c || { type: 'final', text: t };
-  }
-
-  // 轮次预算（v7.4）：300 轮足够大任务；达预算/熔断时保留会话上下文并给
-  // 「继续」按钮恢复循环（等效无上限）；防失控靠连续失败熔断而非低硬顶。
-  var MAX_ROUNDS = 300;
-  var FAIL_STREAK = 8;
-  function setBusyUI(b) { busy = b; sendBtn.style.display = b ? 'none' : 'inline-flex'; stopBtn.style.display = b ? 'inline-flex' : 'none'; }
-
-  function chatOnce(messages, ev) {
-    var body = { messages: messages, stream: true };
-    body.use_files = false; // 关键：关闭后端 df_* 平台文件工具注入（后端默认 true），插件自身经 TOOL_CALL 协议调度编辑器工具
-    if (webOn) body.web_search = true;
-    if (thinkOn) body.think = true;
-    var m = currentModel();
-    if (m && m.providerId) body.model = { providerId: m.providerId, modelId: m.modelId };
-    return fetch('/api/v1/ai/chat', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(body), signal: controller.signal })
-      .then(function (res) {
-        if (!res.ok) { if (res.status === 401) throw { status: 401 }; throw new Error('HTTP ' + res.status); }
-        var rd = res.body.getReader(), dec = new TextDecoder(), buf = '';
-        function pump() {
-          return rd.read().then(function (r) {
-            if (r.done) return;
-            buf += dec.decode(r.value, { stream: true });
-            var idx;
-            while ((idx = buf.indexOf('\n\n')) >= 0) {
-              var blk = buf.slice(0, idx); buf = buf.slice(idx + 2);
-              var n = '', d = '';
-              blk.split('\n').forEach(function (ln) { if (ln.indexOf('event: ') === 0) n = ln.slice(7).trim(); else if (ln.indexOf('data: ') === 0) d = ln.slice(6); });
-              if (!n) continue;
-              var p = {}; try { p = JSON.parse(d); } catch (e) { continue; }
-              if (n === 'delta' && p.text) ev.onDelta(p.text);
-              else if (n === 'thinking' && p.text) ev.onThinking(p.text);
-              else if (n === 'error') throw new Error(p.error || 'AI 请求失败');
-              else if (n === 'done') { ev.onDone(p.usage); return; }
-            }
-            return pump();
-          });
-        }
-        return pump();
-      });
-  }
-  function chat(messages, ev) {
-    return chatOnce(messages, ev).catch(function (err) {
-      if (err && err.status === 401) return refresh().then(function () { return chatOnce(messages, ev); });
-      throw err;
-    });
-  }
-
-  function send() {
-    var text = q.value.trim();
-    if (!text || busy) return;
-    q.value = '';
-    growInput();
-    setBusyUI(true);
-    userBubble(text);
-    stickBottom(true);
-    thinkEl = null;
-    controller = new AbortController();
-    editorType = readEditorKind() || 'word';
-
-    var convo = [{ role: 'system', content: buildSystem() }, { role: 'user', content: text }];
-    var thinkStart = 0, rounds = 0, loopStart = Date.now();
-    function finishOk(s) {
-      settleThink(thinkStart ? Date.now() - thinkStart : 0);
-      if (s) {
-        // v7.6 对齐平台：回复气泡下方给 复制/用量（tokens + 整体耗时）。
-        var done = el('div', 'm a', mdToHtml(s));
-        done.appendChild(msgOps(s));
-        var us2 = usageLine(totalTok, Date.now() - loopStart);
-        if (us2) done.appendChild(us2);
-      }
-      history.push({ role: 'user', content: text }, { role: 'assistant', content: ('完成：' + s).slice(0, 2000) });
-      if (history.length > 12) history = history.slice(-12);
-      sessSave();
-      probeEditor().then(function () {});
-      setBusyUI(false); controller = null;
-      setHint('已完成（DS 自动保存' + (totalTok ? ' · ' + totalTok + ' tok' : '') + '）');
-      if (planMode && s) {
-        // 计划完成：气泡下给「按计划执行」按钮（转入执行模式重发计划全文）。
-        var bubbles = log.querySelectorAll('.m.a');
-        var lastBubble = bubbles.length ? bubbles[bubbles.length - 1] : null;
-        if (lastBubble) {
-          var ex = document.createElement('button');
-          ex.className = 'act';
-          ex.textContent = '按计划执行';
-          ex.style.marginTop = '8px';
-          ex.onclick = function () {
-            ex.disabled = true;
-            planMode = false;
-            editMode = true;
-            syncModeSeg();
-            q.value = '请严格按以下计划逐步执行（计划来自刚才的只读探查，执行完毕 FINAL 总结）：\n' + s;
-            send();
-          };
-          lastBubble.appendChild(document.createElement('br'));
-          lastBubble.appendChild(ex);
-        }
-      }
-    }
-    function finishErr(m) { settleThink(0); el('div', 'm a err', esc(m)); sessSave(); setBusyUI(false); controller = null; }
-
-    if (!editMode && !planMode) {
-      var acc = '', bub = null, chatTok = 0;
-      chat(convo, {
-        onDelta: function (d) { acc += d; if (!bub) bub = el('div', 'm a'); bub.innerHTML = mdToHtml(acc) + '<span class="caret"></span>'; stickBottom(false); },
-        onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
-        onDone: function (u) {
-          if (u && typeof u === 'object') chatTok = (u.prompt_tokens || 0) + (u.completion_tokens || 0);
-          settleThink(thinkStart ? Date.now() - thinkStart : 0);
-          if (bub) bub.innerHTML = mdToHtml(acc);
-        }
-      }).then(function () {
-        lastReply = acc;
-        if (bub) {
-          bub.appendChild(msgOps(acc));
-          var us3 = usageLine(chatTok, Date.now() - loopStart);
-          if (us3) bub.appendChild(us3);
-        }
-        setBusyUI(false); controller = null;
-      })
-        .catch(function (e) { finishErr(String(e && e.message || e)); });
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.t === 'oa:ready') {
+      editorType = editorType || readEditorKind() || 'word';
+      var payload = {
+        t: 'oa:tools',
+        kind: editorType,
+        tools: toolsForKind(editorType),
+        guide: KIND_GUIDES[editorType] || '',
+        docs: TOOL_DOCS[editorType] || TOOL_DOCS.pdf,
+      };
+      (e.source || window).postMessage(payload, window.location.origin);
       return;
     }
-    var failStreak = 0, lastFailSig = '', totalTok = 0;
-    /** 暂停（达预算/熔断）：保留 convo，气泡内给「继续」按钮恢复循环。 */
-    function showPaused(text) {
-      settleThink(thinkStart ? Date.now() - thinkStart : 0);
-      sessSave();
-      var wrap = el('div', 'm a', esc(text));
-      var btn = document.createElement('button');
-      btn.className = 'act';
-      btn.textContent = '继续';
-      btn.style.marginTop = '8px';
-      btn.onclick = function () {
-        btn.disabled = true;
-        btn.textContent = '继续中…';
-        convo.push({ role: 'user', content: '继续（从中断处接着执行，保持同样的输出协议）。' });
-        rounds = 0; failStreak = 0; lastFailSig = ''; thinkStart = 0;
-        setBusyUI(true);
-        controller = new AbortController();
-        agentLoop();
+    if (d.t === 'oa:exec') {
+      var reply = function (r) {
+        (e.source || window).postMessage({ t: 'oa:result', id: d.id, r: r }, window.location.origin);
       };
-      wrap.appendChild(document.createElement('br'));
-      wrap.appendChild(btn);
-      setBusyUI(false); controller = null;
-      setHint('已暂停，可继续');
+      if (d.tool === '__refresh__') {
+        refresh().then(function () { reply({ ok: true }); }, function (err) { reply({ ok: false, error: String(err && err.status || err) }); });
+        return;
+      }
+      runTool(d.tool, d.args || {}).then(reply, function (err) { reply({ ok: false, error: String(err) }); });
+      return;
     }
-    var roundAttempts = 0;
-    var agentLoop = function () {
-      if (rounds >= MAX_ROUNDS) { showPaused('已达轮次预算（' + MAX_ROUNDS + ' 轮），已执行操作保留。'); return; }
-      rounds++;
-      roundAttempts = 0;
-      var runRound = function () {
-        // v7.6 对齐平台：流式期间不再显示 TOOL_CALL 原始行——过程由思考折叠区
-        // 与工具卡（含运行中入参）呈现，解析成功即落卡。
-        var acc2 = '';
-        chat(agentConvoView(convo), {
-          onDelta: function (d) { acc2 += d; },
-          onThinking: function (t) { if (!thinkStart) thinkStart = Date.now(); appendThink(t); },
-          onDone: function (u) { if (u && typeof u === 'object') totalTok += (u.prompt_tokens || 0) + (u.completion_tokens || 0); }
-        }).then(function () {
-        var parsed = parseReply(acc2);
-        if (parsed.type === 'final') { finishOk(parsed.text); return; }
-        // 计划模式只读拦截：模型请求了写工具 → 拒绝并引导回计划。
-        if (planMode && !readonlyTool(parsed.call.tool) && parsed.call.tool !== 'list_files' && parsed.call.tool !== 'read_file') {
-          convo.push({ role: 'assistant', content: 'TOOL_CALL ' + JSON.stringify(parsed.call) });
-          convo.push({ role: 'user', content: 'TOOL_RESULT {"ok":false,"error":"计划模式为只读——请继续用只读工具探查，或直接 FINAL 输出执行计划"}' });
-          agentLoop();
-          return;
-        }
-        var card = toolCard(parsed.call.tool, parsed.call.args);
-        setHint('执行（' + rounds + '）：' + parsed.call.tool);
-        var doRun = function () { return runTool(parsed.call.tool, parsed.call.args); };
-        if (cautious && destructiveTool(parsed.call.tool)) {
-          if (!window.confirm('谨慎模式：确认执行「' + parsed.call.tool + '」？该操作会删除或替换内容。\n（可在工具栏关闭谨慎模式）')) {
-            doRun = function () { return Promise.resolve({ ok: false, error: '用户在谨慎模式下跳过了该操作' }); };
-          }
-        }
-        return doRun().then(function (r) {
-          toolDone(card, !!(r && r.ok), r);
-          convo.push({ role: 'assistant', content: 'TOOL_CALL ' + JSON.stringify(parsed.call) });
-          convo.push({ role: 'user', content: 'TOOL_RESULT ' + JSON.stringify(r).slice(0, 3000) });
-          // 熔断：同一工具+同一参数连续失败 → 大概率死循环，暂停可「继续」。
-          var sig = (r && r.ok) ? '' : parsed.call.tool + ':' + JSON.stringify(parsed.call.args);
-          if (!r || !r.ok) {
-            if (sig === lastFailSig) {
-              failStreak++;
-              if (failStreak >= FAIL_STREAK) {
-                showPaused('连续 ' + FAIL_STREAK + ' 次以相同参数调用 ' + parsed.call.tool + ' 失败，已自动暂停。可「继续」换路径，或调整指令。');
-                return;
-              }
-            } else { failStreak = 1; lastFailSig = sig; }
-          } else { failStreak = 0; lastFailSig = ''; }
-          agentLoop();
-        });
-        }).catch(function (e) {
-          var aborted = e && e.name === 'AbortError';
-          if (!aborted && roundAttempts < 1) {
-            roundAttempts++;
-            window.setTimeout(runRound, 800);
-            return;
-          }
-          finishErr(aborted ? '已停止' : String(e && e.message || e));
-        });
-      };
-      runRound();
-    };
-    agentLoop();
-  }
-
-  sendBtn.onclick = send;
-  stopBtn.onclick = function () { if (controller) controller.abort(); };
-  q.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
-  webBtn.onclick = function () { webOn = !webOn; webBtn.classList.toggle('on', webOn); };
-  thinkBtn.onclick = function () { thinkOn = !thinkOn; thinkBtn.classList.toggle('on', thinkOn); };
-  var cautiousBtn = document.getElementById('cautious');
-  if (cautiousBtn) {
-    cautiousBtn.classList.toggle('on', cautious);
-    cautiousBtn.onclick = function () {
-      cautious = !cautious;
-      cautiousBtn.classList.toggle('on', cautious);
-      try { window.localStorage.setItem('docflow.ai.agent.cautious', cautious ? '1' : '0'); } catch (e) {}
-    };
-  }
-  function syncModeSeg() {
-    // v7.7 对齐平台：智能/对话 双段（说明经各按钮 title hover 展示）。
-    var bs = modeSeg.querySelectorAll('button[data-v]');
-    for (var i = 0; i < bs.length; i++) {
-      var v = bs[i].dataset.v;
-      bs[i].classList.toggle('on', (v === 'edit') === (editMode && !planMode) || (v === 'chat') === (!editMode && !planMode));
-    }
-    manualBar.classList.toggle('hidden', editMode || planMode);
-    q.placeholder = planMode ? '计划模式：描述目标，AI 只读探查并给出执行计划…' : editMode ? '描述要做的修改…' : '仅对话模式…';
-  }
-  modeSeg.addEventListener('click', function (e) {
-    var b = e.target.closest('button[data-v]');
-    if (!b) return;
-    editMode = b.dataset.v === 'edit';
-    planMode = false;
-    syncModeSeg();
   });
-  syncModeSeg();
-  document.getElementById('clear').onclick = function () {
-    history = []; lastReply = ''; log.innerHTML = ''; thinkEl = null;
-    log.appendChild(jump); // 清空后重挂回底按钮
-    sessSave();
-    setHint('已清空当前会话');
-  };
-  document.getElementById('insert').onclick = function () { if (lastReply && window.Asc && window.Asc.plugin) window.Asc.plugin.executeMethod('PasteHtml', [mdToHtml(lastReply)]); };
-  document.getElementById('replace').onclick = function () { if (lastReply && window.Asc && window.Asc.plugin) window.Asc.plugin.executeMethod('PasteHtml', [mdToHtml(lastReply)]); };
 
-  var reg = false;
+  var reg2 = false;
   function register() {
-    if (reg || !window.Asc || !window.Asc.plugin) return;
-    reg = true;
+    if (reg2 || !window.Asc || !window.Asc.plugin) return;
+    reg2 = true;
     window.Asc.plugin.init = function () {
       editorType = readEditorKind();
-      // v7.7：初始化失败自动重试两次（宿主页 cookie/CSRF 轮换时序），仍失败
-      // 给出可操作提示（此前一律「初始化失败」无从下手）。
-      var attempt = function (n) {
-        return refresh().then(function () { return loadModels().then(renderModels); })
-          .then(function () { setHint((editorType ? '就绪 · ' + editorType : '就绪') + ' · v7.7'); })
-          .catch(function (e) {
-            console.warn('[docflow-ai] init failed:', e && e.status, 'retry left:', n);
-            if (n > 0) {
-              setHint('初始化重试中…');
-              window.setTimeout(function () { void attempt(n - 1); }, 1500);
-              return;
-            }
-            setHint('初始化失败（登录态可能过期）——刷新文档页后重试');
-          });
-      };
-      void attempt(2);
+      // 登录态就绪（失败不阻断——SPA 侧请求 401 时会经 __refresh__ 重试）。
+      void refresh().catch(function () {});
+      probeEditor().catch(function () {});
     };
     window.Asc.plugin.onMethodReturn = function () {};
     window.Asc.plugin.button = function () {};
   }
-  // 会话恢复（服务端拉取；文件标识可能晚于插件装载写入——稍候再读一次）。
-  void sessLoad();
-  window.setTimeout(function () {
-    var key2 = 'docflow.ai.plugin.convs.default';
-    try {
-      var fj3 = JSON.parse(window.localStorage.getItem('docflow.ai.editor.file') || 'null');
-      if (fj3 && fj3.id) key2 = 'docflow.ai.plugin.convs.' + fj3.id;
-    } catch (e) {}
-    if (key2 !== fileKey) { fileKey = key2; void sessLoad(); }
-  }, 800);
-  if (window.Asc && window.Asc.plugin) { register(); }
-  else {
-    var n = 0, p = setInterval(function () {
-      n++;
-      if (window.Asc && window.Asc.plugin) { clearInterval(p); register(); if (window.Asc.plugin.init) window.Asc.plugin.init(); return; }
-      if (n >= 20) { clearInterval(p); setHint('调试模式 · v7.2'); }
-    }, 500);
-    void refresh().then(function () { return loadModels().then(renderModels); }).catch(function () {});
-  }
+  register();
+  document.addEventListener('DOMContentLoaded', register);
+  window.addEventListener('load', register);
 })();

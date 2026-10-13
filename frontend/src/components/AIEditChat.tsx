@@ -102,7 +102,7 @@ function agentConvoView(convo: AIMessage[]): AIMessage[] {
  *   replaceAll），宿主执行器（DfdocEditorPage.applyRichTextPatch）在
  *   ProseMirror 文档中按定位原文精确匹配逐条执行；围栏缺失时宿主回落
  *   追加。回复原文经 onApply('replace') 透传，解析在宿主侧。 */
-export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'richtext-patch'
+export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'richtext-patch' | 'office-word' | 'office-excel' | 'office-ppt' | 'office-pdf'
 
 /** 从 AI 回复中提取 excalidraw 元素 JSON 源码：优先 ```excalidraw-json 围栏；
  * 其次任意围栏代码块内容以 [ 开头；最后裸数组（trim 后 [ 起 ] 止）。
@@ -344,6 +344,27 @@ export function AIEditChatButton({
       { key: 'fix', label: zh ? '修正错别字' : 'Fix typos', instruction: zh ? '请找出并修正文档中的错别字与标点错误' : 'Find and fix typos and punctuation errors', editMode: true },
       { key: 'summary', label: t(locale, 'aiEditSummary'), instruction: zh ? '请总结当前文档' : 'Summarize the current document', editMode: false },
       'divider',
+      { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
+    ],
+    // Office 插件面板（v8 SPA 桥接）：与站内一致的快捷指令（经桥由 DS 工具执行）。
+    'office-word': [
+      { key: 'summary', label: zh ? '总结文档' : 'Summarize', instruction: zh ? '请总结当前文档的要点' : 'Summarize the current document', editMode: false },
+      { key: 'polish', label: zh ? '润色全文' : 'Polish', instruction: zh ? '请润色当前文档：逐段优化表述并保持原意' : 'Polish the document section by section, keeping the meaning', editMode: true },
+      'divider',
+      { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
+    ],
+    'office-excel': [
+      { key: 'summary', label: zh ? '读表概览' : 'Overview', instruction: zh ? '请读取表格并给出结构概览与数据要点' : 'Read the sheet and summarize its structure and key data', editMode: false },
+      { key: 'beautify', label: zh ? '表格美化' : 'Beautify', instruction: zh ? '请为表头加样式、调整列宽并冻结首行' : 'Style the header, adjust column widths and freeze the first row', editMode: true },
+      'divider',
+      { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
+    ],
+    'office-ppt': [
+      { key: 'outline', label: zh ? '生成大纲页' : 'Outline slide', instruction: zh ? '请新增一页大纲页，概括当前演示文稿各页要点' : 'Add an outline slide summarizing the deck', editMode: true },
+      'divider',
+      { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
+    ],
+    'office-pdf': [
       { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
     ],
     chat: [
@@ -1299,7 +1320,7 @@ ${planText}` },
         if (!def) {
           // 诊断：完整记录工具集状态（排查 mid-loop 工具丢失问题）
           const allNames = tools.map((t) => t.name).join(', ')
-          console.warn('[AgentLoop] 未知工具:', tool, '| 循环工具集:', allNames, '| agentTools:', (agentToolsRef.current ?? []).length, '个', '| pkgId:', pkgIdRef.current, '| round:', round)
+          console.debug('[AgentLoop] 未知工具:', tool, '| 循环工具集:', allNames, '| agentTools:', (agentToolsRef.current ?? []).length, '个', '| pkgId:', pkgIdRef.current, '| round:', round)
           const dfHint = tool.startsWith('df_') ? '；df_* 是全局 AI 助手的平台文件工具，本面板不可用，不要再尝试' : ''
           result = { ok: false, error: `未知工具 ${tool}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个${dfHint}）` }
         } else if (def.destructive && cautiousRef.current) {

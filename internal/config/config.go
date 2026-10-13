@@ -257,7 +257,10 @@ func Load() (Config, error) {
 	if e != nil {
 		return Config{}, e
 	}
-	maxVersions, e := intEnv("MAX_VERSIONS_PER_FILE", 5)
+	// v7.10：默认 30（原 5——AI 编辑每次工具应用都落版本，5 版会被迅速
+	// 裁剪造成"老版本丢失"；可经 env 或 system_settings 的
+	// upload.max_versions_per_file 覆盖）。
+	maxVersions, e := intEnv("MAX_VERSIONS_PER_FILE", 30)
 	if e != nil {
 		return Config{}, e
 	}

@@ -49,6 +49,7 @@ import DrawioPage from './pages/DrawioPage'
 import ExcalidrawPage from './pages/ExcalidrawPage'
 import TextEditorPage from './pages/TextEditorPage'
 import DfdocEditorPage from './pages/DfdocEditorPage'
+import OfficeAIPage from './pages/OfficeAIPage'
 import SettingsPage from './pages/SettingsPage'
 import DashboardPage from './pages/DashboardPage'
 import ViewerPage from './pages/ViewerPage'
@@ -889,6 +890,7 @@ export default function App() {
             编辑器包经 React.lazy 动态加载独立 chunk）。 */}
         <Route path="/excalidraw/:fileId" element={<RequireAuth bare><ExcalidrawPage /></RequireAuth>} />
         {/* 文本与源码使用不带站点顶栏的独立编辑窗口。 */}
+        <Route path="/office-ai" element={<RequireAuth bare><OfficeAIPage /></RequireAuth>} />
         <Route path="/text/:fileId" element={<RequireAuth bare><TextEditorPage kind="text" /></RequireAuth>} />
         <Route path="/markdown/:fileId" element={<RequireAuth bare><TextEditorPage kind="markdown" /></RequireAuth>} />
         <Route path="/code/:fileId" element={<RequireAuth bare><TextEditorPage kind="text" /></RequireAuth>} />

@@ -279,6 +279,10 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   const dirtyRef = useRef(false)
   const savingRef = useRef(false)
   const savePromiseRef = useRef<Promise<boolean> | null>(null)
+  // v7.10：AI 应用后 export 回执的等待者（applyDiagramXML 异步化——此前
+  // exec 立即返回，紧随的 read_diagram 读到旧 xmlRef，模型误判失败反复
+  // 整图替换，造成元素「丢失又回来」闪烁）。
+  const pendingExportRef = useRef<((xml: string) => void) | null>(null)
   // 自动保存 debounce（autosave 事件静置 10s 落版本；v2.7 自动保存间隔）。
   const autosaveTimerRef = useRef(0)
   // 「保存并退出」之外的退出流程抑制 beforeunload（返回确认走 antd 弹窗，
@@ -358,6 +362,14 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       if (msg.event === 'init') {
         window.clearTimeout(initTimer)
         frame.contentWindow?.postMessage(JSON.stringify({ action: 'load', xml: xmlRef.current, autosave: 1 }), '*')
+        // v7.10：载入内容疑似非标准形态（压缩 mxfile 等无 mxGraphModel）→
+        // 主动 export 一次让编辑器吐出规范化明文 XML（此后 read_diagram 可
+        // 解析；export 回包走既有保存链路落一个规范化版本）。
+        if (!xmlRef.current.includes('mxGraphModel')) {
+          window.setTimeout(() => {
+            frame.contentWindow?.postMessage(JSON.stringify({ action: 'export', format: 'xml' }), '*')
+          }, 600)
+        }
         return
       }
       if (msg.event === 'exit') {
@@ -380,7 +392,11 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       if (msg.event === 'save' || msg.event === 'export') {
         if (msg.xml) {
           // 跟踪最新 XML（save/export 均为编辑器当前内容——AI 应用后的
-          // export 回包在此同步，保证后续 AI 轮次的 XML 上下文不陈旧）。
+          // export 回包在此同步，保证后续 AI 轮次的 XML 上下文不陈旧）；
+          // v7.10：同时唤醒等待 export 回执的 AI 应用（异步 apply）。
+          const waiter = pendingExportRef.current
+          pendingExportRef.current = null
+          if (waiter) waiter(msg.xml)
           xmlRef.current = msg.xml
           window.clearTimeout(autosaveTimerRef.current)
           const pending = saveDiagram(msg.xml)
@@ -457,8 +473,11 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
 
   /** 应用 XML 到画布（Agent 工具与单轮 aiApply 共用）：fixDrawioXML 守门
    * （悬空引用/缺几何/坐标漂移/重叠）→ iframe load 整体替换 → 主动 export
-   * 走既有 saveDiagram 链路落版本。返回 string=失败原因。 */
-  const applyDiagramXML = (xml: string): string | void => {
+   * 走既有 saveDiagram 链路落版本。v7.10 异步化：等待 export 回执（xmlRef
+   * 已更新）才返回——紧随的 read_diagram/list_cells 读到的是应用后的内容
+   * （此前立即返回导致读到旧 XML，模型误判失败反复整图替换）。超时（4s）
+   * 未回执则直接采纳输入 XML 兜底。返回 string=失败原因。 */
+  const applyDiagramXML = async (xml: string): Promise<string | void> => {
     const frame = frameRef.current?.contentWindow
     if (!frame) return '图表编辑器未就绪，未应用'
     let fixed = xml
@@ -470,6 +489,11 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
     frame.postMessage(JSON.stringify({ action: 'load', xml: fixed, autosave: 1 }), '*')
     dirtyRef.current = true
     frame.postMessage(JSON.stringify({ action: 'export', format: 'xml' }), '*')
+    const got = await new Promise<string | null>((resolve) => {
+      pendingExportRef.current = (exported) => resolve(exported)
+      window.setTimeout(() => resolve(null), 4000)
+    })
+    if (!got) xmlRef.current = fixed
   }
 
   /** v7 drawio Agent 工具集：单元格级读/列/增/改/删 + 整图替换——局部修改
@@ -477,7 +501,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   const aiAgentTools: AIEditTool[] = useMemo(() => {
     const currentXML = () => (xmlRef.current.trim() ? xmlRef.current : EMPTY_DRAWIO_XML)
     /** 改动应用：返回 string=失败原因，void=成功（已 load+export 落版本）。 */
-    const apply = (doc: Document): string | void => applyDiagramXML(new XMLSerializer().serializeToString(doc))
+    const apply = (doc: Document): Promise<string | void> => applyDiagramXML(new XMLSerializer().serializeToString(doc))
     return [
       {
         name: 'read_diagram',
@@ -546,7 +570,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             }
           }
           root.appendChild(adopted)
-          const err = apply(doc)
+          const err = await apply(doc)
           if (err) return { ok: false, error: err }
           return { ok: true, inserted: incoming.length, ids: incoming.map((c) => c.getAttribute('id') ?? '') }
         },
@@ -603,7 +627,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             updated++
           }
           if (!updated) return { ok: false, error: `未命中任何单元格 id（可用 id 见 list_cells；收到 ${missing.slice(0, 5).join(', ')}…）` }
-          const err = apply(doc)
+          const err = await apply(doc)
           if (err) return { ok: false, error: err }
           return { ok: true, updated, missing: missing.length ? missing : undefined }
         },
@@ -636,7 +660,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             if (kill.has(c.getAttribute('id') ?? '')) { c.parentNode?.removeChild(c); removed++ }
           }
           if (!removed) return { ok: false, error: '未命中任何单元格 id' }
-          const err = apply(doc)
+          const err = await apply(doc)
           if (err) return { ok: false, error: err }
           return { ok: true, deleted: removed }
         },
@@ -649,7 +673,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         exec: async (a: Record<string, unknown>) => {
           const xml = String(a.xml ?? '')
           if (!/<(mxGraphModel|mxfile)[\s>]/.test(xml)) return { ok: false, error: 'xml 必填：完整 drawio XML' }
-          const err = applyDiagramXML(xml)
+          const err = await applyDiagramXML(xml)
           return err ? { ok: false, error: err } : { ok: true }
         },
       },
@@ -698,6 +722,8 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
               : 'Tip: add the official draw.io MCP to generate/preview diagrams in chat'}
           </span>
         )}
+        {!viewMode && <span className="muted drawio-save-hint">Ctrl+S 保存（不退出）</span>}
+        <span className="editor-head-spacer" />
         {versionNo !== undefined && <span className="badge current">当前版本 v{versionNo}</span>}
         {saving && <span className="badge uploading">保存中…</span>}
         {/* AI 统一入口：完整 AIEditChat 右侧面板（applyKind=drawio-xml，可
@@ -707,7 +733,6 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         <Button size="small" icon={<HistoryIcon size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file}
           onClick={() => setVerHistOpen(true)}>{locale === 'zh-CN' ? '历史版本' : 'History'}</Button>
         <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} kind="drawio-xml" disabled={loading || !!frameError} />
-        {!viewMode && <span className="muted drawio-save-hint">Ctrl+S 保存（不退出）</span>}
               </div>}
 
       {!viewMode && notice && !frameError && <div className="banner ok editor-hint">{notice}</div>}

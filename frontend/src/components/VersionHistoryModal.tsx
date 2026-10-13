@@ -62,6 +62,8 @@ export default function VersionHistoryModal({ file, onClose, onChanged }: Props)
   const [uploadError, setUploadError] = useState('')
   // 对比模式：A（旧）/ B（新）两个版本 ID，diff 结果与加载态。
   const [compareMode, setCompareMode] = useState(false)
+  // v7.10：批量删除选中集（当前版本不可选）。
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [aId, setAId] = useState('')
   const [bId, setBId] = useState('')
   const [diff, setDiff] = useState<DiffResult | null>(null)
@@ -273,14 +275,39 @@ export default function VersionHistoryModal({ file, onClose, onChanged }: Props)
             >
               <ArrowRightLeft size={14} strokeWidth={2} aria-hidden="true" /> 对比版本
             </Button>
+            <Button
+              size="small"
+              danger
+              disabled={selected.size === 0 || busyId !== null}
+              title={selected.size === 0 ? '勾选要删除的历史版本' : `删除选中的 ${selected.size} 个版本`}
+              onClick={() => {
+                antdModal.confirm({
+                  title: '批量删除版本',
+                  content: `确定删除选中的 ${selected.size} 个历史版本？此操作不可撤销（当前版本不受影响）。`,
+                  okText: '删除',
+                  okButtonProps: { danger: true },
+                  cancelText: '取消',
+                  onOk: async () => {
+                    setError(''); setNotice('')
+                    let failed = 0
+                    for (const vid of Array.from(selected)) {
+                      try { await deleteFileVersion(file.id, vid) } catch { failed++ }
+                    }
+                    setSelected(new Set())
+                    setNotice(failed > 0 ? `已删除，${failed} 个失败` : `已删除选中版本`)
+                    await load()
+                    onChanged()
+                  },
+                })
+              }}
+            >
+              批量删除{selected.size > 0 ? `（${selected.size}）` : ''}
+            </Button>
             {uploadPhase && <span className={`badge ${uploadPhase}`}>{phaseText[uploadPhase]}</span>}
             {uploadError && <span className="error-text">{uploadError}</span>}
           </div>
+          <p className="hint version-hint">提示：版本不是 git 分支、无「合并」概念——删除中间版本只是移除该快照（当前内容与其它版本不变）；平台按保留策略自动裁剪最旧版本（默认保留最近 30 个，可由管理员调整）。</p>
           {!textLike && versions.length > 0 && <p className="hint version-hint">该文件不是文本类型，暂不支持版本对比。</p>}
-          <p className="hint version-hint">
-            上传新版本将保留历史（按系统设置组合裁剪：最新 N 个 ∪ 保留时间窗内，当前版本恒不可删）；
-            回滚仅移动「当前版本」指针，不修改任何历史版本内容。
-          </p>
 
           {notice && <div className="banner ok">{notice}</div>}
           {error && <div className="banner error">{error}</div>}
@@ -291,6 +318,7 @@ export default function VersionHistoryModal({ file, onClose, onChanged }: Props)
             <table className="file-table version-table">
               <thead>
                 <tr>
+                  <th className="col-check"></th>
                   <th>版本</th>
                   <th>大小</th>
                   <th>时间</th>
@@ -304,6 +332,23 @@ export default function VersionHistoryModal({ file, onClose, onChanged }: Props)
                   const current = v.id === currentId
                   return (
                     <tr key={v.id}>
+                      <td className="col-check">
+                        {v.id !== currentId && (
+                          <input
+                            type="checkbox"
+                            checked={selected.has(v.id)}
+                            onChange={() => {
+                              setSelected((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(v.id)) next.delete(v.id)
+                                else next.add(v.id)
+                                return next
+                              })
+                            }}
+                            aria-label={`选择版本 v${v.version}`}
+                          />
+                        )}
+                      </td>
                       <td>
                         <span className="version-no">v{v.version}</span>
                         {current && <span className="badge current">当前</span>}

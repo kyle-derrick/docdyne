@@ -167,14 +167,16 @@ export default function ChatThread({
                   </span>
                 )}
                 {msg.note && <div className="ai-edit-chat-note">{msg.note}</div>}
+                {/* v7.10：复制移入气泡内左下角（原在气泡外右下）。 */}
+                {!batchMode && (
+                  <div className="user-ops-in">
+                    <button type="button" onClick={() => onCopy(msg.content)} aria-label={zh ? '复制' : 'Copy'}>
+                      <Copy size={11} strokeWidth={2} aria-hidden="true" />
+                      {zh ? '复制' : 'Copy'}
+                    </button>
+                  </div>
+                )}
               </div>
-              {!batchMode && (
-                <div className="ai-edit-chat-actions user-ops">
-                  <Button size="small" type="text" icon={<Copy size={12} strokeWidth={2} />} onClick={() => onCopy(msg.content)}>
-                    {zh ? '复制' : 'Copy'}
-                  </Button>
-                </div>
-              )}
             </>
           ) : (
             <>
