@@ -29,19 +29,40 @@
 - [x] S10. 助手获得：批量多选 / 保存会话到平台文件 / 会话 JSON 导入导出 /
       用量可见（ChatThread usageAI 行）——随 S8 完成
 - [x] S11. 查看页获得：消息操作（复制/删除/重新生成）——随 S9 完成
-      （会话管理/悬浮窗模式按用户决定不做）
+      （会话管理按用户决定不做；v7.6 起悬浮卡亦有回底按钮）
 - [x] S12. 三处统一：谨慎模式（仅 editor 显示按钮 showCautious）/
-      模式段（assistant 复用 可修改/仅对话，映射 smart/chat）/
+      模式段（v7.6 收敛为 ChatHeader 标题后单按钮，hover 说明）/
       ChatThread 内容统一 AIMarkdown 渲染（修复 S7 纯文本回退）
-- [ ] S13. OnlyOffice 插件面板（plugin.js）对齐——最终目标：插件复用同一套
-      UI 逻辑（受限于 DS 沙箱 ES5，需 esbuild 编译而非直接复用）
+- [x] S13. OnlyOffice 插件面板对齐（v7.6 / ?v=16）：模式单按钮、气泡下方
+      复制、回复底部用量行、移除流式 TOOL_CALL 原始行、回底按钮、
+      工具卡运行中直显入参（完整 React 编译复用受 DS 沙箱 ES5 限制，
+      按交互范式手工对齐）
 
 ## 阶段五：收尾
 - [x] S14. 死代码清理：useChatSessions.ts 删除；AIMessageList 的
       Bubble.List 消息流删除（保留 Thinking/ToolChain/WebSources）；
       AIAssistant 兼容 re-export 删除；styles.css 45+ 死规则块删除
-- [ ] S15. E2E 测试更新（AI 对话相关选择器如仍引用旧类名需同步）
-- [ ] S16. docs/ai-editing.md 更新为统一架构描述
+- [x] S15. E2E 测试：17/17 通过（干净库；AI UI 无 E2E 覆盖，经浏览器冒烟）
+- [x] S16. docs/ai-editing.md 更新为统一架构描述
+
+## v7.6 增量（用户反馈七项）
+- [x] 1. AI 助理历史会话切换防御修复（ref/state 回落 + 激活点击=刷新）；
+      浏览器实测切换正常（会话一⇄会话二⇄UI 会话）
+- [x] 2. 模式单按钮入头部（hover 说明 = 原 modeTip；编辑页/助手/插件统一）
+- [x] 3. 悬浮窗：拖动修复（根因 = S7 后 onHeadPointerDown 未挂载）+
+      右下角缩放 + 位置尺寸记忆（Shell 内聚）+ AI 助理窗口化；
+      文案「窗口显示/侧边面板显示」；实测拖动/缩放/持久化
+- [x] 4. 用户消息复制按钮移到气泡下方（实测 opsTop > bubbleBottom）
+- [x] 5. TraceView：运行中自动展开当前阶段（思考贴底跟随/工具直显入参）、
+      完成收起、去原始行、头部只留秒数、tokens+整体耗时移到回复底部
+- [x] 6. 回到底部悬浮按钮（三宿主 + 插件；实测显隐与点击回底）
+- [x] 7. 插件 UI 对齐（见 S13）
+
+## 遗留观察项
+- 「未知工具」偶发：诊断日志已部署（5a5f978 + AgentLoop 启动日志），
+  等真实复现时取控制台输出
+- E2E 前若共用 e2e 库做过 AI 冒烟，须重置库（ai.enabled=true 会让上传
+  触发 mock 摘要集成导致轮询用例失败——环境问题非代码缺陷，已实测确认）
 
 ## 已知问题（需用户配合排查）
 - "未知工具"偶发：已在 5a5f978 加诊断日志，等复现时看控制台输出
