@@ -30,15 +30,40 @@ word 元素序号从 1 起；slide 页码从 1 起）。
   经 `Asc.plugin.callCommand` 执行（plugin.js 内 ES5 函数序列化注入）；提示
   词按编辑器类型分节。缓存：plugin.js 改动必须递增 index.html 的 `?v=`。
 - **draw.io / 白板 / 富文本 / Monaco**：编辑页右侧 AIEditChat 面板
-  （`frontend/src/components/AIEditChat.tsx`），工具由宿主页经 `agentTools`
-  注入、`agentSystemExtra` 注入类型专属规范，前端本地执行（ProseMirror 命令
-  / DOMParser XML 操作 / excalidraw updateScene），落盘走版本链（应用前保存
-  基线，可撤销）。
-- **平台 AI 助手（全局抽屉）**：服务端 df_* 文件工具（`internal/ai/platformtools.go`）
-  ——可创建 `.drawio`/`.excalidraw`/`.mermaid` 等图表白板源文件（跨类型
-  创作），再进各编辑器用对应工具套装精修。
+  （`frontend/src/components/AIEditChat.tsx`，v7.4 起渲染层为 AIChatShell
+  editor 模式），工具由宿主页经 `agentTools` 注入、`agentSystemExtra`
+  注入类型专属规范，前端本地执行（ProseMirror 命令 / DOMParser XML 操作 /
+  excalidraw updateScene），落盘走版本链（应用前保存基线，可撤销）。
+- **平台 AI 助手（全局抽屉）**：AIAssistant（v7.4 起渲染层为 AIChatShell
+  assistant 模式，Drawer 仅作容器）+ 服务端 df_* 文件工具
+  （`internal/ai/platformtools.go`）——可创建 `.drawio`/`.excalidraw`/
+  `.mermaid` 等图表白板源文件（跨类型创作），再进各编辑器用对应工具套装
+  精修。
+- **查看页悬浮 AI 助理**：ViewerAIWidget（v7.4 起消息流/输入区为共享
+  ChatThread/ChatInput；文本类文件支持「保存为新版本」，经 actionSlot
+  注入）。
 - **外部 agent**：平台 MCP（`docs/mcp.md`，21 个 df_* 工具）——drawio/
   excalidraw 为文本源文件，直接读写即为编辑。
+
+## 统一 AI 对话架构（v7.4）
+
+三处对话 UI（助手抽屉 / 编辑页面板 / 查看页悬浮卡）共用
+`frontend/src/components/aichat/` 组件族，宿主只保留业务逻辑、渲染全部经
+props 注入：
+
+| 组件 | 职责 |
+|---|---|
+| `AIChatShell` | 壳：ChatHeader + 模式段 + ChatThread + 批量条 + ChatInput；hostType 区分场景（assistant 自动 in-drawer 形态） |
+| `ChatHeader` | 标题 + 会话管理（ConvoPicker）+ 新建 + 导入导出 + 批量 + 悬浮切换 + 关闭（showFloat/showCautious 可隐藏） |
+| `ChatThread` | 统一消息流：思考折叠 / TraceView / markdown 流式 / 工具链 / RAG 与网络来源 / 用量 / 操作行（复制/删除/保存/重新生成）；actionSlot 扩展位（viewer 保存为新版本）；emptySlot 空态 |
+| `ChatInput` | 输入框 + 工具栏（技能包 / 谨慎模式 / togglesSlot 开关组 / 模型选择 / 发送停止） |
+| `AIMessageList.tsx` | AIChatThinking（思考折叠）/ AIToolChain（工具链）/ AIWebSourcesView（网络来源） |
+| `ConvoPicker` / `useStickyScroll` / `icons` | 会话选择器 / 贴底跟随 / 发送停止图标 |
+
+会话持久化：服务端 `/api/v1/ai/conversations` 事件溯源（turn 追加 /
+snapshot 快照，migration 054）；助手与编辑页共用，查看页按产品决策不保存
+会话（仅本机 localStorage 快照）。
+
 
 ## 跨类型组合
 
