@@ -121,6 +121,23 @@
       路由（同一套 AIEditChat/AIChatShell 全量复用），plugin.js 仅留 DS
       运行时 + oa:* postMessage 桥（1785→1102 行）
 
+## v7.12 增量（用户反馈六项，bb71a8c）
+- [x] 1. 文件页切目录闪烁：骨架只在无内容时显示；有内容时旧列表半透明
+      + 顶部细进度条（消除 table 上方闪现多行骨架）
+- [x] 2. 过程显示红点根修：drawio 压缩形态（mxfile>diagram>base64-deflate）
+      规范化（fflate inflate）+ 明文嵌套解包——read_diagram/list_cells 不再
+      missing mxGraphModel/root；工具状态文字标签（成功/失败/执行中）
+- [x] 3. AI 输出语言跟随页面语言（编辑 Agent system + 助手 system 前置约束）
+- [x] 4. 过程块展开/收起/阶段体动画（fadeSlide 0.16-0.18s）
+- [x] 5. AI 助手过程显示统一：ChatThread synthStages（prologue→note/
+      thinking→think/toolCalls→tool）→ 与编辑宿主同一 TraceView；
+      平铺工具链与独立思考框移除
+- [x] 6. Skill 自检循环：图表架构师/文档审校内置包 + drawio/白板/富文本
+      宿主规范（改动后必须重读验证，全部通过才 FINAL）+ 文档格式守门
+
+环境事件：D 盘满（301G/301G）→ WSL 挂载失败（错误码 6）→ WSLService
+死锁 → 清理 19GB（npm/JetBrains 索引/.zcode/pnpm）+ 重启电脑恢复。
+
 ## 遗留观察项
 - 「未知工具」偶发：诊断日志已部署（5a5f978 + AgentLoop 启动日志），
   等真实复现时取控制台输出
