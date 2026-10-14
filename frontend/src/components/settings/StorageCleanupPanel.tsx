@@ -18,6 +18,8 @@ interface CleanupItem {
   label: string
   detail: string
   size: number
+  /** 所属空间名（分组展示用）。 */
+  spaceName?: string
 }
 
 /** 清理类别。 */
@@ -68,6 +70,7 @@ export default function StorageCleanupPanel({ onError, onNotice }: { onError: (m
                   label: `${f.name} · v${v.version}`,
                   detail: `${formatQuota(v.size, false)} · ${new Date(v.created_at).toLocaleDateString()}`,
                   size: v.size,
+                  spaceName: sp.name,
                 })
               }
             } catch { /* 单文件失败跳过 */ }
@@ -228,6 +231,43 @@ export default function StorageCleanupPanel({ onError, onNotice }: { onError: (m
     })
   }
 
+  /** 全选/反选所有类别的所有项。 */
+  const toggleAll = () => {
+    const allSelected = categories.every((cat) => (checked[cat.key] ?? new Set()).size >= cat.items.length)
+    if (allSelected) {
+      setChecked(Object.fromEntries(categories.map((c) => [c.key, new Set<string>()])))
+    } else {
+      setChecked(Object.fromEntries(categories.map((c) => [c.key, new Set(c.items.map((i) => i.id))])))
+    }
+  }
+
+  /** 按空间分组全选/反选。 */
+  const toggleSpaceGroup = (catKey: string, spaceName: string, items: CleanupItem[]) => {
+    const spaceItems = items.filter((i) => i.spaceName === spaceName)
+    const current = checked[catKey] ?? new Set<string>()
+    const allSelected = spaceItems.every((i) => current.has(i.id))
+    setChecked((prev) => {
+      const set = new Set(prev[catKey] ?? [])
+      if (allSelected) {
+        spaceItems.forEach((i) => set.delete(i.id))
+      } else {
+        spaceItems.forEach((i) => set.add(i.id))
+      }
+      return { ...prev, [catKey]: set }
+    })
+  }
+
+  /** 类别内按空间名分组（spaceName 缺省归「未分类」）。 */
+  const groupBySpace = (items: CleanupItem[]): Array<[string, CleanupItem[]]> => {
+    const groups = new Map<string, CleanupItem[]>()
+    for (const item of items) {
+      const key = item.spaceName ?? ''
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(item)
+    }
+    return Array.from(groups.entries())
+  }
+
   const [error, setError] = useState('')
 
   const executeCleanup = () => {
@@ -281,6 +321,9 @@ export default function StorageCleanupPanel({ onError, onNotice }: { onError: (m
                 format={() => `${formatQuota(totalCleanable, false)} / ${formatQuota(totalAll, false)}`}
               />
             </div>
+            <Button size="small" onClick={toggleAll}>
+              {categories.every((cat) => (checked[cat.key] ?? new Set()).size >= cat.items.length) ? '取消全选' : '全选所有'}
+            </Button>
             <Button type="primary" danger disabled={totalCleanable === 0 && Object.values(checked).every((s) => s.size === 0)} loading={cleaning} onClick={executeCleanup}>
               清理选中项{Object.values(checked).reduce((a, s) => a + s.size, 0) > 0 ? `（${Object.values(checked).reduce((a, s) => a + s.size, 0)} 项）` : ''}
             </Button>
@@ -307,19 +350,34 @@ export default function StorageCleanupPanel({ onError, onNotice }: { onError: (m
                   </Button>
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>{cat.desc}</div>
-                <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
-                  {cat.items.map((item) => (
-                    <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', cursor: 'pointer', borderRadius: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={catChecked.has(item.id)}
-                        onChange={() => toggleItem(cat.key, item.id)}
-                      />
-                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                        {item.label}
-                      </span>
-                      <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{item.detail}</span>
-                    </label>
+                <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+                  {groupBySpace(cat.items).map(([spaceName, spaceItems]) => (
+                    <div key={spaceName || '_default'}>
+                      {spaceName && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 4px 2px', borderBottom: '1px solid var(--border)' }}>
+                          <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>{spaceName}</span>
+                          <span className="muted" style={{ fontSize: 10 }}>{spaceItems.length} 项</span>
+                          <span style={{ flex: 1 }} />
+                          <Button size="small" type="text" style={{ fontSize: 10, padding: '0 4px' }}
+                            onClick={() => toggleSpaceGroup(cat.key, spaceName, cat.items)}>
+                            {(spaceItems.every((i) => catChecked.has(i.id))) ? '取消' : '全选'}
+                          </Button>
+                        </div>
+                      )}
+                      {spaceItems.map((item) => (
+                        <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', cursor: 'pointer', borderRadius: 4 }}>
+                          <input
+                            type="checkbox"
+                            checked={catChecked.has(item.id)}
+                            onChange={() => toggleItem(cat.key, item.id)}
+                          />
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                            {item.label}
+                          </span>
+                          <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{item.detail}</span>
+                        </label>
+                      ))}
+                    </div>
                   ))}
                 </div>
               </div>

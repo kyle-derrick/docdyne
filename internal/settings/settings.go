@@ -391,6 +391,10 @@ type AIModel struct {
 	ID           string              `json:"id"`
 	Label        string              `json:"label,omitempty"`
 	Capabilities AIModelCapabilities `json:"capabilities"`
+	// MaxTokens 模型级输出上限覆盖（0 = 用全局 ai.max_tokens）。
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// ContextWindow 模型上下文窗口大小（token；0 = 不限制/由上游默认）。
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 // AIModelRef 为场景默认模型引用（ai.default_models 的值）。
