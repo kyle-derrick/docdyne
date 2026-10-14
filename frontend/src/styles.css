@@ -7645,17 +7645,14 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 }
 .share-fab:hover { opacity: .92; }
 
-/* v7.12e：文件列表加载——行级半透明 + 恢复渐显（表格高度恒定，
-   与左侧目录树等高；不重挂 DOM，行内容直接更新）。 */
+/* v7.12e：文件列表加载——行级半透明 + 恢复渐显（不重挂 DOM，行内容直接
+   更新）。容器 .files-body 本身是 file-browser 的 flex 子项（flex:1），
+   恒定撑满与目录树等高；内部 table/grid 行高天然（不拉伸），多出空间留白。 */
 .file-table.loading tbody tr { opacity: .45; pointer-events: none; transition: opacity .18s ease; }
 .file-table:not(.loading) tbody tr { transition: opacity .25s ease; }
 .file-grid.loading > * { opacity: .45; pointer-events: none; transition: opacity .18s ease; }
 .file-grid:not(.loading) > * { transition: opacity .25s ease; }
-/* 表格容器恒定撑满（flex 布局，与左侧目录树/右侧成员栏等高）。 */
-.files-body { display: flex; flex-direction: column; }
-.file-table { flex: 1; }
-.file-grid { flex: 1; position: relative; }
-.files-loading-skeleton { flex: 1; }
+.file-grid { position: relative; }
 
 /* v7.12：过程块展开/收起与阶段体动画。 */
 .ai-trace-list { animation: ai-trace-expand .18s ease; }
