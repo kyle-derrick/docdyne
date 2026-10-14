@@ -1936,6 +1936,8 @@ useEffect(() => {
     })
     const ac = new AbortController()
     abortRef.current = ac
+    // 当前 think 阶段起始时间（分轮计时：每个 think 阶段独立记录）。
+    let thinkStageStart = 0
     // 实际生效工作目录：手选（固定）> 跟随文件页位置（空间根 folderId 惰性
     // 解析并缓存）> 默认空间根（不传 work_root）；仅对话模式不传。
     let workRoot: string | undefined = workdir?.folderId
@@ -1975,8 +1977,15 @@ useEffect(() => {
             const ws = normalizeWebSources((meta as { sources?: unknown }).sources)
             if (ws.length > 0) updateTurn(assistantId, () => ({ webSources: ws }))
           },
-          // v7.13：完整过程 trace（与编辑宿主同构——思考/叙述/工具按时间序
-          // 交织为 TraceStage[]；ChatThread 直接渲染，不再 synthStages 推断）。
+          // v7.14i：完整过程 trace（与编辑宿主完全同构——思考/叙述/工具
+          // 按时间序交织为 TraceStage[]）。
+          // 关键修复：
+          // 1. content 不重复：onTool 时清空 content → 下轮文本从零积累 →
+          //    流结束时 content = 最后一轮文本（= 最终答案），中间叙述只在
+          //    trace note 里（与编辑页 runAgentLoop 的行为一致）
+          // 2. think 分轮计时：每个 think 阶段独立记录 startedAt → 结束时
+          //    计算各自耗时（与编辑页 pushStage+patchStage 一致）
+          // 3. think 之间被 tool/note 隔开时自动创建新 think 阶段
           onDelta: (chunk) => {
             updateTurn(assistantId, (x) => {
               const trace = [...(x.trace ?? [])]
@@ -1990,25 +1999,36 @@ useEffect(() => {
             })
           },
           onTool: (tool) => {
+            // 工具触发 → 清空 content（下一轮文本从零积累 = 最终答案）
             updateTurn(assistantId, (x) => {
               const trace = [...(x.trace ?? [])]
+              // 定稿上一个 think 阶段的耗时（如有）
+              if (thinkStageStart > 0) {
+                for (let i = trace.length - 1; i >= 0; i--) {
+                  if (trace[i].kind === 'think' && !trace[i].ms) {
+                    trace[i] = { ...trace[i], ms: Date.now() - thinkStageStart }
+                    break
+                  }
+                }
+                thinkStageStart = 0
+              }
               const entry = toolEntryFrom(tool)
               trace.push({ key: ++traceSeqRef.current, kind: 'tool' as const, label: entry.label, input: entry.input, status: 'running' as const })
-              return { trace, toolCalls: [...(x.toolCalls ?? []), entry] }
+              return { trace, content: '', toolCalls: [...(x.toolCalls ?? []), entry] }
             })
           },
           onSources: (sources) => updateTurn(assistantId, () => ({ sources })),
           onThinking: (text) => {
+            if (thinkStageStart === 0) thinkStageStart = Date.now()
             updateTurn(assistantId, (x) => {
               const trace = [...(x.trace ?? [])]
               const last = trace[trace.length - 1]
-              const startedAt = x.thinkingStartedAt ?? Date.now()
               if (last && last.kind === 'think') {
                 trace[trace.length - 1] = { ...last, text: (last.text ?? '') + text }
               } else {
                 trace.push({ key: ++traceSeqRef.current, kind: 'think' as const, text })
               }
-              return { trace, thinking: (x.thinking ?? '') + text, thinkingStartedAt: startedAt }
+              return { trace, thinking: (x.thinking ?? '') + text, thinkingStartedAt: x.thinkingStartedAt ?? thinkStageStart }
             })
           },
           onToolResult: (result) => {
@@ -2025,12 +2045,14 @@ useEffect(() => {
             })
           },
           onDone: (usage) => updateTurn(assistantId, (x) => {
+            // 定稿最后一个未定稿的 think 阶段
             const trace = [...(x.trace ?? [])]
-            const now = Date.now()
-            for (let i = 0; i < trace.length; i++) {
-              if (trace[i].kind === 'think' && !trace[i].ms) {
-                trace[i] = { ...trace[i], ms: now - (x.thinkingStartedAt ?? now) }
-                break
+            if (thinkStageStart > 0) {
+              for (let i = trace.length - 1; i >= 0; i--) {
+                if (trace[i].kind === 'think' && !trace[i].ms) {
+                  trace[i] = { ...trace[i], ms: Date.now() - thinkStageStart }
+                  break
+                }
               }
             }
             return { usage, trace }

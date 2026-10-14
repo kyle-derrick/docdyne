@@ -1533,8 +1533,8 @@ ${planText}` },
         ? (zh ? '描述要做的修改，Enter 发送' : 'Describe the change; Enter to send')
         : (zh ? '输入指令，Enter 发送（Shift+Enter 换行）' : 'Type an instruction; Enter to send (Shift+Enter for newline)')
   const emptyHint = zh
-    ? '描述要做的修改——AI 会先读文档再逐步编辑并校验；复杂目标可切「计划」模式。'
-    : 'Describe the change — the AI reads first, edits step by step, and verifies. Use Plan mode for complex goals.'
+    ? '描述要做的修改——AI 会先读文档再逐步编辑并校验。'
+    : 'Describe the change — the AI reads first, edits step by step, and verifies.'
 
   return (
     <>
