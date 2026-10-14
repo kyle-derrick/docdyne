@@ -78,17 +78,21 @@ const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
  *  TOOL_RESULT 正文截短（结构保留）。只影响发给模型的视图，不改写原始
  *  convo（「继续」恢复仍基于全量）——300 轮预算下防上下文爆窗的关键。 */
 function agentConvoView(convo: AIMessage[]): AIMessage[] {
-  if (convo.length <= 60) return convo
-  const keepTail = 36
+  // v7.14d Token 优化：窗口 60→40（尾保 36→20），尾段 TOOL_RESULT 全部
+  // 截短至 300 字（此前仅前 8 条截短，且阈值 600 导致多数结果未被压缩）。
+  // 27 万 tok 图表任务的主因：大量 read_scene TOOL_RESULT（全画布 XML
+  // ~3000 字）× 45 轮反复重发 ≈ 13.5 万 tok 仅历史上下文。
+  if (convo.length <= 40) return convo
+  const keepTail = 20
   const head = convo.slice(0, 2)
   const tail = convo.slice(-keepTail)
   const dropped = convo.length - head.length - tail.length
   const shrink = (m: AIMessage): AIMessage =>
-    m.role === 'user' && m.content.startsWith('TOOL_RESULT ') && m.content.length > 600
-      ? { ...m, content: `${m.content.slice(0, 300)}…（已压缩，原 ${m.content.length} 字）` }
+    m.role === 'user' && m.content.startsWith('TOOL_RESULT ') && m.content.length > 300
+      ? { ...m, content: `${m.content.slice(0, 300)}…（已压缩）` }
       : m
-  const note: AIMessage = { role: 'user', content: `（系统注：此前 ${dropped} 条历史消息已压缩省略——如需早期信息请用读工具重新获取）` }
-  return [...head, note, ...tail.slice(0, 8).map(shrink), ...tail.slice(8)]
+  const note: AIMessage = { role: 'user', content: `（系统注：此前 ${dropped} 条历史已压缩省略——需要时用读工具重取）` }
+  return [...head, note, ...tail.map(shrink)]
 }
 
 /** 应用通道类型（默认 text 行为完全不变）：
@@ -1157,7 +1161,7 @@ ${planText}` },
           if (++failStreak >= 4) return { ok: false, error: `子任务连败熔断：${parsed.call.tool}` }
         } else { failStreak = 1; lastFailSig = sig }
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify(parsed.call)}` })
-        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(r).slice(0, 15000)}` })
+        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(r).slice(0, 8000)}` })
       }
       return { ok: false, error: `子任务达预算（${maxRounds} 轮）未出摘要` }
     } catch (err) {
@@ -1361,7 +1365,7 @@ ${planText}` },
           lastFailSig = sig
         }
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify({ tool, args })}` })
-        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 15000)}` })
+        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 8000)}` })
       }
       if (finalText) {
         patchLastTurn(asstTurnId, () => ({

@@ -147,6 +147,8 @@ type aiChatRequest struct {
 	//=true 时向 Provider 透传（openai_compatible: reasoning_effort=medium；
 	// anthropic: thinking budget_tokens=2048）；模型不支持时静默忽略。
 	Think *bool `json:"think"`
+	// Effort 思考等级（low/medium/high；空 = medium）。
+	Effort string `json:"reasoning_effort"`
 	// WebSearch 开启联网搜索增强（默认 false）：须管理端配置
 	// ai.search.provider（searxng/tavily），否则静默跳过；搜索结果注入
 	// system 上下文，来源经 SSE meta 事件回传。与 context.query 的 RAG
@@ -332,6 +334,10 @@ func (h *Handler) aiChat(c *gin.Context) {
 		stream = *req.Stream
 	}
 	think := req.Think != nil && *req.Think
+	effort := req.Effort
+	if effort == "" {
+		effort = "medium"
+	}
 	// web_search 仅普通对话模式生效（RAG 模式以知识库检索为主，忽略）。
 	webSearchOn := req.WebSearch != nil && *req.WebSearch && !ragQuery
 	// use_mcp 仅普通对话模式生效（RAG 模式忽略，语义同 web_search）。
@@ -493,7 +499,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	}
 
 	if !stream {
-		res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{ProviderID: provider.ID, Model: model, Messages: messages, Think: think, UseMCP: useMCP, PlatformTools: platformTools, ToolExecutor: toolExec, Stream: false, Images: inputImages}, nil)
+		res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{ProviderID: provider.ID, Model: model, Messages: messages, Think: think, Effort: effort, UseMCP: useMCP, PlatformTools: platformTools, ToolExecutor: toolExec, Stream: false, Images: inputImages}, nil)
 		if err != nil {
 			auditDone(audit.StatusFailure, "", "")
 			aiErrorJSON(c, err)
@@ -536,7 +542,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 		}
 	}
 	res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{
-		ProviderID: provider.ID, Model: model, Messages: messages, Think: think, UseMCP: useMCP,
+		ProviderID: provider.ID, Model: model, Messages: messages, Think: think, Effort: effort, UseMCP: useMCP,
 		PlatformTools: platformTools, ToolExecutor: toolExec, Stream: true, OnTool: onTool, Images: inputImages,
 		// 推理思考增量（openai reasoning_content / anthropic thinking_delta）
 		// 独立流出，前端折叠思考区展示（不计入正文 delta）。
@@ -714,6 +720,8 @@ func (h *Handler) aiSummarize(c *gin.Context) {
 		// Think 开启推理思考（默认 false）：仅当摘要场景默认模型勾选
 		// capabilities.reasoning 时透传；模型不支持时静默忽略。
 		Think *bool `json:"think"`
+	// Effort 思考等级（low/medium/high；空 = medium）。
+	Effort string `json:"reasoning_effort"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.FileID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is required"})

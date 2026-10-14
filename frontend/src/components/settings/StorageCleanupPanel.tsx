@@ -7,7 +7,7 @@ import { App as AntdApp, Button, Progress, Spin } from 'antd'
 import { HardDrive, History, MessageSquare, Trash2 } from 'lucide-react'
 import {
   aiDeleteConversation, aiListConversations,
-  deleteFileVersion, listFileVersions, listTrash, purgeFile,
+  deleteFile, deleteFileVersion, listFileVersions, listTrash, purgeFile,
   listSpaces, listSpaceFiles,
 } from '../../api'
 import { formatQuota } from '../FileBrowser'
@@ -144,6 +144,42 @@ export default function StorageCleanupPanel({ onError, onNotice }: { onError: (m
           },
         })
         checks.trash = new Set()
+      }
+
+      // ---- 4. 大文件（>100MB 且 90 天未访问）----
+      const largeItems: CleanupItem[] = []
+      for (const sp of spaces) {
+        try {
+          const { files } = await listSpaceFiles(sp.id, null)
+          for (const f of files) {
+            if (f.type !== 'file') continue
+            const size = (f as { size?: number }).size ?? 0
+            const updated = new Date(f.updated_at).getTime()
+            const daysSince = (Date.now() - updated) / 86400000
+            if (size > 100 * 1024 * 1024 && daysSince > 90) {
+              largeItems.push({
+                id: f.id,
+                label: f.name,
+                detail: `${formatQuota(size, false)} · ${Math.round(daysSince)} 天未修改`,
+                size,
+              })
+            }
+          }
+        } catch { /* 空间失败跳过 */ }
+      }
+      if (largeItems.length > 0) {
+        cats.push({
+          key: 'large', icon: <HardDrive size={18} strokeWidth={2} aria-hidden="true" />,
+          title: '大文件（>100MB · 90天未修改）',
+          desc: '长时间未使用的大文件（删除前请确认不再需要）',
+          items: largeItems,
+          execute: async (ids) => {
+            for (const id of ids) {
+              await deleteFile(id).catch(() => {})
+            }
+          },
+        })
+        checks.large = new Set()
       }
 
       setCategories(cats)

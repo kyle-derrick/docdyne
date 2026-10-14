@@ -160,6 +160,10 @@ type ChatRequest struct {
 	OnThinking func(string)
 	// Stream true 时经 onDelta 流式回调增量。
 	Stream bool
+	// Effort 思考等级（v7.14d："low"/"medium"/"high"；空 = medium 默认）。
+	// 仅 Think=true 时生效：openai_compatible 透传 reasoning_effort，
+	// anthropic 映射为 thinking budget_tokens 阶梯。
+	Effort string
 	// Images 原生多模态图片输入（v7.9：视觉模型直接看图——对话上传的图片
 	// 附件；provider 层并入最后一条 user 消息：openai 兼容 image_url
 	// dataURL / anthropic base64 source 块。非视觉模型在 HTTP 层走 OCR
@@ -658,7 +662,11 @@ func (s *Service) chatOpenAI(ctx context.Context, p settings.AIProvider, model s
 	if req.Think {
 		// 推理思考透传（OpenAI o 系列/Qwen3 等；DeepSeek R1 系忽略该
 		// 字段即可，不影响请求）。
-		body["reasoning_effort"] = "medium"
+		effort := req.Effort
+		if effort == "" {
+			effort = "medium"
+		}
+		body["reasoning_effort"] = effort
 	}
 	if req.Stream {
 		body["stream"] = true
@@ -1543,7 +1551,11 @@ func (s *Service) openAIToolRound(ctx context.Context, p settings.AIProvider, mo
 		}
 		if req.Think {
 			// 推理思考每轮透传（同 chatOpenAI）。
-			body["reasoning_effort"] = "medium"
+			effort := req.Effort
+		if effort == "" {
+			effort = "medium"
+		}
+		body["reasoning_effort"] = effort
 		}
 		if stream {
 			body["stream"] = true

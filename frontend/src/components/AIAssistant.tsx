@@ -20,9 +20,9 @@
 //   ——详见各段注释。
 import { useEffect, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
-import { App as AntdApp, Drawer, Button, Input, Popconfirm, Popover, Select, Switch, Tag, Tooltip, Tree } from 'antd'
+import { App as AntdApp, Drawer, Button, Dropdown, Input, Popconfirm, Popover, Select, Switch, Tag, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
-import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search, Upload } from 'lucide-react'
+import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search, Upload, Gauge } from 'lucide-react'
 import {
   AISkillDef,
   AIUsage,
@@ -103,6 +103,18 @@ export const AI_MODEL_STORAGE_KEY = 'docflow.ai.model'
 /** 联网/思考开关持久化 key（AIAssistant / AIEditChat 等对话 UI 共用）。 */
 export const AI_WEB_STORAGE_KEY = 'docflow.ai.web'
 export const AI_THINK_STORAGE_KEY = 'docflow.ai.think'
+/** 思考等级持久化 key（low/medium/high；缺省 medium）。 */
+export const AI_THINK_EFFORT_KEY = 'docflow.ai.think.effort'
+
+/** 读取思考等级（非法回退 medium）。 */
+export function loadThinkEffort(): 'low' | 'medium' | 'high' {
+  try {
+    const v = window.localStorage.getItem(AI_THINK_EFFORT_KEY)
+    return v === 'low' || v === 'high' ? v : 'medium'
+  } catch {
+    return 'medium'
+  }
+}
 /** MCP 工具开关持久化 key（默认关；仅平台存在启用中的 MCP 服务时显示开关）。 */
 export const AI_MCP_STORAGE_KEY = 'docflow.ai.mcp'
 /** 「我的文件」（RAG 检索本人文档）开关持久化 key（默认开；RAG 未启用时隐藏）。 */
@@ -1153,6 +1165,7 @@ export default function AIAssistant() {
   // ready：/ai/models 已返回后才按 capabilities.reasoning 判定禁用/隐藏，
   // 加载期间思考开关保持可用（默认开），避免「支持思考却禁用」误判。
   const toggles = useAIChatToggles(models, modelKey, { ready: modelsLoaded })
+  const [thinkEffort, setThinkEffort] = useState<'low' | 'medium' | 'high'>(loadThinkEffort)
   // ---- 助手模式（智能 | 仅对话）：仅对话 = 不注入 df_* 文件工具
   //      （use_files 显式 false）+ 系统提示声明不读写文件；localStorage 记忆。 ----
   const [aiMode, setAiMode] = useState<'smart' | 'chat'>(loadAIMode)
@@ -1939,6 +1952,7 @@ useEffect(() => {
           // 联网/思考开关：选中时携带（后端未配置/模型不支持时静默忽略）。
           web_search: toggles.web ? true : undefined,
           think: toggles.think ? true : undefined,
+          reasoning_effort: toggles.think ? thinkEffort : undefined,
           // MCP 工具开关：开启时允许调用平台配置的外部 MCP 服务器工具。
           use_mcp: toggles.mcp ? true : undefined,
           // 长期记忆：恒开启（后端取最近 20 条拼入首条 system；无记忆静默跳过）。
@@ -2231,6 +2245,30 @@ useEffect(() => {
             <AIModelSelect models={models} modelKey={modelKey} modelExplicit={modelExplicit}
               onSelect={(v) => { setModelKey(v); setModelExplicit(true) }} zh={zh} />
           ) : undefined}
+          effortSlot={(
+            <Dropdown
+              trigger={['click']} placement="topLeft"
+              menu={{
+                selectable: true, selectedKeys: [thinkEffort],
+                items: [
+                  { key: 'low', label: zh ? '思考 · 快速' : 'Think · Fast' },
+                  { key: 'medium', label: zh ? '思考 · 标准' : 'Think · Balanced' },
+                  { key: 'high', label: zh ? '思考 · 深度' : 'Think · Deep' },
+                ],
+                onClick: ({ key }) => {
+                  const v = key as 'low' | 'medium' | 'high'
+                  setThinkEffort(v)
+                  try { window.localStorage.setItem(AI_THINK_EFFORT_KEY, v) } catch { /* ignore */ }
+                },
+              }}
+            >
+              <Button size="small" type="text" className={`ai-tool-icon${toggles.think ? ' on' : ''}`}
+                disabled={toggles.thinkBlocked !== null}
+                title={zh ? `思考等级：${thinkEffort === 'low' ? '快速' : thinkEffort === 'high' ? '深度' : '标准'}` : `Reasoning effort: ${thinkEffort}`}>
+                <Gauge size={14} strokeWidth={2} aria-hidden="true" />
+              </Button>
+            </Dropdown>
+          )}
           togglesSlot={(
             <AIChatToggleBar zh={zh} web={toggles.web} think={toggles.think} thinkBlocked={toggles.thinkBlocked}
               mcp={toggles.mcp} mcpAvailable={toggles.mcpAvailable} docs={toggles.docs} docsAvailable={toggles.docsAvailable}
