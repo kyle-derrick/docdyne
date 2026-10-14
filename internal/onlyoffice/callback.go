@@ -1,6 +1,7 @@
 package onlyoffice
 
 import (
+	"time"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -161,6 +162,20 @@ func (s *Service) saveVersion(status int64, actor uuid.UUID, key, url string, us
 	fileID, err := fileIDFromKey(key)
 	if err != nil {
 		return err
+	}
+	// v7.14f 自动保存≠版本发布：status=2（DS 自动保存回调，约 10 秒静置即
+	// 触发）距上一版本 < 60 秒时跳过建版（ack DS 不重试；内容安全——DS 会
+	// 在后续变更时再次回调并携带累积内容）；status=6（forcesave=用户显式
+	// 保存/关闭文档）恒建版本。解决「编辑几分钟产生十几个版本」的问题。
+	if status == 2 {
+		if _, ver, cerr := s.files.CurrentVersion(uuid.Nil, fileID); cerr == nil {
+			if time.Since(ver.CreatedAt) < 60*time.Second {
+				log.Printf("[onlyoffice] autosave throttled (file=%s, last version %.0fs ago, min 60s)", fileID, time.Since(ver.CreatedAt).Seconds())
+				s.recordAudit(audit.ActionOnlyOfficeSave, fileID, actor, audit.StatusSuccess,
+					callbackMetadata(key, status, map[string]any{"throttled": true, "last_version_age_s": time.Since(ver.CreatedAt).Seconds()}), ip, userAgent)
+				return nil
+			}
+		}
 	}
 	// 写鉴权先于幂等抢占：拒绝的回调不消耗幂等键（重试同样被拒）。
 	if err := s.authorizeSave(actor, fileID, status, key, ip, userAgent); err != nil {
