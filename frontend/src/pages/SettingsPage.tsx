@@ -71,6 +71,7 @@ import AIPersonalPanel from '../components/settings/AIPersonalPanel'
 import { useAIEnabled } from '../aiFeature'
 import { THEME_ACCENTS, ThemeAccent, ThemeMode, ThemePreference, THEME_EVENT, loadTheme, saveTheme } from '../theme'
 import { MessageKey, saveLocale, t, useLocale } from '../i18n'
+import StorageCleanupPanel from '../components/settings/StorageCleanupPanel'
 
 /** 通知事件类型的中文标签与说明（顺序即设置页展示顺序）。 */
 const NOTIFICATION_TYPE_META: Array<{ type: NotificationEventType; label: string; desc: string }> = [
@@ -1596,6 +1597,7 @@ const baseSettingsSections: ReadonlyArray<readonly [string, string, string]> = [
   ['developer', '开发者', 'Developer'],
   ['webdav', 'WebDAV', 'WebDAV'],
   ['aipersonal', 'AI 个人配置', 'AI personal'],
+  ['cleanup', '存储清理', 'Storage cleanup'],
 ]
 export function WebDAVPanel({ onError, onNotice }: { onError: (m: string) => void; onNotice: (m: string) => void }) { const [items,setItems]=useState<WebDAVToken[]>([]); const [name,setName]=useState(''); const [token,setToken]=useState(''); const load=async()=>{try{setItems(await listWebDAVTokens())}catch(e){onError(e instanceof Error?e.message:'加载失败')}}; useEffect(()=>{void load()},[]); const create=async()=>{try{const x=await createWebDAVToken(name,90);setToken(x.token);setName('');await load();onNotice('令牌已创建，请立即复制') }catch(e){onError(e instanceof Error?e.message:'创建失败')}}; return <div className="panel setting-group"><h3>WebDAV 文件挂载（个人令牌）</h3><div className="setting-desc muted">URL：{window.location.origin}/webdav；Windows 映射网络驱动器，Linux 使用 davfs2，macOS 使用 Finder“连接服务器”。WebDAV 使用 Basic Auth：用户名为平台邮箱/用户名，密码为下方一次性令牌；服务端开关由管理员在「管理 → 安全与访问」中配置。</div>{token&&<div className="share-link"><Input readOnly value={token}/><Button onClick={()=>void navigator.clipboard.writeText(token)}>复制令牌</Button></div>} {items.map(x=><div className="setting-row" key={x.id}><div className="setting-main"><b>{x.name}</b><div className="muted">最后使用：{x.last_used_at||'未使用'} · 过期：{x.expires_at||'永不过期'}</div></div><Button danger onClick={()=>void revokeWebDAVToken(x.id).then(load)}>吊销</Button></div>)}<div className="team-create-row"><Input placeholder="令牌名称（如：我的电脑）" style={{ maxWidth: 240 }} value={name} onChange={e=>setName(e.target.value)}/><Button type="primary" disabled={!name.trim()} onClick={()=>void create()}>创建令牌</Button></div></div>}
 
@@ -1646,6 +1648,7 @@ export default function SettingsPage() {
       {notice && <div className="banner ok">{notice}</div>}
       {error && <div className="banner error">{error}</div>}
       {section === 'webdav' && <WebDAVPanel onError={(m) => { setError(m); setNotice('') }} onNotice={(m) => { setNotice(m); setError('') }} />}
+      {section === 'cleanup' && <StorageCleanupPanel onError={(m) => { setError(m); setNotice('') }} onNotice={(m) => { setNotice(m); setError('') }} />}
       {section === 'aipersonal' && <AIPersonalPanel onError={(m) => { setError(m); setNotice('') }} onNotice={(m) => { setNotice(m); setError('') }} />}
       {section === 'appearance' && <AppearancePanel />}
       {section === 'openers' && <OpenWithPanel

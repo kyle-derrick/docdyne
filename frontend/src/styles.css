@@ -1560,7 +1560,10 @@ svg.lucide {
 
 .team-card-name {
   font-weight: 600;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
 }
 
 .team-card-desc {

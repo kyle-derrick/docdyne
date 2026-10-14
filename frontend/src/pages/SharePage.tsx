@@ -726,10 +726,8 @@ export default function SharePage() {
 
   if (state.status === 'loading') {
     return (
-      <div className="share-page">
-        <main className="share-card">
-          <p className="hint">加载中…</p>
-        </main>
+      <div className="share-page share-direct">
+        <ViewerState text="加载中…" />
       </div>
     )
   }

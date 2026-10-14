@@ -205,6 +205,17 @@ export default function TrashModal({
           />
         </label>
         <Button size="small" onClick={() => void load()}>{msg('refresh')}</Button>
+        {selected.size > 0 && (
+          <>
+            <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+              {formatMessage(msg('selectedCount'), { n: selected.size })}
+            </span>
+            <Button size="small" disabled={batchBusy} onClick={() => void handleBatchRestore()}>
+              {msg('restoreSelected')}
+            </Button>
+            <Button type="text" size="small" onClick={() => setSelected(new Set())}>{msg('clearSelection')}</Button>
+          </>
+        )}
         <span className="toolbar-spacer" />
         <Button size="small" danger disabled={batchBusy || items.length === 0} onClick={handlePurgeAll}>
           {locale === 'zh-CN' ? '清空回收站' : 'Empty trash'}
@@ -215,16 +226,6 @@ export default function TrashModal({
       {notice && <div className="banner ok">{notice}</div>}
       {loading && <div className="hint">{msg('loading')}</div>}
       {!loading && !error && items.length === 0 && <div className="empty">{msg('trashEmpty')}</div>}
-
-      {selected.size > 0 && (
-        <div className="batch-bar">
-          <span>{formatMessage(msg('selectedCount'), { n: selected.size })}</span>
-          <Button size="small" disabled={batchBusy} onClick={() => void handleBatchRestore()}>
-            {msg('restoreSelected')}
-          </Button>
-          <Button type="text" size="small" onClick={() => setSelected(new Set())}>{msg('clearSelection')}</Button>
-        </div>
-      )}
 
       {items.length > 0 && (
         <table className="file-table">

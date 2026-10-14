@@ -139,7 +139,7 @@ const zh = {
   // ---- 空间配额 ----
   quotaLabel: '存储配额', quotaUnlimited: '不限', quotaBytesLabel: '配额（字节，0=不限）',
   quotaUpdateFailed: '更新配额失败', quotaUsedOf: '{used} / {quota}',
-  defaultSpaceBadge: '默认空间', defaultSpaceNoDelete: '默认空间不可删除（可改名）',
+  defaultSpaceBadge: '默认', defaultSpaceNoDelete: '默认空间不可删除（可改名）',
   // ---- 空间用户组 ----
   groupsTitle: '用户组（{n}）', groupsTab: '用户组', membersTab: '成员',
   addGroup: '添加用户组', groupCol: '用户组', groupMemberCountCol: '组内成员',
