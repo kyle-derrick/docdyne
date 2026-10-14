@@ -1603,11 +1603,15 @@ useEffect(() => {
    *  覆盖「列表激活态与实际内容不一致」的状态修复场景）。 */
   const switchConvo = (id: string) => {
     const target = convosRef.current.find((c) => c.id === id) ?? convos.find((c) => c.id === id)
+    console.log('[ai-assistant] switchConvo 调用:', id, '当前:', convoIdRef.current, '目标存在:', !!target, 'ref数:', convosRef.current.length, 'state数:', convos.length)
     if (!target) {
-      console.warn('[ai-assistant] 切换目标不在会话列表：', id, '（refs', convosRef.current.length, '/ state', convos.length, '条）')
+      console.warn('[ai-assistant] 切换目标不在会话列表：', id)
       return
     }
-    if (id === convoIdRef.current) return
+    if (id === convoIdRef.current) {
+      console.log('[ai-assistant] 点击的是当前活跃会话，跳过')
+      return
+    }
     abortRef.current?.abort()
     sticky.scrollToBottom()
     convoIdRef.current = id

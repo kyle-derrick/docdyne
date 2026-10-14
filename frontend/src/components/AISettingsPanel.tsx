@@ -104,6 +104,10 @@ interface ModelForm {
   id: string
   label: string
   caps: AIModelCapabilities
+  /** 上下文窗口（token；0=不限制）。 */
+  context_window?: number
+  /** 输出上限覆盖（0=用全局）。 */
+  max_tokens?: number
 }
 
 /** 编辑中的 Provider 表单态。 */
@@ -1383,6 +1387,18 @@ export default function AISettingsPanel({
                         {zh ? c.zh : c.en}
                       </Checkbox>
                     ))}
+                    <Tooltip title={zh ? '上下文窗口（token，0=不限制）' : 'Context window (tokens, 0=unlimited)'}>
+                      <InputNumber size="small" style={{ width: 110 }} min={0} step={1000}
+                        placeholder={zh ? '上下文窗口' : 'Ctx window'}
+                        value={m.context_window || undefined}
+                        onChange={(v) => setEditing({ ...editing, models: editing.models.map((x, i) => (i === idx ? { ...x, context_window: v ?? 0 } : x)) })} />
+                    </Tooltip>
+                    <Tooltip title={zh ? '输出上限覆盖（0=用全局）' : 'Max tokens override (0=global)'}>
+                      <InputNumber size="small" style={{ width: 100 }} min={0} step={256}
+                        placeholder={zh ? '输出上限' : 'Max out'}
+                        value={m.max_tokens || undefined}
+                        onChange={(v) => setEditing({ ...editing, models: editing.models.map((x, i) => (i === idx ? { ...x, max_tokens: v ?? 0 } : x)) })} />
+                    </Tooltip>
                     <Button size="small" danger onClick={() => setEditing({ ...editing, models: editing.models.filter((_, i) => i !== idx) })}>
                       <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
                     </Button>

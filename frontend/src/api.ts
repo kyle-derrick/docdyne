@@ -3068,6 +3068,10 @@ export interface AIModelItem {
   id: string
   label?: string
   capabilities: AIModelCapabilities
+  /** 模型级输出上限覆盖（0 = 用全局）。 */
+  max_tokens?: number
+  /** 模型上下文窗口大小（token；0 = 不限制）。 */
+  context_window?: number
 }
 
 /** 场景默认模型引用（chat/summary/edit/embedding）。 */
