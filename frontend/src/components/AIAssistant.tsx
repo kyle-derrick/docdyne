@@ -1029,6 +1029,8 @@ export interface AIConvoMessage {
   content: string
   ts: number
   files?: AIAttachFile[]
+  /** assistant 回合的完整过程 trace（v7.14b 持久化）。 */
+  trace?: import('./aichat/TraceView').TraceStage[]
 }
 
 /** 历史会话条目（≤30 个，超出服务端裁最旧；单会话消息 ≤50 条）。 */
@@ -1349,7 +1351,7 @@ useEffect(() => {
       if (top && top.messages.length > 0) {
         convoIdRef.current = top.id
         setConvoId(top.id)
-        applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) })))
+        applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}), ...(Array.isArray(m.trace) && m.trace.length ? { trace: m.trace } : {}) })))
       }
     } catch {
       // 服务端不可达：保持空会话（不打断助手使用）。
@@ -1372,7 +1374,7 @@ useEffect(() => {
     const timer = window.setTimeout(() => {
       const now = Date.now()
       const msgs: AIConvoMessage[] = turns
-        .filter((x) => !x.error && x.content.trim())
+        .filter((x) => !x.error && (x.content.trim() || (x.trace && x.trace.length > 0)))
         .map((x) => ({
           role: x.role,
           content: x.content,
@@ -1380,6 +1382,9 @@ useEffect(() => {
           // v7.9：user 回合的引用/上传文件随事件持久化（上传附件随会话删除的
           // 依据：files[].upload=true 的条目在会话删除时联动清理文件）。
           ...(x.role === 'user' && x.files && x.files.length > 0 ? { files: x.files } : {}),
+          // v7.14b：assistant 回合的完整过程 trace 持久化（重载/切换后
+          // 思考与操作过程块可见，不再只显示最终文本）。
+          ...(x.role === 'assistant' && x.trace && x.trace.length > 0 ? { trace: x.trace } : {}),
         }))
       const synced = convoSyncedLenRef.current
       const persist = msgs.slice(-AI_CONVO_MSG_MAX)
@@ -1599,7 +1604,7 @@ useEffect(() => {
     exitBatch()
     if (target.messages.length > 0) {
       convoSyncedLenRef.current = target.messages.length
-      applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) })))
+      applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}), ...(Array.isArray(m.trace) && m.trace.length ? { trace: m.trace } : {}) })))
       return
     }
     void aiGetConversation(id)
@@ -1608,7 +1613,7 @@ useEffect(() => {
         const msgs = (row.messages as unknown as AIConvoMessage[]).filter((m) => m && typeof m.content === 'string')
         convosRef.current = convosRef.current.map((c) => (c.id === id ? { ...c, messages: msgs } : c))
         convoSyncedLenRef.current = msgs.length
-        applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}) })))
+        applyTurns(() => msgs.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}), ...(Array.isArray(m.trace) && m.trace.length ? { trace: m.trace } : {}) })))
       })
       .catch(() => {
         if (convoIdRef.current === id) void message.error(zh ? '会话内容加载失败' : 'Failed to load conversation')

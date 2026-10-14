@@ -1849,6 +1849,8 @@ function UserEditModal({
   const [role, setRole] = useState<'user' | 'admin'>(user.role)
   const [status, setStatus] = useState<'active' | 'disabled'>(user.status === 'active' ? 'active' : 'disabled')
   const [quotaGib, setQuotaGib] = useState(quotaToGib(user.storage_quota))
+  // v7.14b：用户组多选（初始=当前所属组名）。
+  const [selectedGroups, setSelectedGroups] = useState<string[]>(user.group_names ?? [])
   const [busy, setBusy] = useState(false)
   const selfId = currentUserId()
 
@@ -1872,6 +1874,20 @@ function UserEditModal({
         status,
         storageQuota: Math.round(gib * GIB),
       })
+      // v7.14b：同步用户组变更（新加→POST /groups/:id/members；移除→DELETE）。
+      if (groups.length > 0) {
+        const oldSet = new Set(user.group_names ?? [])
+        const newSet = new Set(selectedGroups)
+        for (const g of groups) {
+          const had = oldSet.has(g.name)
+          const has = newSet.has(g.name)
+          if (has && !had) {
+            try { await adminAddGroupMember(g.id, user.id) } catch { /* 组变更失败不阻塞 */ }
+          } else if (!has && had) {
+            try { await adminRemoveGroupMember(g.id, user.id) } catch { /* 同上 */ }
+          }
+        }
+      }
       onNotice(`已更新 ${user.username}`)
       onClose()
       await onChanged()
@@ -1926,9 +1942,18 @@ function UserEditModal({
           </label>
         </div>
         {groups.length > 0 && (
-          <div className="setting-desc muted">
-            所属组：{user.group_names?.length ? user.group_names.join('、') : '（无）'}
-          </div>
+          <label className="field">
+            <span>所属用户组（可多选）</span>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              value={selectedGroups}
+              onChange={setSelectedGroups}
+              options={groups.map((g) => ({ value: g.name, label: g.name }))}
+              placeholder="选择用户组"
+            />
+          </label>
         )}
         <div className="setting-control" style={{ marginTop: 8 }}>
           <Button type="primary" htmlType="submit" disabled={busy} loading={busy}>保存</Button>
