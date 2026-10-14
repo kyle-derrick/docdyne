@@ -7647,13 +7647,22 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 
 /* v7.12：切换目录的旧内容保留态（半透明 + 禁点）与顶部细进度条。 */
 .file-table.stale-loading, .file-grid.stale-loading { opacity: .45; pointer-events: none; transition: opacity .15s; }
-/* v7.12b：顶部细进度条改为绝对定位覆盖（不占布局空间，列表不下顶）。 */
-.files-loading-bar {
-  position: sticky;
-  top: 0;
-  z-index: 4;
+/* v7.12c：表内加载过渡（表头下 2px 进度行——在表格结构内，不挤占表格外空间）。 */
+.files-tbody-loading .files-loading-row-bar td {
+  display: block;
   height: 2px;
-  margin-bottom: -2px; /* 视觉重叠在列表首行上沿，零占位 */
+  padding: 0;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  background-size: 40% 100%;
+  animation: files-loading-sweep 1s ease-in-out infinite;
+}
+/* 网格视图：容器内顶部覆盖进度条（absolute 零占位）。 */
+.file-grid { position: relative; }
+.files-loading-bar-in {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 3;
   background: linear-gradient(90deg, transparent, var(--primary), transparent);
   background-size: 40% 100%;
   animation: files-loading-sweep 1s ease-in-out infinite;

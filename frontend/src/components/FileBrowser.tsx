@@ -2805,13 +2805,18 @@ export default function FileBrowser({
           {Array.from({ length: 6 }, (_, i) => <div key={i} className="files-loading-row" />)}
         </div>
       )}
-      {loading && visibleItems.length > 0 && <div className="files-loading-bar" aria-hidden="true" />}
       {!loading && visibleItems.length === 0 && !error && (
         <div className="empty">{directoryQuery.trim() || searchMode ? msg('noMatch') : emptyHint ?? (locale === 'zh-CN' ? '此目录为空，上传文件或新建文件夹开始使用' : 'This folder is empty. Upload a file or create a folder to get started.')}</div>
       )}
 
       {visibleItems.length > 0 && viewMode === 'list' && (
         <table className={`file-table soft-fade${loading ? ' stale-loading' : ''}`} key={`list-${currentFolderId ?? 'root'}`}>
+          {/* v7.12c：表内加载过渡——表头下一条 2px 进度行（表结构内，零额外空间）。 */}
+          {loading && (
+            <tbody className="files-tbody-loading">
+              <tr className="files-loading-row-bar"><td colSpan={7} /></tr>
+            </tbody>
+          )}
           <thead>
             <tr>
               <th className="col-check">
@@ -2959,6 +2964,7 @@ export default function FileBrowser({
           选择状态与列表视图共享（多选 + 批量工具条两视图通用）。 */}
       {visibleItems.length > 0 && viewMode === 'grid' && (
         <div className={`file-grid soft-fade${loading ? ' stale-loading' : ''}`} key={`grid-${currentFolderId ?? 'root'}`}>
+          {loading && <span className="files-loading-bar-in" aria-hidden="true" />}
           {visibleItems.map((item) => {
             const size = sizeCache.current.get(item.id) ?? 0
             return (
