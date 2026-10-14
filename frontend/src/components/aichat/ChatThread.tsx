@@ -12,6 +12,7 @@ import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, ShieldAler
 import { useEffect, useState, type ReactNode } from 'react'
 import { AIChatThinking, AIWebSourcesView } from './AIMessageList'
 import type { AIToolCallEntry, AIWebSource } from './turns'
+import { dfToolLabel } from './turns'
 import AIMarkdown from '../AIMarkdown'
 import type { AISource, AIUsage } from '../../api'
 import TraceView from './TraceView'
@@ -111,16 +112,24 @@ function AgentRawLine({ text }: { text: string }) {
 
 /** 由宿主字段合成过程阶段（v7.12：助手/查看器无显式 trace 时统一走
  * TraceView——prologue→note、thinking→think、toolCalls→tool）。 */
-function synthStages(msg: ChatMessage): TraceStage[] | undefined {
+function synthStages(msg: ChatMessage, zh: boolean): TraceStage[] | undefined {
   if (msg.trace && msg.trace.length > 0) return msg.trace
   const out: TraceStage[] = []
   let key = 1
-  for (const p of msg.prologue ?? []) {
-    if (p.trim()) out.push({ key: key++, kind: 'note', text: p.trim() })
-  }
   if (msg.thinking) out.push({ key: key++, kind: 'think', text: msg.thinking, ms: msg.thinkingMS })
-  for (const tc of msg.toolCalls ?? []) {
-    out.push({ key: key++, kind: 'tool', label: tc.label, input: tc.input, output: tc.output ?? tc.errorText, status: tc.status })
+  // 按时间序交织：prologue[i] 是第 i 次工具调用前的 AI 叙述（v7.12d 完整
+  // 过程——读取后 AI 的分析/下一步指引不再丢失）。
+  const prologue = msg.prologue ?? []
+  const tools = msg.toolCalls ?? []
+  const max = Math.max(prologue.length, tools.length)
+  for (let i = 0; i < max; i++) {
+    if (i < prologue.length && prologue[i].trim()) {
+      out.push({ key: key++, kind: 'note', text: prologue[i].trim() })
+    }
+    if (i < tools.length) {
+      const tc = tools[i]
+      out.push({ key: key++, kind: 'tool', label: dfToolLabel(tc, zh), input: tc.input, output: tc.output ?? tc.errorText, status: tc.status })
+    }
   }
   return out.length > 0 ? out : undefined
 }
@@ -199,7 +208,7 @@ export default function ChatThread({
               <div className="ai-avatar" aria-hidden="true">🤖</div>
               <div className="ai-bubble ai-bubble-assistant">
                 {(() => {
-                  const stages = synthStages(msg)
+                  const stages = synthStages(msg, zh)
                   if (stages) return <TraceView stages={stages} running={!!msg.streaming} zh={zh} />
                   return <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
                 })()}
@@ -222,7 +231,7 @@ export default function ChatThread({
                   </div>
                 )}
                 {msg.content ? (
-                  msg.agentStream && msg.streaming && !synthStages(msg) ? (
+                  msg.agentStream && msg.streaming && !synthStages(msg, zh) ? (
                     <AgentRawLine text={msg.content} />
                   ) : msg.agentStream ? null : (
                     <AIMarkdown text={msg.content} zh={zh} streaming={msg.streaming} />

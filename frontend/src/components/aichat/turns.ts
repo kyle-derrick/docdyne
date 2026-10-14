@@ -27,8 +27,18 @@ export interface AIToolCallEntry {
 
 /** SSE tool 事件（执行前）→ running 条目。 */
 export function toolEntryFrom(call: AIToolCall): AIToolCallEntry {
+  const raw = call.label || [call.server, call.tool].filter(Boolean).join(' / ')
+  // v7.12d：df_* 平台工具的原始标签（server/tool 拼接或空）替换为动词化
+  // 中文友好标签（含参数中的文件名/关键词）。
+  let label = raw
+  if (call.server === DF_SERVER && call.tool) {
+    const mapped = DF_TOOL_LABELS[call.tool]
+    if (mapped && (!call.label || call.label.includes(call.tool))) {
+      label = mapped.zh  // 助手为中文场景；ChatThread 展示时再经 dfToolLabel 补充参数
+    }
+  }
   return {
-    label: call.label || [call.server, call.tool].filter(Boolean).join(' / '),
+    label,
     server: call.server,
     tool: call.tool,
     input: call.input,
@@ -65,11 +75,25 @@ export function applyToolResult(entries: AIToolCallEntry[], r: AIToolResult): AI
 // ---------- df_* 平台文件工具双语映射（server=docflow） ----------
 
 const DF_TOOL_LABELS: Record<string, { zh: string; en: string }> = {
-  df_list_dir: { zh: '列目录', en: 'List directory' },
+  df_list_dir: { zh: '获取文件列表', en: 'List directory' },
   df_read_file: { zh: '读取文件', en: 'Read file' },
   df_write_file: { zh: '写入文件', en: 'Write file' },
+  df_write_version: { zh: '保存为新版本', en: 'Save as new version' },
   df_mkdir: { zh: '新建目录', en: 'Create folder' },
   df_search: { zh: '搜索文件', en: 'Search files' },
+}
+
+/** df_* 工具参数中的 path/query 提取（供标签展示文件名/关键词）。 */
+function dfToolSubject(tool: string | undefined, input: string | undefined): string {
+  if (!tool || !input) return ''
+  try {
+    const args = JSON.parse(input) as Record<string, unknown>
+    const path = typeof args.path === 'string' ? args.path : ''
+    const query = typeof args.query === 'string' ? args.query : ''
+    if (path) return path.length > 30 ? path.slice(0, 27) + '…' : path
+    if (query) return query.length > 20 ? query.slice(0, 17) + '…' : query
+  } catch { /* 非 JSON 忽略 */ }
+  return ''
 }
 
 /** 平台内置文件工具的 server 标识（后端固定 docflow）。 */
@@ -80,7 +104,10 @@ export const DF_SERVER = 'docflow'
 export function dfToolLabel(tc: AIToolCallEntry, zh: boolean): string {
   if (tc.server === DF_SERVER && tc.tool) {
     const mapped = DF_TOOL_LABELS[tc.tool]
-    if (mapped) return `${zh ? '平台' : 'Platform'} / ${zh ? mapped.zh : mapped.en}`
+    if (mapped) {
+      const subject = dfToolSubject(tc.tool, tc.input)
+      return subject ? `${zh ? mapped.zh : mapped.en} ${subject}` : (zh ? mapped.zh : mapped.en)
+    }
   }
   return tc.label
 }

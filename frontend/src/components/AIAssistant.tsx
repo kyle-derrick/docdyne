@@ -1948,8 +1948,7 @@ useEffect(() => {
             if (ws.length > 0) updateTurn(assistantId, () => ({ webSources: ws }))
           },
           onDelta: (chunk) => updateTurn(assistantId, (x) => ({ content: x.content + chunk })),
-          // 工具阶段开始：已有正文（「我先了解一下…」类叙述）转为前置说明并清空，
-          // 之后各工具轮的叙述同样入 prologue——最终回答独立成段（v7.7）。
+          // 工具调用时：已积累叙述转入 prologue（与工具按时间序交织展示 v7.12d）。
           onTool: (tool) => {
             updateTurn(assistantId, (x) => ({
               prologue: x.content.trim() ? [...(x.prologue ?? []), x.content.trim()] : x.prologue,
