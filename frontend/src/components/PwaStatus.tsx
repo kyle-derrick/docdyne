@@ -19,18 +19,6 @@ registerSW({
   onNeedReload() {
     needReloadListeners.forEach((fn) => fn(true))
   },
-  // v7.14e：新 SW 就绪后 3 秒自动刷新页面（autoUpdate 语义——旧 Shell
-  // 内存中继续运行是用户看不到新功能的根因；强制短延迟刷新确保生效）。
-  onRegisteredSW(swUrl) {
-    if (swUrl) {
-      // 检测到新 SW 注册后，3 秒后自动 reload 拿新 Shell
-      setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          window.location.reload()
-        }
-      }, 3000)
-    }
-  },
 })
 
 /** 顶栏离线徽标：断网时提示仅可查看缓存页面（应用 Shell，无离线数据）。 */

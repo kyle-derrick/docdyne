@@ -7665,3 +7665,6 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
   from { opacity: 0; transform: translateY(-3px); }
   to { opacity: 1; transform: none; }
 }
+
+/* v7.14f：Office AI 面板（已在 DS 窗口内，浮动切换无意义且致显示丢失）。 */
+.office-ai-root .ai-edit-chat-head-ops button[aria-pressed] { display: none !important; }

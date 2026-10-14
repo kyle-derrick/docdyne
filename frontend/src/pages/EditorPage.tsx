@@ -186,7 +186,8 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         const [config, meta] = await Promise.all([
           createOnlyOfficeSession(fileId, {
             mode: viewMode ? 'view' : 'edit',
-            lang: locale,
+            // OnlyOffice 界面语言只接受 2 字母码（zh/en），不接受 zh-CN/en-US。
+            lang: locale.split('-')[0],
           }),
           getFileMeta(fileId).catch(() => null),
         ])
