@@ -1013,6 +1013,9 @@ interface ChatTurn extends AIChatTurnData {
   /** 工具阶段前的中间叙述（v7.7：服务端工具循环会把每轮叙述并入正文，
    *  客户端在首个 tool 事件时把已有正文转为前置说明并清空，最终回答独立呈现）。 */
   prologue?: string[]
+  /** 完整过程 trace（v7.13：与编辑宿主同构——思考/叙述/工具按时间序
+   *  交织的 TraceStage[]；ChatThread 直接渲染）。 */
+  trace?: import('./aichat/TraceView').TraceStage[]
 }
 
 // ---------- 多会话（历史会话；服务端 ai_conversations 持久化） ----------
@@ -1288,6 +1291,8 @@ useEffect(() => {
       return next
     })
   }
+
+  const traceSeqRef = useRef(0)
 
   /** 按 id 局部更新一条消息（流式回调共用；id 已被清空时静默跳过）。 */
   const updateTurn = (id: number, patch: (turn: ChatTurn) => Partial<ChatTurn>) => {
@@ -1947,24 +1952,66 @@ useEffect(() => {
             const ws = normalizeWebSources((meta as { sources?: unknown }).sources)
             if (ws.length > 0) updateTurn(assistantId, () => ({ webSources: ws }))
           },
-          onDelta: (chunk) => updateTurn(assistantId, (x) => ({ content: x.content + chunk })),
-          // 工具调用时：已积累叙述转入 prologue（与工具按时间序交织展示 v7.12d）。
+          // v7.13：完整过程 trace（与编辑宿主同构——思考/叙述/工具按时间序
+          // 交织为 TraceStage[]；ChatThread 直接渲染，不再 synthStages 推断）。
+          onDelta: (chunk) => {
+            updateTurn(assistantId, (x) => {
+              const trace = [...(x.trace ?? [])]
+              const last = trace[trace.length - 1]
+              if (last && last.kind === 'note') {
+                trace[trace.length - 1] = { ...last, text: (last.text ?? '') + chunk }
+              } else {
+                trace.push({ key: ++traceSeqRef.current, kind: 'note' as const, text: chunk })
+              }
+              return { trace, content: x.content + chunk }
+            })
+          },
           onTool: (tool) => {
-            updateTurn(assistantId, (x) => ({
-              prologue: x.content.trim() ? [...(x.prologue ?? []), x.content.trim()] : x.prologue,
-              content: x.content.trim() ? '' : x.content,
-              toolCalls: [...(x.toolCalls ?? []), toolEntryFrom(tool)],
-            }))
+            updateTurn(assistantId, (x) => {
+              const trace = [...(x.trace ?? [])]
+              const entry = toolEntryFrom(tool)
+              trace.push({ key: ++traceSeqRef.current, kind: 'tool' as const, label: entry.label, input: entry.input, status: 'running' as const })
+              return { trace, toolCalls: [...(x.toolCalls ?? []), entry] }
+            })
           },
           onSources: (sources) => updateTurn(assistantId, () => ({ sources })),
-          // 推理思考增量：聚合到独立折叠区（首个增量记录起始时间）。
-          onThinking: (text) => updateTurn(assistantId, (x) => ({
-            thinking: (x.thinking ?? '') + text,
-            thinkingStartedAt: x.thinkingStartedAt ?? Date.now(),
-          })),
-          // 工具调用生命周期：执行后合并终态/摘要（执行前见上方 onTool 分相处理）。
-          onToolResult: (result) => updateTurn(assistantId, (x) => ({ toolCalls: applyToolResult(x.toolCalls ?? [], result) })),
-          onDone: (usage) => updateTurn(assistantId, () => ({ usage })),
+          onThinking: (text) => {
+            updateTurn(assistantId, (x) => {
+              const trace = [...(x.trace ?? [])]
+              const last = trace[trace.length - 1]
+              const startedAt = x.thinkingStartedAt ?? Date.now()
+              if (last && last.kind === 'think') {
+                trace[trace.length - 1] = { ...last, text: (last.text ?? '') + text }
+              } else {
+                trace.push({ key: ++traceSeqRef.current, kind: 'think' as const, text })
+              }
+              return { trace, thinking: (x.thinking ?? '') + text, thinkingStartedAt: startedAt }
+            })
+          },
+          onToolResult: (result) => {
+            updateTurn(assistantId, (x) => {
+              const trace = [...(x.trace ?? [])]
+              for (let i = trace.length - 1; i >= 0; i--) {
+                const st = trace[i]
+                if (st.kind === 'tool' && st.status === 'running') {
+                  trace[i] = { ...st, status: result.ok ? ('success' as const) : ('error' as const), output: result.output ?? result.error }
+                  break
+                }
+              }
+              return { trace, toolCalls: applyToolResult(x.toolCalls ?? [], result) }
+            })
+          },
+          onDone: (usage) => updateTurn(assistantId, (x) => {
+            const trace = [...(x.trace ?? [])]
+            const now = Date.now()
+            for (let i = 0; i < trace.length; i++) {
+              if (trace[i].kind === 'think' && !trace[i].ms) {
+                trace[i] = { ...trace[i], ms: now - (x.thinkingStartedAt ?? now) }
+                break
+              }
+            }
+            return { usage, trace }
+          }),
         },
         ac.signal,
       )

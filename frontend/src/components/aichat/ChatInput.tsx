@@ -37,6 +37,8 @@ export interface ChatInputProps {
   modelSlot?: React.ReactNode
   // 开关组 slot（联网/思考/MCP 等——由宿主注入）
   togglesSlot?: React.ReactNode
+  // 思考等级 slot（宿主注入 Dropdown：低/中/高；模型不支持时隐藏）
+  effortSlot?: React.ReactNode
   // 技能按钮 slot
   skillSlot?: React.ReactNode
   // 额外按钮
@@ -48,7 +50,7 @@ export default function ChatInput({
   packages, pkgId, onPkgChange, applyKind,
   cautious, onCautiousToggle, showCautious = true,
   attachedFiles, onFileDetach,
-  modelSlot, togglesSlot, skillSlot, extraSlot,
+  modelSlot, togglesSlot, effortSlot, skillSlot, extraSlot,
 }: ChatInputProps) {
   return (
     <div className="chat-input-wrap">
@@ -107,6 +109,7 @@ export default function ChatInput({
                 icon={<ShieldAlert size={14} strokeWidth={2} />} onClick={onCautiousToggle} aria-pressed={cautious} />
             </Tooltip>
           )}
+          {effortSlot}
           {togglesSlot}
           {extraSlot}
           <div className="chat-tools-right">

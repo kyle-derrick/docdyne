@@ -132,6 +132,7 @@ export interface AIChatShellProps {
   onFileDetach: (fileId: string) => void
   modelSlot?: ReactNode
   togglesSlot?: ReactNode
+  effortSlot?: ReactNode
   skillSlot?: ReactNode
   // ---- 宿主特有 slot ----
   extraHeaderSlot?: ReactNode
@@ -252,7 +253,7 @@ export default function AIChatShell(p: AIChatShellProps) {
         packages={p.packages} pkgId={p.pkgId} onPkgChange={p.onPkgChange} applyKind={p.applyKind}
         cautious={p.cautious} onCautiousToggle={p.onCautiousToggle} showCautious={p.showCautious !== false}
         attachedFiles={p.attachedFiles} onFileDetach={p.onFileDetach}
-        modelSlot={p.modelSlot} togglesSlot={p.togglesSlot} skillSlot={p.skillSlot}
+        modelSlot={p.modelSlot} togglesSlot={p.togglesSlot} effortSlot={p.effortSlot} skillSlot={p.skillSlot}
         extraSlot={p.extraToolbarSlot}
       />
       {/* 悬浮态右下角缩放手柄。 */}

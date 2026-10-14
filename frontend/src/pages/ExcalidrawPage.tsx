@@ -514,6 +514,37 @@ export default function ExcalidrawPage({
       // 绑定对象含本批与既有画布元素；官方 startBinding 若保留则作兜底来源。
       const all = [...current, ...placed]
       const skelById = new Map(skeletons.map((s) => [String(s.id ?? ''), s]))
+
+      /** 矩形边框交点（v7.13：连线端点在形状边框而非正中央——视觉上
+       *  箭头真正「贴边」连接，与手动拖拽的绑定效果一致）。从 from 中心
+       *  指向 to 中心的射线与各自包围盒边的交点。 */
+      const edgePoint = (
+        el: { x: number; y: number; width?: number; height?: number },
+        toward: { x: number; y: number },
+      ): { x: number; y: number } => {
+        const cx = el.x + (el.width ?? 0) / 2
+        const cy = el.y + (el.height ?? 0) / 2
+        const hw = (el.width ?? 0) / 2
+        const hh = (el.height ?? 0) / 2
+        const dx = toward.x - cx
+        const dy = toward.y - cy
+        if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return { x: cx, y: cy }
+        // 射线参数化：与四条边的交点取最先命中的（缩放因子最小的）
+        let tx = Infinity, ty = Infinity
+        if (dx !== 0) {
+          tx = hw / Math.abs(dx) // 到达竖直边的缩放
+          const yHit = cy + dy * tx
+          if (yHit < el.y || yHit > el.y + (el.height ?? 0)) tx = Infinity
+        }
+        if (dy !== 0) {
+          ty = hh / Math.abs(dy) // 到达水平边的缩放
+          const xHit = cx + dx * ty
+          if (xHit < el.x || xHit > el.x + (el.width ?? 0)) ty = Infinity
+        }
+        const t = Math.min(tx, ty)
+        if (!isFinite(t)) return { x: cx, y: cy }
+        return { x: cx + dx * t, y: cy + dy * t }
+      }
       const centerOf = (el: { x: number; y: number; width?: number; height?: number }) => ({
         x: el.x + (el.width ?? 0) / 2,
         y: el.y + (el.height ?? 0) / 2,
@@ -536,8 +567,10 @@ export default function ExcalidrawPage({
         const from = sRef ? all.find((x) => x.id === sRef) : undefined
         const to = eRef ? all.find((x) => x.id === eRef) : undefined
         if (!from && !to) continue
-        const start = from ? centerOf(from) : { x: Number(e.x) || 0, y: Number(e.y) || 0 }
-        const end = to ? centerOf(to) : { x: start.x + 120, y: start.y }
+        const fromC = from ? centerOf(from) : { x: Number(e.x) || 0, y: Number(e.y) || 0 }
+        const toC = to ? centerOf(to) : { x: fromC.x + 120, y: fromC.y }
+        const start = from ? edgePoint(from, toC) : fromC
+        const end = to ? edgePoint(to, fromC) : toC
         e.x = start.x
         e.y = start.y
         e.width = Math.abs(end.x - start.x)
@@ -633,12 +666,22 @@ export default function ExcalidrawPage({
           if (!from || !to) {
             return { ok: false, error: `元素不存在：fromId=${fromId}${from ? '' : ' ✗'}，toId=${toId}${to ? '' : ' ✗'}——请先 read_scene 拿最新 id` }
           }
-          const center = (el: { x: number; y: number; width?: number; height?: number }) => ({
-            x: el.x + (el.width ?? 0) / 2,
-            y: el.y + (el.height ?? 0) / 2,
-          })
-          const start = center(from)
-          const end = center(to)
+          const fromC = { x: from.x + (from.width ?? 0) / 2, y: from.y + (from.height ?? 0) / 2 }
+          const toC = { x: to.x + (to.width ?? 0) / 2, y: to.y + (to.height ?? 0) / 2 }
+          // 边框交点（v7.13：连线到形状边框而非中心）
+          const edgeOf = (el: { x: number; y: number; width?: number; height?: number }, tw: { x: number; y: number }) => {
+            const cx = el.x + (el.width ?? 0) / 2, cy = el.y + (el.height ?? 0) / 2
+            const hw = (el.width ?? 0) / 2, hh = (el.height ?? 0) / 2
+            const dx = tw.x - cx, dy = tw.y - cy
+            if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return { x: cx, y: cy }
+            let tx = Infinity, ty = Infinity
+            if (dx !== 0) { tx = hw / Math.abs(dx); if (cy + dy * tx < el.y || cy + dy * tx > el.y + (el.height ?? 0)) tx = Infinity }
+            if (dy !== 0) { ty = hh / Math.abs(dy); if (cx + dx * ty < el.x || cx + dx * ty > el.x + (el.width ?? 0)) ty = Infinity }
+            const t = Math.min(tx, ty)
+            return isFinite(t) ? { x: cx + dx * t, y: cy + dy * t } : { x: cx, y: cy }
+          }
+          const start = edgeOf(from, toC)
+          const end = edgeOf(to, fromC)
           const id = `ai-conn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
           try {
             const { convertToExcalidrawElements } = await import('@excalidraw/excalidraw')
