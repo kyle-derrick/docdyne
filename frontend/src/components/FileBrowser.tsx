@@ -2810,13 +2810,7 @@ export default function FileBrowser({
       )}
 
       {visibleItems.length > 0 && viewMode === 'list' && (
-        <table className={`file-table soft-fade${loading ? ' stale-loading' : ''}`} key={`list-${currentFolderId ?? 'root'}`}>
-          {/* v7.12c：表内加载过渡——表头下一条 2px 进度行（表结构内，零额外空间）。 */}
-          {loading && (
-            <tbody className="files-tbody-loading">
-              <tr className="files-loading-row-bar"><td colSpan={7} /></tr>
-            </tbody>
-          )}
+        <table className={`file-table${loading ? ' loading' : ''}`}>
           <thead>
             <tr>
               <th className="col-check">
@@ -2963,8 +2957,7 @@ export default function FileBrowser({
           进入，文件卡片点击预览；右上「⋯」打开与列表行一致的操作菜单；
           选择状态与列表视图共享（多选 + 批量工具条两视图通用）。 */}
       {visibleItems.length > 0 && viewMode === 'grid' && (
-        <div className={`file-grid soft-fade${loading ? ' stale-loading' : ''}`} key={`grid-${currentFolderId ?? 'root'}`}>
-          {loading && <span className="files-loading-bar-in" aria-hidden="true" />}
+        <div className={`file-grid${loading ? ' loading' : ''}`}>
           {visibleItems.map((item) => {
             const size = sizeCache.current.get(item.id) ?? 0
             return (

@@ -7645,32 +7645,17 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 }
 .share-fab:hover { opacity: .92; }
 
-/* v7.12：切换目录的旧内容保留态（半透明 + 禁点）与顶部细进度条。 */
-.file-table.stale-loading, .file-grid.stale-loading { opacity: .45; pointer-events: none; transition: opacity .15s; }
-/* v7.12c：表内加载过渡（表头下 2px 进度行——在表格结构内，不挤占表格外空间）。 */
-.files-tbody-loading .files-loading-row-bar td {
-  display: block;
-  height: 2px;
-  padding: 0;
-  background: linear-gradient(90deg, transparent, var(--primary), transparent);
-  background-size: 40% 100%;
-  animation: files-loading-sweep 1s ease-in-out infinite;
-}
-/* 网格视图：容器内顶部覆盖进度条（absolute 零占位）。 */
-.file-grid { position: relative; }
-.files-loading-bar-in {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  z-index: 3;
-  background: linear-gradient(90deg, transparent, var(--primary), transparent);
-  background-size: 40% 100%;
-  animation: files-loading-sweep 1s ease-in-out infinite;
-}
-@keyframes files-loading-sweep {
-  0% { background-position: -40% 0; }
-  100% { background-position: 140% 0; }
-}
+/* v7.12e：文件列表加载——行级半透明 + 恢复渐显（表格高度恒定，
+   与左侧目录树等高；不重挂 DOM，行内容直接更新）。 */
+.file-table.loading tbody tr { opacity: .45; pointer-events: none; transition: opacity .18s ease; }
+.file-table:not(.loading) tbody tr { transition: opacity .25s ease; }
+.file-grid.loading > * { opacity: .45; pointer-events: none; transition: opacity .18s ease; }
+.file-grid:not(.loading) > * { transition: opacity .25s ease; }
+/* 表格容器恒定撑满（flex 布局，与左侧目录树/右侧成员栏等高）。 */
+.files-body { display: flex; flex-direction: column; }
+.file-table { flex: 1; }
+.file-grid { flex: 1; position: relative; }
+.files-loading-skeleton { flex: 1; }
 
 /* v7.12：过程块展开/收起与阶段体动画。 */
 .ai-trace-list { animation: ai-trace-expand .18s ease; }
