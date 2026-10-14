@@ -7647,12 +7647,16 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 
 /* v7.12：切换目录的旧内容保留态（半透明 + 禁点）与顶部细进度条。 */
 .file-table.stale-loading, .file-grid.stale-loading { opacity: .45; pointer-events: none; transition: opacity .15s; }
+/* v7.12b：顶部细进度条改为绝对定位覆盖（不占布局空间，列表不下顶）。 */
 .files-loading-bar {
-  height: 2px; flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  height: 2px;
+  margin-bottom: -2px; /* 视觉重叠在列表首行上沿，零占位 */
   background: linear-gradient(90deg, transparent, var(--primary), transparent);
   background-size: 40% 100%;
   animation: files-loading-sweep 1s ease-in-out infinite;
-  margin-bottom: 4px;
 }
 @keyframes files-loading-sweep {
   0% { background-position: -40% 0; }
