@@ -2195,7 +2195,24 @@ useEffect(() => {
           onImportSessions={() => importInputRef.current?.click()}
           onCopy={copyContent} onDeleteExchange={deleteExchange}
           onSaveConversation={(ids) => openSaveDialog(ids)}
-          onRegenerate={regenerateAsst} onContinue={() => {}} onExecutePlan={() => {}}
+          onRegenerate={regenerateAsst}
+          onContinue={(asstId) => {
+            // v7.14：从 stopped/limitPaused 消息恢复——找到其前置 user 问题重发。
+            if (busyRef.current) return
+            const prev = turnsRef.current
+            const idx = prev.findIndex((x) => x.id === asstId)
+            if (idx < 0) return
+            let question = ''
+            for (let i = idx - 1; i >= 0; i--) {
+              if (prev[i].role === 'user') { question = prev[i].content; break }
+            }
+            if (!question) return
+            // 删除该回合后重发（上下文完整保留）
+            const userId = prev[idx - 1]?.id
+            applyTurns((p2) => p2.filter((x) => x.id !== asstId && x.id !== userId))
+            void send(question)
+          }}
+          onExecutePlan={() => {}}
           savingFile={savingFile}
           mode={chatOnly ? 'chat' : 'edit'} onModeChange={(m) => changeAIMode(m)}
           modeTip={modeTip} showModeSegment

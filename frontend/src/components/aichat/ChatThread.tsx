@@ -274,7 +274,7 @@ export default function ChatThread({
                     </Button>
                   </div>
                 )}
-                {msg.limitPaused && !msg.streaming && (
+                {(msg.limitPaused || (msg.stopped && msg.content && !msg.streaming)) && !batchMode && (
                   <div className="ai-edit-chat-actions">
                     <Button size="small" type="primary" ghost icon={<Play size={12} strokeWidth={2} />} onClick={() => onContinue(msg.id)}>
                       {zh ? '继续' : 'Continue'}

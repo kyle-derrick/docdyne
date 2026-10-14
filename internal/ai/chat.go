@@ -70,6 +70,45 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// doWithRetry 带退避重试的 HTTP POST（v7.14：5xx/网络瞬断自动重试 ≤2 次，
+// 1s/3s 指数退避；4xx/上下文取消不重试——属确定性错误）。流式请求仅对
+// 连接建立阶段重试（body 已开始消费后不重试，防重复 SSE 输出）。
+func (s *Service) doWithRetry(ctx context.Context, method, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				return nil, ctx.Err() // 用户取消/超时
+			}
+			continue // 网络错误 → 重试
+		}
+		if resp.StatusCode >= 500 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("upstream %d", resp.StatusCode)
+			continue // 5xx → 重试
+		}
+		return resp, nil // 2xx/3xx/4xx → 正常返回
+	}
+	return nil, lastErr
+}
+
 // ChatRequest 为一次对话补全请求。
 type ChatRequest struct {
 	// ProviderID 指定 Provider（空 = 默认 Provider）。
@@ -649,7 +688,18 @@ func (s *Service) chatOpenAI(ctx context.Context, p settings.AIProvider, model s
 		if p.APIKey != "" {
 			httpReq.Header.Set("Authorization", "Bearer "+p.APIKey)
 		}
-		resp, err := s.client.Do(httpReq)
+		// v7.14：非流式路径带退避重试（5xx/网络瞬断 ≤2 次）；流式路径不
+		// 重试（已有非流式回退，重试会致 SSE 重复输出）。
+		var resp *http.Response
+		if stream {
+			resp, err = s.client.Do(httpReq)
+		} else {
+			var h map[string]string
+			if p.APIKey != "" {
+				h = map[string]string{"Authorization": "Bearer " + p.APIKey}
+			}
+			resp, err = s.doWithRetry(ctx, http.MethodPost, url, payload, h)
+		}
 		if err != nil {
 			return ChatResult{}, fmt.Errorf("%w: %v", ErrUpstreamChat, err)
 		}
