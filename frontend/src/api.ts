@@ -2821,6 +2821,8 @@ export interface AIChatOptions {
   think?: boolean
   /** 思考等级（v7.14d：low/medium/high；空 = medium）。 */
   reasoning_effort?: 'low' | 'medium' | 'high'
+  /** 上下文窗口预算（token；0=用模型 context_window 设置）。 */
+  context_budget?: number
   /** MCP 工具：允许调用平台配置的外部 MCP 服务器工具（平台未配置时静默忽略）。 */
   use_mcp?: boolean
   /** 长期记忆注入：取本人最近 20 条手动记忆拼入 system 上下文（无记忆静默跳过）。 */

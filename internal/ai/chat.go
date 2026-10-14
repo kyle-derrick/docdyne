@@ -160,6 +160,9 @@ type ChatRequest struct {
 	OnThinking func(string)
 	// Stream true 时经 onDelta 流式回调增量。
 	Stream bool
+	// ContextBudget 上下文窗口预算（token；超过 80% 时自动压缩。
+	// 0 = 用模型 context_window 设置；均未配置则不压缩）。
+	ContextBudget int
 	// Effort 思考等级（v7.14d："low"/"medium"/"high"；空 = medium 默认）。
 	// 仅 Think=true 时生效：openai_compatible 透传 reasoning_effort，
 	// anthropic 映射为 thinking budget_tokens 阶梯。
@@ -1456,6 +1459,108 @@ type openAIRound struct {
 // tools）。流式轮 delta.content 照旧透传（onDelta）、delta.tool_calls 按
 // index 渐进聚合；流式失败回退非流式（同 chatOpenAI）。think 每轮透传。
 // usage 按轮累计到最终 ChatResult（一次对话经既有 recordUsage 记一条用量）。
+// estimateTokens 粗估消息列表的 token 数（~3 字符/token；含中英文混合场景）。
+func estimateTokens(msgs []map[string]any) int {
+	total := 0
+	for _, m := range msgs {
+		if c, ok := m["content"].(string); ok {
+			total += len(c)
+		} else if parts, ok := m["content"].([]any); ok {
+			for _, p := range parts {
+				if part, ok := p.(map[string]any); ok {
+					if t, ok := part["text"].(string); ok {
+						total += len(t)
+					}
+				}
+			}
+		}
+		// tool_calls JSON 序列化估算
+		if tc, ok := m["tool_calls"].([]any); ok {
+			b, _ := json.Marshal(tc)
+			total += len(b)
+		}
+	}
+	return total / 3
+}
+
+// compressConvo 上下文自动压缩（v7.14h）：超过预算 80% 时触发。
+// 策略：保留 system + 首 2 条 + 最近 30% 消息，中间旧消息的 tool result
+// 截短至 200 字 + 注入压缩说明。确保总 token 降到预算 60% 以下。
+// budgetTokens ≤ 0 时不压缩（未配置 context_window）。
+func compressConvo(msgs []map[string]any, budgetTokens int) []map[string]any {
+	if budgetTokens <= 0 || len(msgs) < 10 {
+		return msgs
+	}
+	est := estimateTokens(msgs)
+	threshold := budgetTokens * 70 / 100
+	if est < threshold {
+		return msgs // 未超 70% 预算
+	}
+
+	// 计算保留尾部数量（约 40%，最少 8 条——参考 Claude Code 保留更多
+	// 近期上下文以维持工具循环连贯性）
+	tailKeep := len(msgs) * 40 / 100
+	if tailKeep < 8 {
+		tailKeep = 8
+	}
+	if tailKeep > len(msgs)-4 {
+		return msgs // 太少不值得压缩
+	}
+	headKeep := 2 // system + 首条 user
+	if len(msgs) > 0 && msgs[0]["role"] == "system" {
+		headKeep = 3
+	}
+
+	dropped := len(msgs) - headKeep - tailKeep
+	compressed := make([]map[string]any, 0, headKeep+tailKeep+1)
+	compressed = append(compressed, msgs[:headKeep]...)
+
+	// 注入压缩说明
+	compressed = append(compressed, map[string]any{
+		"role":    "user",
+		"content": fmt.Sprintf("（系统注：此前 %d 条历史消息已自动压缩以适应上下文窗口——如需早期工具结果详情请重新调用对应读工具获取）", dropped),
+	})
+
+	// 尾部消息：tool result 内容截短
+	for _, m := range msgs[len(msgs)-tailKeep:] {
+		copied := make(map[string]any, len(m))
+		for k, v := range m {
+			copied[k] = v
+		}
+		if role, _ := copied["role"].(string); role == "user" {
+			if c, ok := copied["content"].(string); ok && len(c) > 300 {
+				copied["content"] = c[:200] + "…（已压缩）"
+			}
+		}
+		if role, _ := copied["role"].(string); role == "tool" {
+			if c, ok := copied["content"].(string); ok && len(c) > 300 {
+				copied["content"] = c[:200] + "…（已压缩）"
+			}
+		}
+		compressed = append(compressed, copied)
+	}
+
+	log.Printf("[ai] 上下文自动压缩：%d 条 → %d 条（估 token %d → %d，预算 %d）",
+		len(msgs), len(compressed), est, estimateTokens(compressed), budgetTokens)
+	return compressed
+}
+
+// resolveContextBudget 解析模型上下文预算（优先级：ChatRequest.ContextBudget >
+// 模型 context_window 设置 > 0=不压缩）。
+func (s *Service) resolveContextBudget(p settings.AIProvider, model string, req ChatRequest) int {
+	if req.ContextBudget > 0 {
+		return req.ContextBudget
+	}
+	for _, m := range p.Models {
+		if m.ID == model && m.ContextWindow > 0 {
+			return m.ContextWindow
+		}
+	}
+	// 默认 256K token（约 100 万字符）——绝大多数现代模型支持；超过时
+	// 自动压缩保障长工具循环不因上下文溢出而中断。
+	return 256 * 1024
+}
+
 func (s *Service) chatOpenAITools(ctx context.Context, p settings.AIProvider, model string, req ChatRequest, temperature float64, maxTokens int, onDelta func(string), set *chatToolContext) (ChatResult, error) {
 	tools := set.openAITools()
 	msgs := make([]map[string]any, 0, len(req.Messages)+1)
@@ -1479,7 +1584,9 @@ func (s *Service) chatOpenAITools(ctx context.Context, p settings.AIProvider, mo
 	}
 	failStreak := 0
 	var lastFailKey string
+	ctxBudget := s.resolveContextBudget(p, model, req)
 	for execs := 0; ; {
+		msgs = compressConvo(msgs, ctxBudget)
 		round, err := s.openAIToolRound(ctx, p, model, req, temperature, maxTokens, msgs, tools, emit)
 		if err != nil {
 			res.Content = strings.TrimSpace(content.String())
@@ -1552,10 +1659,10 @@ func (s *Service) openAIToolRound(ctx context.Context, p settings.AIProvider, mo
 		if req.Think {
 			// 推理思考每轮透传（同 chatOpenAI）。
 			effort := req.Effort
-		if effort == "" {
-			effort = "medium"
-		}
-		body["reasoning_effort"] = effort
+			if effort == "" {
+				effort = "medium"
+			}
+			body["reasoning_effort"] = effort
 		}
 		if stream {
 			body["stream"] = true
@@ -1745,7 +1852,9 @@ func (s *Service) chatAnthropicTools(ctx context.Context, p settings.AIProvider,
 	}
 	failStreak := 0
 	var lastFailKey string
+	ctxBudget2 := s.resolveContextBudget(p, model, req)
 	for execs := 0; ; {
+		msgs = compressConvo(msgs, ctxBudget2)
 		round, err := s.anthropicToolRound(ctx, p, model, req, temperature, maxTokens, msgs, tools, emit)
 		if err != nil {
 			res.Content = strings.TrimSpace(content.String())
