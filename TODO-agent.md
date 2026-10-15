@@ -90,10 +90,17 @@
 ## E. 工具调用稳定性
 - [x] E1. df_search 编辑页误调（44fd775：【硬性禁止】段落 + deep_search≠
       df_search 澄清 + 未知工具反馈 df_* 专项提示）
-- [ ] E2. read_scene 中途不可用（工具集丢失）：检查工具集传递链路
-      （agentTools ref 是否被 GC 或重置）
-- [ ] E3. "empty message content" 错误：deep_search 子代理返回空时
-      的处理优化
+- [x] E2. read_scene 中途不可用（工具集丢失）：检查工具集传递链路
+      （agentTools ref 是否被 GC 或重置）（v7.15 复核：链路无丢失路径——
+      agentToolsRef 为 useRef 且每渲染同步 current（组件存活期内 ref
+      恒可达，无 GC/重置代码路径）；runAgentLoop 的 tools 是调用时传入的
+      本地快照（执行期间锁定 package，中途切包不影响当轮循环）；未知工具
+      反馈含完整可用列表 + 近名建议 + 技能包/宿主工具计数诊断 + console
+      级现场记录，模型可即时自纠。原始症状更可能是 E1 的 df_* 误调幻觉）
+- [x] E3. "empty message content" 错误：deep_search 子代理返回空时
+      的处理优化（92ac92d + v7.15 复核：入口拦截——goal 为空不再发起
+      请求；FINAL 空文本不再当成功，按错误回喂重试，两条路径均不再
+      产生空 user 消息触发后端 400）
 
 ## F. 体验细节
 - [x] F1. 编辑页空态提示文案去掉「计划模式」（v7.15 复核：AIEditChat
@@ -370,7 +377,12 @@
       TraceView/ChatInput 等 → npm 包（独立 CSS 主题变量）
 - [ ] K3. 平台工具 SDK（@docflow/tools）：df_* 工具定义/执行框架 →
       允许第三方注册自定义工具（插件化）
-- [ ] K4. 技能包格式规范：JSON Schema + 版本化 + 可分享格式
+- [x] K4. 技能包格式规范：JSON Schema + 版本化 + 可分享格式（v7.15：
+      版本化=version/changelog（I1）、可分享格式=JSON/YAML 导入导出（I2，
+      键名 snake_case 契约经 roundtrip 钉死）；JSON Schema 落地
+      docs/schema/agent-packages.schema.json——draft 2020-12，envelope/
+      裸数组双形态、约束与 ValidateAIAgentPackages 逐条对应、builtin-
+      前缀拒收与 applyKind 枚举在 schema 层可校验，正反样例验证通过）
 - [ ] K5. Go Upload 库（pkg/upload）：断点续传+分片+病毒扫描+
       多存储(local/S3/MinIO) → 独立库（docflow.ai/upload，
       4123 行，接口已抽象良好）

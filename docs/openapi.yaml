@@ -6121,7 +6121,8 @@ paths:
         （人读分享，键名与 JSON 一致，两侧都可导入）；scope=platform
         （缺省）| builtin（编译期内置包）| all（两者合并）。响应体为
         {packages, exported_at, scope} envelope（yaml 同构），
-        附 Content-Disposition 下载头。
+        附 Content-Disposition 下载头。交换格式契约见仓库
+        docs/schema/agent-packages.schema.json（draft 2020-12）。
       parameters:
         - name: format
           in: query
@@ -6159,6 +6160,7 @@ paths:
         按 id 合并——incoming 覆盖同 id 平台包）| replace（整块替换平台包）。
         builtin- 前缀 id 一律拒收（内置包编译期内置不可覆盖）。返回
         {imported, updated, skipped:[{id,reason}], total, packages}。
+        输入格式契约见仓库 docs/schema/agent-packages.schema.json。
       requestBody:
         required: true
         content:
