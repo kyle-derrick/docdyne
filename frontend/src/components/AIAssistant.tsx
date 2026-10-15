@@ -1103,6 +1103,25 @@ function aiConvoTitleFrom(turns: ChatTurn[]): string {
   return first ? first.content.trim().slice(0, 16) : ''
 }
 
+/** turns → 持久化消息数组（同步防抖与切换前 flush 共用的过滤/映射规则：
+ *  错误回合不落库；空文本但有过程 trace 的 assistant 回合照常保留）。 */
+function buildPersistMsgs(list: ChatTurn[]): AIConvoMessage[] {
+  const now = Date.now()
+  return list
+    .filter((x) => !x.error && (x.content.trim() || (x.trace && x.trace.length > 0)))
+    .map((x) => ({
+      role: x.role,
+      content: x.content,
+      ts: now,
+      // v7.9：user 回合的引用/上传文件随事件持久化（上传附件随会话删除的
+      // 依据：files[].upload=true 的条目在会话删除时联动清理文件）。
+      ...(x.role === 'user' && x.files && x.files.length > 0 ? { files: x.files } : {}),
+      // v7.14b：assistant 回合的完整过程 trace 持久化（重载/切换后
+      // 思考与操作过程块可见，不再只显示最终文本）。
+      ...(x.role === 'assistant' && x.trace && x.trace.length > 0 ? { trace: x.trace } : {}),
+    }))
+}
+
 /** 顶栏 AI 助手入口按钮（Sparkles；AI 未启用时不渲染）。 */
 export function AIAssistantButton() {
   const locale = useLocale()
@@ -1239,6 +1258,11 @@ useEffect(() => {
   const [convoEditing, setConvoEditing] = useState<{ id: string; draft: string } | null>(null)
   const convosRef = useRef<AIConvo[]>([])
   const convoIdRef = useRef('')
+  // B1（2026-10-15 复盘修复）：turns 数组的「归属会话」id。同步防抖在定时器
+  // 触发时才读 convoIdRef.current，切换竞态下会把旧会话的未同步增量写进
+  // 新会话（跨会话串台）、或把旧回合开成新会话；归属 ref 只在切换/新建/
+  // 创建时同步改写，增量与收缩快照始终落在正确的会话上。
+  const turnsConvoIdRef = useRef('')
   useEffect(() => {
     void getMe().then((m) => setAiUid(m.id)).catch(() => setAiUid(currentUserId() ?? 'anon'))
   }, [])
@@ -1365,6 +1389,7 @@ useEffect(() => {
       if (top && top.messages.length > 0) {
         convoIdRef.current = top.id
         setConvoId(top.id)
+        turnsConvoIdRef.current = top.id
         applyTurns(() => top.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}), ...(Array.isArray(m.trace) && m.trace.length ? { trace: m.trace } : {}) })))
       }
     } catch {
@@ -1387,23 +1412,13 @@ useEffect(() => {
     if (!aiUid) return
     const timer = window.setTimeout(() => {
       const now = Date.now()
-      const msgs: AIConvoMessage[] = turns
-        .filter((x) => !x.error && (x.content.trim() || (x.trace && x.trace.length > 0)))
-        .map((x) => ({
-          role: x.role,
-          content: x.content,
-          ts: now,
-          // v7.9：user 回合的引用/上传文件随事件持久化（上传附件随会话删除的
-          // 依据：files[].upload=true 的条目在会话删除时联动清理文件）。
-          ...(x.role === 'user' && x.files && x.files.length > 0 ? { files: x.files } : {}),
-          // v7.14b：assistant 回合的完整过程 trace 持久化（重载/切换后
-          // 思考与操作过程块可见，不再只显示最终文本）。
-          ...(x.role === 'assistant' && x.trace && x.trace.length > 0 ? { trace: x.trace } : {}),
-        }))
+      // B1：批次归属取 turns 的归属会话（而非触发时刻的 convoIdRef——切换
+      // 竞态下两者会短暂错位，曾把旧会话增量写进新会话）。
+      const msgs: AIConvoMessage[] = buildPersistMsgs(turns)
       const synced = convoSyncedLenRef.current
       const persist = msgs.slice(-AI_CONVO_MSG_MAX)
       if (persist.length < synced) {
-        const cid = convoIdRef.current
+        const cid = turnsConvoIdRef.current
         if (cid && persist.length > 0) {
           void aiAppendConversation(cid, 'snapshot', persist as unknown as Array<Record<string, unknown>>)
             .then(() => { convoSyncedLenRef.current = persist.length })
@@ -1415,7 +1430,7 @@ useEffect(() => {
         return
       }
       if (persist.length === synced) return
-      const id = convoIdRef.current
+      const id = turnsConvoIdRef.current
       const prev = convosRef.current.find((c) => c.id === id)
       const title = prev?.title || aiConvoTitleFrom(turns) || (zh ? '新对话' : 'New chat')
       const delta = persist.slice(synced)
@@ -1427,6 +1442,7 @@ useEffect(() => {
             cid = row.id
             convoIdRef.current = cid
             setConvoId(cid)
+            turnsConvoIdRef.current = cid
           }
           await aiAppendConversation(cid, 'turn', delta as unknown as Array<Record<string, unknown>>)
           convoSyncedLenRef.current = persist.length
@@ -1597,11 +1613,34 @@ useEffect(() => {
     }
   }
 
+  /** B1：切换/删除前把当前会话未同步的防抖尾包用「归属 id」同步落库
+   *  （fire-and-forget）——原实现里尾包由切换后才触发的旧定时器写出，
+   *  读到的已是新会话 id，要么串台写入、要么因归属错乱丢失。 */
+  const flushPendingDelta = () => {
+    const cid = turnsConvoIdRef.current
+    const persist = buildPersistMsgs(turnsRef.current).slice(-AI_CONVO_MSG_MAX)
+    if (!cid) { convoSyncedLenRef.current = persist.length; return }
+    if (persist.length <= convoSyncedLenRef.current) return
+    const delta = persist.slice(convoSyncedLenRef.current)
+    const prev = convosRef.current.find((c) => c.id === cid)
+    const now = Date.now()
+    convoSyncedLenRef.current = persist.length
+    void aiAppendConversation(cid, 'turn', delta as unknown as Array<Record<string, unknown>>).catch(() => { /* 静默 */ })
+    const rest = [
+      { id: cid, title: prev?.title || aiConvoTitleFrom(turnsRef.current) || (zh ? '新对话' : 'New chat'), updatedAt: now, messages: persist },
+      ...convosRef.current.filter((c) => c.id !== cid),
+    ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, AI_CONVO_MAX)
+    convosRef.current = rest
+    setConvos(rest)
+  }
+
   /** 切换会话：中断进行中的流式请求并恢复目标会话消息（贴底显示最新）；
    *  正文按需从服务端拉取（列表只带元信息）。
    *  v7.6 防御性修复：目标查找回落 convos state（ref/state 理论同步，任何
    *  漂移都不再静默吞掉点击）；点击已激活会话 = 重新拉取正文（视为刷新，
-   *  覆盖「列表激活态与实际内容不一致」的状态修复场景）。 */
+   *  覆盖「列表激活态与实际内容不一致」的状态修复场景）。
+   *  B1（2026-10-15）：切换前 flush 旧会话尾包 + turns 即刻易主（拉取窗口内
+   *  清空视图，旧回合的 abort 落空回调与新调度都不再写旧内容）。 */
   const switchConvo = (id: string) => {
     const target = convosRef.current.find((c) => c.id === id) ?? convos.find((c) => c.id === id)
     console.log('[ai-assistant] switchConvo 调用:', id, '当前:', convoIdRef.current, '目标存在:', !!target, 'ref数:', convosRef.current.length, 'state数:', convos.length)
@@ -1613,10 +1652,12 @@ useEffect(() => {
       console.log('[ai-assistant] 点击的是当前活跃会话，跳过')
       return
     }
+    flushPendingDelta()
     abortRef.current?.abort()
     sticky.scrollToBottom()
     convoIdRef.current = id
     setConvoId(id)
+    turnsConvoIdRef.current = id
     setInput('')
     setAttached([])
     exitBatch()
@@ -1625,6 +1666,9 @@ useEffect(() => {
       applyTurns(() => target.messages.map((m) => ({ id: ++turnSeq.current, role: m.role, content: m.content, ...(Array.isArray(m.files) && m.files.length ? { files: m.files } : {}), ...(Array.isArray(m.trace) && m.trace.length ? { trace: m.trace } : {}) })))
       return
     }
+    // B1：拉取窗口内先清空视图（旧内容不冒充新会话；旧回合回调无处落笔）。
+    convoSyncedLenRef.current = 0
+    applyTurns(() => [])
     void aiGetConversation(id)
       .then((row) => {
         if (convoIdRef.current !== id) return
@@ -1660,6 +1704,9 @@ useEffect(() => {
     setConvos(list)
     void aiDeleteConversation(id).catch(() => { /* 服务端失败静默 */ })
     if (convoIdRef.current === id) {
+      // B1：先解除 turns 归属再切换（flush 不得把已删会话写回本地列表）。
+      turnsConvoIdRef.current = ''
+      convoSyncedLenRef.current = 0
       const top = list[0]
       if (top) switchConvo(top.id)
       else newChat()
@@ -1672,8 +1719,14 @@ useEffect(() => {
       if (detail?.context) setContext(detail.context)
       setOpen(true)
       if (detail?.ask) {
-        // 「问 AI」（搜索框）：打开即清空会话、以检索增强模式提问。
+        // 「问 AI」（搜索框）：开新会话提问（B1：解除 turns 归属——原实现
+        // 只清视图，收缩分支会把活动会话的历史快照覆盖成这一个问题）。
         setRag(true)
+        abortRef.current?.abort()
+        convoSyncedLenRef.current = 0
+        convoIdRef.current = ''
+        setConvoId('')
+        turnsConvoIdRef.current = ''
         applyTurns(() => [])
         window.setTimeout(() => { sendRef.current?.(detail.ask as string, true) }, 50)
       }
@@ -2153,6 +2206,7 @@ useEffect(() => {
     convoSyncedLenRef.current = 0
     convoIdRef.current = ''
     setConvoId('')
+    turnsConvoIdRef.current = '' // B1：turns 易主（abort 落空回调不再把旧回合开成新会话）
     applyTurns(() => [])
     exitBatch()
     setInput('')

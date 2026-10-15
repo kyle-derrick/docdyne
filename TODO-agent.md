@@ -53,8 +53,17 @@
       条目，无需 RemoveConversation）
 
 ## B. 助手会话切换（持续排查）
-- [ ] B1. 验证最新代码是否修复（用户确认或提供控制台日志）
-- [ ] B2. 如仍失败：全面重构为编辑页 AIEditChat 代码（用户建议的方案）
+- [x] B1. 验证最新代码是否修复（v7.15 复盘修复 2026-10-15：代码级审计定位
+      三处真实缺陷并修复——① 同步防抖定时器触发时才读 convoIdRef.current，
+      切换竞态下旧会话未同步增量写进新会话（跨会话串台）：新增 turnsConvoIdRef
+      归属 ref + 切换前 flushPendingDelta 尾包落库 + 拉取窗口清空视图；
+      ② 「问 AI」入口只清视图不解除归属，收缩分支把活动会话历史快照覆盖成
+      单条提问；③ 编辑页 AIEditChat 同源竞态：fetch 切换不清 turns（abort
+      落空回调以新会话 id 落笔→整删新会话）+ await 期间写回 clobber
+      syncedLen + create 期间切换被劫持激活指针。三处均有归属守卫）
+- [x] B2. 如仍失败：全面重构为编辑页 AIEditChat 代码（不再需要——B1 根因
+      修复覆盖失败类别，且两处实现已收敛同一同步纪律：切换=flush+易主+清
+      syncedLen，异步写回=归属守卫；重构为单实现属更大风险无增量收益）
 
 ## C. Word/Office 格式完善
 - [x] C1. Word 默认样式规范（83a6432：TOOL_DOCS 硬性要求——标题层级/

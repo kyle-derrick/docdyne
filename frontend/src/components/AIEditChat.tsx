@@ -521,13 +521,19 @@ export default function AIEditChat({
           if (!cid || !prev) {
             const row = await aiCreateConversation(convoScope, title)
             cid = row.id
-            activeSessIdRef.current = cid
-            setActiveSessId(cid)
+            // B1：create 期间可能已切换会话——仅当仍在「无活跃会话」语境时
+            // 认领为当前会话，否则新会话留在历史列表，不劫持激活指针。
+            if (activeSessIdRef.current === '') {
+              activeSessIdRef.current = cid
+              setActiveSessId(cid)
+            }
           } else if (!prev.title) {
             void aiUpdateConversation(cid, { title }).catch(() => { /* 静默 */ })
           }
           await aiAppendConversation(cid, 'turn', persist.slice(synced) as unknown as Array<Record<string, unknown>>)
-          syncedLenRef.current = persist.length
+          // B1：await 期间可能已切换会话——syncedLen 追踪当前活动会话的已同步
+          // 条数，不得被旧会话的写回 clobber（新建分支 cid 即当前活动 id）。
+          if (activeSessIdRef.current === cid) syncedLenRef.current = persist.length
           const rest = [
             { id: cid, title, updatedAt: Date.now(), messageCount: persist.length, turns },
             ...sessionsRef.current.filter((s) => s.id !== cid),
@@ -542,10 +548,11 @@ export default function AIEditChat({
               sessionsRef.current = rest
               setSessions(rest)
             }
-            syncedLenRef.current = 0
+            // B1：await 期间切换过会话则 syncedLen 已随切换重置，不再覆写。
+            if (activeSessIdRef.current === id) syncedLenRef.current = 0
           } else if (id) {
             await aiAppendConversation(id, 'snapshot', persist.slice(-40) as unknown as Array<Record<string, unknown>>)
-            syncedLenRef.current = Math.min(persist.length, 40)
+            if (activeSessIdRef.current === id) syncedLenRef.current = Math.min(persist.length, 40)
             const rest = sessionsRef.current.map((s) => (s.id === id ? { ...s, updatedAt: Date.now(), messageCount: persist.length } : s))
             sessionsRef.current = rest
             setSessions(rest)
@@ -573,6 +580,10 @@ export default function AIEditChat({
     setNotice('')
     sticky.scrollToBottom()
     if (target.turns.length > 0) { syncedLenRef.current = target.turns.length; setTurns(target.turns); return }
+    // B1 同源竞态：拉取窗口内先清空 turns 并复位 syncedLen——旧回合的 abort
+    // 落空回调不再以新会话 id 落笔（收缩分支曾会把新会话整删/旧增量串写）。
+    syncedLenRef.current = 0
+    setTurns([])
     void aiGetConversation(id)
       .then((row) => {
         if (activeSessIdRef.current !== id) return
