@@ -2,16 +2,31 @@
 
 > 用户确认后开始动工，全部自行完成，不遗漏。
 
-## A. 上下文管理（混合三层）
+## A. 上下文管理（RAG + AI 摘要 + 工具式记忆）
 - [ ] A1. AI 摘要压缩：上下文达 70% 时调 AI 生成被丢弃历史的摘要
       （替代硬截断）；摘要注入为 system 消息，保留关键决策/发现/状态
 - [ ] A2. 结构化轮次日志：程序化提取每轮 工具名(关键参数)→结果摘要
       （工具结果是 JSON，提取准确）；随 trace 展示 + 压缩时保留
-- [ ] A3. df_search_history 工具：PostgreSQL to_tsvector 全文检索
-      当前会话消息；AI 主动查询被压缩掉的细节
+- [ ] A3. df_search_history 工具：RAG 向量检索（Qdrant，复用已有
+      embedding 基础设施）+ ILIKE 关键词兜底（RAG 未配置时）
 - [ ] A4. 后端压缩事件推送前端：压缩触发时发 SSE meta 事件，
       前端在过程块中显示「上下文自动压缩：N 条 → M 条」
 - [ ] A5. 分层上下文验证：确保不是全量丢给 AI（测试 100+ 轮场景）
+- [ ] A6. 会话历史 RAG 索引写入：每轮对话完成后将消息写入
+      Qdrant（collection: {prefix}_conversations）或 PG 全文
+- [ ] A7. 工具式记忆：df_read_memory（查详情）+ df_write_memory
+      （自动记录）替代全量注入；系统提示仅带记忆标题列表(~200tok)
+- [ ] A8. 管理端配置：AI 设置加「对话历史检索」开关
+      （vector/keyword/off，默认 vector）
+
+## A2. 孤儿数据清理链（用户提出的同步清理需求）
+- [ ] A2.1. 会话删除 → RAG 向量清理（DeleteVectorsByConversation）
+- [ ] A2.2. 文件删除 → 关联会话删除 → 会话 RAG 清理
+- [ ] A2.3. 空间删除 → 文件删除 → 会话删除 → 会话 RAG 清理
+- [ ] A2.4. 存储清理面板批量删会话 → RAG 同步清理
+- [ ] A2.5. 定时任务：扫描孤儿 RAG 向量（conversation_id 不存在
+      于 ai_conversations 表的）并清理
+- [ ] A2.6. 搜索索引清理：RemoveConversation（Meilisearch/PG）
 
 ## B. 助手会话切换（持续排查）
 - [ ] B1. 验证最新代码是否修复（用户确认或提供控制台日志）
