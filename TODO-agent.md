@@ -275,6 +275,21 @@
 - [ ] K3. 平台工具 SDK（@docflow/tools）：df_* 工具定义/执行框架 →
       允许第三方注册自定义工具（插件化）
 - [ ] K4. 技能包格式规范：JSON Schema + 版本化 + 可分享格式
+- [ ] K5. Go Upload 库（pkg/upload）：断点续传+分片+病毒扫描+
+      多存储(local/S3/MinIO) → 独立库（docflow.ai/upload，
+      4123 行，接口已抽象良好）
+- [ ] K6. Go MCP 框架（pkg/mcp）：MCP Server 构建框架——工具注册/
+      资源暴露/PAT 鉴权/作用域 → docflow.ai/mcp（2293 行，
+      通用 MCP 服务端构建）
+- [ ] K7. Go Search 抽象（pkg/search）：多后端搜索——Meilisearch/
+      PostgreSQL tsvector/Qdrant 向量 → 统一接口
+      docflow.ai/search（1537 行）
+- [ ] K8. Go WebPKG 库（pkg/webpkg）：静态网站 zip 上传+解包+
+      HMAC 鉴权访问 → docflow.ai/webpkg（1939 行，独特功能）
+- [ ] K9. Go OnlyOffice 集成库（pkg/office）：OO 配置生成/回调处理/
+      JWT/版本管理 → docflow.ai/office（2580 行）
+- [ ] K10. Go 文件版本库（pkg/versioning）：版本链+自动保留策略+
+      回滚 → docflow.ai/versioning（从 files/ 提取）
 
 ## 已知问题（需用户配合排查）
 - "未知工具"偶发：已在 5a5f978 加诊断日志，等复现时看控制台输出
