@@ -28,6 +28,7 @@ import ChatThread from './aichat/ChatThread'
 import type { ChatMessage } from './aichat/ChatThread'
 import ChatInput from './aichat/ChatInput'
 import { useStickyScroll } from './aichat/useStickyScroll'
+import { aiFriendlyError } from './aichat/errors'
 import type { AIToolCallEntry } from './aichat'
 import {
   AIMessage,
@@ -127,6 +128,8 @@ interface WidgetTurn {
   streaming?: boolean
   stopped?: boolean
   error?: string
+  /** 备选模型切换/配额预警等非错误提示（消息气泡下方灰色小字）。 */
+  note?: string
   /** 推理思考聚合文本（SSE thinking 增量；折叠区展示，不计入正文）。 */
   thinking?: string
   thinkingStartedAt?: number
@@ -424,7 +427,7 @@ export default function ViewerAIWidget({
     try {
       const sys = await ensureFileContext()
       const selected = models.find((m) => m.id === modelKey) ?? null
-      await aiChat(
+      const chatRes = await aiChat(
         {
           messages: [{ role: 'system', content: sys }, ...history, { role: 'user', content: text }],
           providerId: selected?.providerId || undefined,
@@ -445,11 +448,17 @@ export default function ViewerAIWidget({
         },
         ac.signal,
       )
+      // H2：备选模型兜底成功——note 标注切换（诚实提示，非错误）。
+      if (chatRes.fallbackFrom) {
+        updateTurn(assistantId, () => ({
+          note: zh ? `首选模型不可用，已自动切换备用（原 ${chatRes.fallbackFrom}）` : `Primary model unavailable; served by a fallback (was ${chatRes.fallbackFrom})`,
+        }))
+      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         updateTurn(assistantId, () => ({ stopped: true }))
       } else {
-        updateTurn(assistantId, () => ({ error: err instanceof Error ? err.message : t(locale, 'aiAssistantErr') }))
+        updateTurn(assistantId, () => ({ error: aiFriendlyError(err, locale) }))
       }
     } finally {
       updateTurn(assistantId, (x) => (x.thinkingStartedAt ? { thinkingMS: Math.max(0, Date.now() - x.thinkingStartedAt) } : {}))

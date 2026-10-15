@@ -224,6 +224,10 @@ type ChatResult struct {
 	// Personal 表示本次命中用户个人 Provider 池（双轨制；HTTP 层据此在
 	// 审计/用量打 personal 标记）。
 	Personal bool
+	// FallbackFrom 非空表示本次经备选模型链兜底成功（H2）：值为切换前
+	// 的「Provider 名 / 模型」——HTTP 层随响应/done 事件透传，前端提示
+	// 「已切换备用模型」。
+	FallbackFrom string
 }
 
 // ConfigProvider 返回当前生效 AI 配置（热读取，DB 覆盖 → env 基线）。
@@ -460,11 +464,62 @@ func providerDefaultModel(cfg settings.AIConfig, p settings.AIProvider, scenario
 // ErrModelNotAllowed/ErrUpstreamChat。解析链个人池感知（见 personal.go）：
 // 显式模型先查个人池后查平台池；未显式且 prefer_personal 时个人场景默认
 // 优先；命中个人池时 ChatResult.Personal=true。
+// H2 备选模型链：普通对话（无工具）首选目标上游失败且零增量流出时，
+// 依管理端配置的 fallback_models 顺序逐个切换重试（见 canFallback）；
+// 任一备选成功即返回（FallbackFrom 标注切换前目标）。
 func (s *Service) Chat(ctx context.Context, req ChatRequest, onDelta func(string)) (ChatResult, error) {
 	target, err := s.ResolveChatTargetFor(req.ProviderID, req.Model, req.Scenario)
 	if err != nil {
 		return ChatResult{}, err
 	}
+	// 零增量探测：onDelta 一经调用即视为内容已流出，重试会造成回放。
+	streamed := false
+	wrapped := onDelta
+	if onDelta != nil {
+		wrapped = func(text string) { streamed = true; onDelta(text) }
+	}
+	out, err := s.chatOnce(ctx, target, req, wrapped)
+	if err == nil || !canFallback(ctx, req, err, streamed) {
+		return out, err
+	}
+	for _, ref := range target.Config.FallbackModels {
+		if ref.ProviderID == target.Provider.ID && ref.ModelID == target.Model {
+			continue // 与首选相同的目标不重试
+		}
+		fbProvider, fbModel, fbCfg, ferr := s.resolveChatTarget(ref.ProviderID, ref.ModelID, req.Scenario)
+		if ferr != nil {
+			continue // 备选项失效（Provider 下线/模型移除）静默跳过
+		}
+		fb := ChatTarget{Provider: fbProvider, Model: fbModel, Config: fbCfg}
+		fbOut, fbErr := s.chatOnce(ctx, fb, req, wrapped)
+		if fbErr == nil {
+			fbOut.FallbackFrom = target.Provider.Name + " / " + target.Model
+			log.Printf("ai chat: 首选 %s/%s 上游失败（%v），已切换备选 %s/%s", target.Provider.ID, target.Model, err, fb.Provider.ID, fb.Model)
+			return fbOut, nil
+		}
+		if streamed {
+			return fbOut, fbErr // 备选半途失败（已流出增量）：终止，不放大等待
+		}
+	}
+	return out, err // 备选全部未命中：回首个错误
+}
+
+// canFallback 判定失败后是否可走备选模型（H2）：仅上游类错误、请求未
+// 取消、零增量流出、且不带任何工具——工具循环（MCP/平台文件/子代理）
+// 重试会重复执行写类工具，不可安全回退。
+func canFallback(ctx context.Context, req ChatRequest, err error, streamed bool) bool {
+	if streamed || ctx.Err() != nil {
+		return false
+	}
+	if !errors.Is(err, ErrUpstreamChat) && !errors.Is(err, ErrUpstream) {
+		return false // 配置类错误（无 Provider/模型越权）换目标无意义
+	}
+	return req.ToolExecutor == nil && !req.UseMCP && len(req.PlatformTools) == 0
+}
+
+// chatOnce 对单一已解析目标执行一次补全（Chat 的单目标内核；fallback
+// 链对它逐目标调用）。think 门控/工具循环/用量记账均按本目标生效。
+func (s *Service) chatOnce(ctx context.Context, target ChatTarget, req ChatRequest, onDelta func(string)) (ChatResult, error) {
 	provider, model, cfg := target.Provider, target.Model, target.Config
 	// 推理思考门控：仅所选模型勾选 capabilities.reasoning 时透传 think；
 	// 模型不支持（含旧配置合成单模型）静默忽略，不报错。
@@ -494,6 +549,7 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest, onDelta func(string
 	}
 	start := s.now()
 	var out ChatResult
+	var err error
 	switch provider.Kind {
 	case settings.AIKindMock:
 		out, err = s.chatMock(ctx, provider, req, temperature, maxTokens, onDelta)
@@ -1431,13 +1487,16 @@ func (tc *chatToolContext) anthropicTools() []map[string]any {
 // 文本作为结果回喂模型；结果截 MCPToolResultMaxRunes 字符。notify 收到
 // 执行前（running，内置工具 server 固定 docflow/平台文件）与执行后
 // （success/error）两阶段事件。
+// H4：平台工具按类型设执行超时（读 30s / 写 60s）——超时不中断对话，
+// 超时文本回喂模型（写类提示「可能已执行，用读工具校验」）；请求上下文
+// 取消（用户停止）同样立即返回。
 func (s *Service) execTool(ctx context.Context, tc *chatToolContext, fn string, args json.RawMessage, notify ToolEventNotifier) string {
 	if tc.exec != nil && PlatformToolNames()[fn] {
 		if notify != nil {
 			notify(ToolCallEvent{ServerID: "docflow", ServerName: "平台文件", Tool: fn, Status: ToolStatusRunning, Input: toolEventSummary(string(args))})
 		}
 		start := time.Now()
-		result, err := tc.exec(fn, args)
+		result, err := execToolWithTimeout(ctx, tc.exec, fn, args)
 		if notify != nil {
 			ev := ToolCallEvent{ServerID: "docflow", ServerName: "平台文件", Tool: fn, DurationMS: time.Since(start).Milliseconds()}
 			if err != nil {
@@ -1460,6 +1519,60 @@ func (s *Service) execTool(ctx context.Context, tc *chatToolContext, fn string, 
 		return s.execMCPTool(ctx, tc.mcp, fn, args, notify)
 	}
 	return "错误：未知工具 " + fn + "（不在可用工具集中）"
+}
+
+// 平台工具执行超时（H4）：读类 30s、写类 60s（MCP 工具已有独立的
+// mcpclient.RequestTimeout）。写类超时的回喂文本提示「可能已执行」——
+// 底层操作无法中途取消时结果可能已落盘，由模型读校验兜底。
+var (
+	platformToolReadTimeout  = 30 * time.Second
+	platformToolWriteTimeout = 60 * time.Second
+)
+
+// execToolWithTimeout 在超时/请求取消护栏内执行一次平台工具回调。
+// 回调无 ctx 参数（既有接口），超时后底层工作可能仍在后台完成——
+// 读类结果仅被丢弃，写类经回喂文本引导模型校验，不影响循环继续。
+func execToolWithTimeout(ctx context.Context, exec ToolExecutorFunc, fn string, args json.RawMessage) (string, error) {
+	timeout := platformToolReadTimeout
+	if isWritePlatformTool(fn) {
+		timeout = platformToolWriteTimeout
+	}
+	type execResult struct {
+		out string
+		err error
+	}
+	done := make(chan execResult, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- execResult{err: fmt.Errorf("工具执行异常: %v", r)}
+			}
+		}()
+		out, err := exec(fn, args)
+		done <- execResult{out, err}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.out, r.err
+	case <-timer.C:
+		if isWritePlatformTool(fn) {
+			return "", fmt.Errorf("执行超时（>%s）——写操作可能已完成但未确认，请用读工具校验结果后决定是否重试", timeout)
+		}
+		return "", fmt.Errorf("执行超时（>%s），请缩小范围重试或换用其它读工具", timeout)
+	case <-ctx.Done():
+		return "", fmt.Errorf("请求已取消（%v）", ctx.Err())
+	}
+}
+
+// isWritePlatformTool 判定写类平台工具（超时预算与回喂文案区分用）。
+func isWritePlatformTool(name string) bool {
+	switch name {
+	case PlatformToolWriteFile, PlatformToolMkdir, PlatformToolWriteMemory:
+		return true
+	}
+	return false
 }
 
 // toolLoopFinish 为两套循环共用的轮次上限收尾：输出已达成文本，无文本

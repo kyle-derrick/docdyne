@@ -116,10 +116,14 @@ const (
 // 统一走专用 /admin/settings/ai 端点；Provider 的 api_key 同 SMTP 密码——
 // 只写不读（留空保持现值），任何读路径均以掩码回显。
 const (
-	KeyAIEnabled              = "ai.enabled"
-	KeyAIProviders            = "ai.providers"
-	KeyAIDefaultProvider      = "ai.default_provider"
-	KeyAIDefaultModels        = "ai.default_models"
+	KeyAIEnabled         = "ai.enabled"
+	KeyAIProviders       = "ai.providers"
+	KeyAIDefaultProvider = "ai.default_provider"
+	KeyAIDefaultModels   = "ai.default_models"
+	// KeyAIFallbackModels 为备选模型链（H2：首选模型上游失败且零增量时
+	// 依序切换）：有序 AIModelRef 列表，条目须指向启用 Provider 的 chat
+	// 能力模型；上限见 AIFallbackModelsLimit。
+	KeyAIFallbackModels       = "ai.fallback_models"
 	KeyAITemperature          = "ai.temperature"
 	KeyAIMaxTokens            = "ai.max_tokens"
 	KeyAIPerUserPerMin        = "ai.per_user_per_min"
@@ -500,7 +504,16 @@ type AIConfig struct {
 	//（关闭：df_search_history 工具不注入）。vector 预留值位：会话消息
 	// 向量化需按轮 embedding（成本/链路另行评估），当前未启用。
 	HistorySearch string `json:"history_search,omitempty"`
+	// FallbackModels 为备选模型链（H2，ai.fallback_models 键）：普通对话
+	//（无工具）首选模型上游失败且尚未流出任何增量时，依序切换重试。
+	// 条目须指向启用 Provider 的 chat 能力模型；仅对话链生效——工具循环
+	// 不回退（重试会重复执行写类工具）。SetAI 载荷 nil = 保持现值。
+	FallbackModels []AIModelRef `json:"fallback_models,omitempty"`
 }
+
+// AIFallbackModelsLimit 备选模型链长度上限（逐条串行重试，过长会拖长
+// 用户等待；管理端可配的合理上限）。
+const AIFallbackModelsLimit = 5
 
 type AIRAGConfig struct {
 	Mode              string `json:"mode"`
@@ -724,6 +737,9 @@ func ValidateAI(c AIConfig) error {
 	if err := validateDefaultModels(c); err != nil {
 		return err
 	}
+	if err := validateFallbackModels(c); err != nil {
+		return err
+	}
 	if c.Temperature < 0 || c.Temperature > 2 {
 		return fmt.Errorf("%w: ai.temperature must be 0-2", ErrInvalidValue)
 	}
@@ -820,6 +836,34 @@ func validateDefaultModels(c AIConfig) error {
 		}
 		if !m.Capabilities.IsChat() {
 			return fmt.Errorf("%w: default %s model %q lacks chat capability", ErrInvalidValue, scenario, ref.ModelID)
+		}
+	}
+	return nil
+}
+
+// validateFallbackModels 校验备选模型链（H2）：长度上限、条目指向存在
+// Provider 的 chat 能力模型、无重复条目（重复重试无意义且拖长等待）。
+func validateFallbackModels(c AIConfig) error {
+	if len(c.FallbackModels) > AIFallbackModelsLimit {
+		return fmt.Errorf("%w: ai.fallback_models: at most %d entries", ErrInvalidValue, AIFallbackModelsLimit)
+	}
+	seen := make(map[string]bool, len(c.FallbackModels))
+	for _, ref := range c.FallbackModels {
+		key := ref.ProviderID + "::" + ref.ModelID
+		if seen[key] {
+			return fmt.Errorf("%w: ai.fallback_models: duplicate entry %s", ErrInvalidValue, key)
+		}
+		seen[key] = true
+		p, ok := c.ProviderByID(ref.ProviderID)
+		if !ok {
+			return fmt.Errorf("%w: fallback model provider %q does not exist", ErrInvalidValue, ref.ProviderID)
+		}
+		m, ok := p.ModelWithID(ref.ModelID)
+		if !ok {
+			return fmt.Errorf("%w: fallback model %q not in provider %q", ErrInvalidValue, ref.ModelID, ref.ProviderID)
+		}
+		if !m.Capabilities.IsChat() {
+			return fmt.Errorf("%w: fallback model %q lacks chat capability", ErrInvalidValue, ref.ModelID)
 		}
 	}
 	return nil
@@ -1513,6 +1557,9 @@ func (s *Store) AIOverrides() (AIConfig, bool, error) {
 	if row, err := s.repo.GetRow(KeyAIDefaultModels); err == nil {
 		_ = json.Unmarshal([]byte(row.ValueJSON), &out.DefaultModels)
 	}
+	if row, err := s.repo.GetRow(KeyAIFallbackModels); err == nil {
+		_ = json.Unmarshal([]byte(row.ValueJSON), &out.FallbackModels)
+	}
 	if err := readFloat(KeyAITemperature, &out.Temperature); err != nil {
 		return out, set, err
 	}
@@ -1654,6 +1701,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		Providers:       next,
 		DefaultProvider: strings.TrimSpace(in.DefaultProvider),
 		DefaultModels:   in.DefaultModels,
+		FallbackModels:  in.FallbackModels,
 		Temperature:     in.Temperature,
 		MaxTokens:       in.MaxTokens,
 		PerUserPerMin:   in.PerUserPerMin,
@@ -1676,6 +1724,22 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 			}
 		}
 		merged.DefaultModels = kept
+	}
+	// fallback_models 合并（H2）：载荷 nil（旧客户端不带）= 保持现值；
+	// 非 nil（含空数组 = 清空）清理指向已不存在 Provider/模型的条目后写入。
+	if merged.FallbackModels == nil {
+		merged.FallbackModels = current.FallbackModels
+	}
+	if len(merged.FallbackModels) > 0 {
+		keptFB := make([]AIModelRef, 0, len(merged.FallbackModels))
+		for _, ref := range merged.FallbackModels {
+			if p, ok := merged.ProviderByID(ref.ProviderID); ok {
+				if _, ok2 := p.ModelWithID(ref.ModelID); ok2 {
+					keptFB = append(keptFB, ref)
+				}
+			}
+		}
+		merged.FallbackModels = keptFB
 	}
 	if merged.RAG.Mode == "" {
 		merged.RAG = current.RAG
@@ -1815,6 +1879,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		{KeyAIProviders, merged.Providers, TypeString},
 		{KeyAIDefaultProvider, merged.DefaultProvider, TypeString},
 		{KeyAIDefaultModels, merged.DefaultModels, TypeString},
+		{KeyAIFallbackModels, merged.FallbackModels, TypeString},
 		{KeyAITemperature, merged.Temperature, TypeString},
 		{KeyAIMaxTokens, int64(merged.MaxTokens), TypeString},
 		{KeyAIPerUserPerMin, int64(merged.PerUserPerMin), TypeString},
@@ -1860,8 +1925,9 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 	}
 	metadata, _ := json.Marshal(map[string]any{"key": "ai", "value": AIConfig{
 		Enabled: merged.Enabled, Providers: auditedProviders, DefaultProvider: merged.DefaultProvider,
-		DefaultModels: merged.DefaultModels,
-		Temperature:   merged.Temperature, MaxTokens: merged.MaxTokens, PerUserPerMin: merged.PerUserPerMin, RAG: merged.RAG,
+		DefaultModels:  merged.DefaultModels,
+		FallbackModels: merged.FallbackModels,
+		Temperature:    merged.Temperature, MaxTokens: merged.MaxTokens, PerUserPerMin: merged.PerUserPerMin, RAG: merged.RAG,
 		Search:        auditedSearch,
 		OCR:           merged.OCR,
 		HistorySearch: merged.HistorySearch,

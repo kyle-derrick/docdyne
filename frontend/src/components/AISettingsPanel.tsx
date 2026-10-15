@@ -250,6 +250,8 @@ export default function AISettingsPanel({
   // 默认项（独立受控，保存时与 providers 一并 PUT）。
   const [defaultProvider, setDefaultProvider] = useState('')
   const [defaultModels, setDefaultModels] = useState<Record<string, AIModelRef>>({})
+  // 备选模型链（H2：首选上游失败且零增量时依序切换；≤5 条）。
+  const [fallbackModels, setFallbackModels] = useState<AIModelRef[]>([])
   const [temperature, setTemperature] = useState(0.3)
   const [maxTokens, setMaxTokens] = useState(2048)
   const [perUserPerMin, setPerUserPerMin] = useState(20)
@@ -308,6 +310,7 @@ export default function AISettingsPanel({
       setHistorySearch(d.history_search === 'off' ? 'off' : 'keyword')
       setDefaultProvider(d.default_provider || (d.providers.find((p) => p.enabled)?.id ?? ''))
       setDefaultModels(d.default_models ?? {})
+      setFallbackModels(d.fallback_models ?? [])
       setTemperature(d.temperature)
       setMaxTokens(d.max_tokens)
       setPerUserPerMin(d.per_user_per_min)
@@ -382,7 +385,7 @@ export default function AISettingsPanel({
       }))
 
   /** 保存（enabledOn 缺省 = 当前开关态；保存成功后刷新全站 AI 入口显隐）。 */
-  const save = async (providers?: AIProviderInput[], enabledOn?: boolean, defaultsOverride?: Record<string, AIModelRef>) => {
+  const save = async (providers?: AIProviderInput[], enabledOn?: boolean, defaultsOverride?: Record<string, AIModelRef>, fallbackOverride?: AIModelRef[]) => {
     if (saving) return
     setSaving(true)
     try {
@@ -391,6 +394,7 @@ export default function AISettingsPanel({
         providers: providers ?? editableProviders(),
         default_provider: defaultProvider,
         default_models: defaultsOverride ?? defaultModels,
+        fallback_models: fallbackOverride ?? fallbackModels,
         temperature,
         max_tokens: maxTokens,
         per_user_per_min: perUserPerMin,
@@ -404,6 +408,7 @@ export default function AISettingsPanel({
       setAIEnabled(merged.enabled)
       setDefaultProvider(merged.default_provider)
       if (merged.default_models) setDefaultModels(merged.default_models)
+      setFallbackModels(merged.fallback_models ?? [])
       if (merged.ocr) setOcr({ ...merged.ocr, max_image_bytes: merged.ocr.max_image_bytes || 8 * 1024 * 1024 })
       if (merged.search) {
         setSearch((prev) => ({ provider: merged.search!.provider ?? '', searxng_url: merged.search!.searxng_url ?? '', max_results: merged.search!.max_results > 0 ? merged.search!.max_results : 5, tavily_api_key: merged.search!.tavily_api_key_configured ? prev.tavily_api_key : '' }))
@@ -436,7 +441,11 @@ export default function AISettingsPanel({
     setDefaultProvider(nextDefault)
     const defaults = dropDefaultRefs(next, id)
     setDefaultModels(defaults)
-    void save(next, undefined, defaults)
+    // 备选链同步清理指向被删 Provider / 已移除模型的条目。
+    const knownModels = new Set(next.flatMap((p) => (p.models ?? []).map((m) => `${p.id}::${m.id}`)))
+    const fallbacks = fallbackModels.filter((r) => r.provider_id !== id && knownModels.has(`${r.provider_id}::${r.model_id}`))
+    setFallbackModels(fallbacks)
+    void save(next, undefined, defaults, fallbacks)
   }
 
   /** 复制 Provider：深拷贝改名（api_key 不回显，需在新副本重新填写）。 */
@@ -904,6 +913,29 @@ export default function AISettingsPanel({
               />
             </label>
           ))}
+          <label className="field">
+            <span>
+              {zh ? '备选模型链（失败自动切换）' : 'Fallback models (auto switch)'}
+              <Tooltip title={zh ? '普通对话首选模型上游失败（且尚未输出任何内容）时，按此顺序自动切换重试；带工具的 Agent 循环不回退（避免重复执行写操作）。最多 5 个。' : 'For plain chats, when the primary model fails upstream before any output, retry through this ordered list. Tool loops never fall back (writes must not repeat). Max 5 entries.'}>
+                <QuestionCircleOutlined style={{ marginLeft: 4, color: '#888' }} />
+              </Tooltip>
+            </span>
+            <Select
+              mode="multiple"
+              value={fallbackModels.map((r) => `${r.provider_id}::${r.model_id}`)}
+              placeholder={zh ? '未设置（失败即提示）' : 'Not set (fail with a notice)'}
+              disabled={readOnly}
+              maxCount={5}
+              onChange={(vals: string[]) => {
+                setFallbackModels(vals.map((v) => {
+                  const [provider_id, ...rest] = v.split('::')
+                  return { provider_id, model_id: rest.join('::') }
+                }))
+              }}
+              options={capabilityOptions('chat')}
+              style={{ minWidth: 320 }}
+            />
+          </label>
           <label className="field">
             <span>{t(locale, 'adminAITemperature')}（0-2）</span>
             <InputNumber min={0} max={2} step={0.1} value={temperature} disabled={readOnly} onChange={(v) => setTemperature(Number(v ?? 0.3))} />

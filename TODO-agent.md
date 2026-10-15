@@ -308,13 +308,26 @@
       （编辑页 trace 头部已有步数，助手也需要）
 
 ## H. Agent 健壮性
-- [ ] H1. 优雅降级：AI Provider 不可用时显示友好提示（非报错）；
-      已有请求的可查看已有内容
-- [ ] H2. 备选模型：首选模型失败时自动切换到备选模型（管理端可配置
-      fallback 模型列表）
-- [ ] H3. 速率限制感知：接近配额时提前预警（非到限后报错）
-- [ ] H4. 工具执行超时：每个工具设独立超时（读工具 30s/写工具 60s），
-      超时后标记失败并继续（非阻塞整个循环）
+- [x] H1. 优雅降级：AI Provider 不可用时显示友好提示（非报错）；
+      已有请求的可查看已有内容（v7.15 H1：aichat/errors.ts aiFriendlyError
+      按 code 映射中英文案——AI_NOT_CONFIGURED/AI_PROVIDER_NOT_FOUND/
+      AI_MODEL_NOT_ALLOWED/AI_UPSTREAM，助手/编辑面板/Viewer 三入口接入；
+      未命中 code 保留原始 message，历史会话内容不受影响照常查看）
+- [x] H2. 备选模型：首选模型失败时自动切换到备选模型（管理端可配置
+      fallback 模型列表）（v7.15 H2：ai.fallback_models 键，≤5 条有序
+      AIModelRef；Chat 拆 chatOnce + fallback 链——仅普通对话（无工具）
+      上游失败且零增量时切换，防工具写重放；成功附 fallback_from 随
+      done/JSON 下发，前端 note/trace 提示「已切换备用」；管理端多选
+      下拉配置，validateFallbackModels 校验，openapi 同步）
+- [x] H3. 速率限制感知：接近配额时提前预警（非到限后报错）（v7.15 H3：
+      dynamicRateLimiter.DailyUsed 只读探测，Provider daily_quota 已用
+      （含本次）≥80% 时 c.Set 预警，随 meta 事件/JSON quota_warning 下发；
+      助手 trace note / 编辑面板 note 展示，明示 UTC 重置时间）
+- [x] H4. 工具执行超时：每个工具设独立超时（读工具 30s/写工具 60s），
+      超时后标记失败并继续（非阻塞整个循环）（v7.15 H4：execToolWithTimeout
+      goroutine+timer+ctx.Done 护栏——读 30s/写 60s、panic 恢复、用户
+      取消立即返回；写类超时文案注明「可能已执行，用读工具校验」，
+      超时错误文本回喂模型循环继续；MCP 工具本有 8s RequestTimeout 不变）
 
 ## I. 技能包生态
 - [ ] I1. 技能包版本号与变更日志

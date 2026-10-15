@@ -699,6 +699,7 @@ export function AIChatToggleBar({
 import { applyToolResult, normalizeWebSources, toolEntryFrom } from './aichat'
 import AIChatShell from './aichat/AIChatShell'
 import type { ChatMessage } from './aichat/ChatThread'
+import { aiFriendlyError } from './aichat/errors'
 import type { AIChatTurnData, AIAttachFile } from './aichat'
 import AIAttachTree from './aichat/AIAttachTree'
 import { useStickyScroll } from './aichat/useStickyScroll'
@@ -1947,7 +1948,7 @@ useEffect(() => {
     }
     if (chatOnly) workRoot = undefined
     try {
-      await aiChat(
+      const chatRes = await aiChat(
         {
           messages,
           providerId: selectedModel?.providerId || undefined,
@@ -1976,6 +1977,12 @@ useEffect(() => {
             // 联网来源：SSE meta.sources 宽松读取（字段名兼容 title/name、url/link）。
             const ws = normalizeWebSources((meta as { sources?: unknown }).sources)
             if (ws.length > 0) updateTurn(assistantId, () => ({ webSources: ws }))
+            // H3 配额预警：接近日配额上限时在过程块提前提示（非到限 429）。
+            if (meta.quota_warning) {
+              updateTurn(assistantId, (x) => ({
+                trace: [...(x.trace ?? []), { key: ++traceSeqRef.current, kind: 'note' as const, text: meta.quota_warning }],
+              }))
+            }
           },
           // v7.14i：完整过程 trace（与编辑宿主完全同构——思考/叙述/工具
           // 按时间序交织为 TraceStage[]）。
@@ -2072,12 +2079,22 @@ useEffect(() => {
         },
         ac.signal,
       )
+      // H2：本次经备选模型链兜底成功——过程块标注切换（诚实提示，非错误）。
+      if (chatRes.fallbackFrom) {
+        updateTurn(assistantId, (x) => ({
+          trace: [...(x.trace ?? []), {
+            key: ++traceSeqRef.current,
+            kind: 'note' as const,
+            text: zh ? `首选模型不可用，已自动切换备用模型（原 ${chatRes.fallbackFrom}）` : `Primary model unavailable; served by a fallback (was ${chatRes.fallbackFrom})`,
+          }],
+        }))
+      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         // 用户点击「停止」：保留已生成内容，标记已停止（非错误，可继续输入）。
         updateTurn(assistantId, () => ({ stopped: true }))
       } else {
-        const message = err instanceof Error ? err.message : t(locale, 'aiAssistantErr')
+        const message = aiFriendlyError(err, locale)
         updateTurn(assistantId, () => ({ error: message }))
       }
     } finally {
@@ -2117,7 +2134,7 @@ useEffect(() => {
       if (err instanceof Error && err.name === 'AbortError') {
         updateTurn(assistantId, () => ({ stopped: true }))
       } else {
-        const message = err instanceof Error ? err.message : t(locale, 'aiAssistantErr')
+        const message = aiFriendlyError(err, locale)
         updateTurn(assistantId, () => ({ error: message }))
       }
     } finally {

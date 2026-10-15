@@ -22,6 +22,7 @@ import type { TraceStage, TraceUsage } from './aichat/TraceView'
 import { useStickyScroll } from './aichat/useStickyScroll'
 import AIChatShell from './aichat/AIChatShell'
 import type { ChatMessage } from './aichat/ChatThread'
+import { aiFriendlyError } from './aichat/errors'
 import type { AIAttachFile } from './aichat'
 import type { AIToolCallEntry } from './aichat'
 import type { AIModelOption } from './AIAssistant'
@@ -1483,7 +1484,7 @@ ${planText}` },
         streaming: false,
         agentStream: false,
         note: aborted ? '已停止（已执行操作保留）' : undefined,
-        error: aborted ? undefined : (err instanceof Error ? err.message : t(locale, 'aiAssistantErr')),
+        error: aborted ? undefined : aiFriendlyError(err, locale),
         ...usagePatch(),
       }))
     } finally {
@@ -1528,7 +1529,7 @@ ${planText}` },
     const selectedModel = modelKey ? models.find((m) => m.id === modelKey) ?? null : null
     try {
       let acc = ''
-      await aiChat(
+      const chatRes = await aiChat(
         {
           messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: question }],
           providerId: selectedModel?.providerId || undefined,
@@ -1543,6 +1544,10 @@ ${planText}` },
             const ws = normalizeWebSources((meta as { sources?: unknown }).sources)
             if (ws.length > 0) {
               setTurns((prev) => prev.map((x) => (x.id === asstTurnId ? { ...x, webSources: ws } : x)))
+            }
+            // H3 配额预警：接近日配额上限时提前提示（note，非错误）。
+            if (meta.quota_warning) {
+              patchLastTurn(asstTurnId, () => ({ note: meta.quota_warning }))
             }
           },
           onDelta: (chunk) => {
@@ -1563,6 +1568,10 @@ ${planText}` },
       )
       patchLastTurn(asstTurnId, (x) => ({
         streaming: false,
+        // H2：备选模型兜底成功——note 标注切换（诚实提示，非错误）。
+        note: chatRes.fallbackFrom
+          ? (zh ? `首选模型不可用，已自动切换备用（原 ${chatRes.fallbackFrom}）` : `Primary model unavailable; served by a fallback (was ${chatRes.fallbackFrom})`)
+          : x.note,
         thinkingMS: x.thinkingStartedAt ? Math.max(0, Date.now() - x.thinkingStartedAt) : undefined,
       }))
     } catch (err) {
@@ -1570,7 +1579,7 @@ ${planText}` },
       patchLastTurn(asstTurnId, (x) => ({
         streaming: false,
         content: x.content || (aborted ? '（已停止）' : ''),
-        error: aborted ? undefined : (err instanceof Error ? err.message : t(locale, 'aiAssistantErr')),
+        error: aborted ? undefined : aiFriendlyError(err, locale),
         thinkingMS: x.thinkingStartedAt ? Math.max(0, Date.now() - x.thinkingStartedAt) : undefined,
       }))
     } finally {

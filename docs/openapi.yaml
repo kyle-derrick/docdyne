@@ -4435,7 +4435,11 @@ paths:
         上下文；与 context.query 的 RAG 模式互斥）。AI 未启用（ai.enabled=
         false 或无可用 Provider）时 404；指定的 Provider 不存在 400；上游
         失败 502。请求完成记 ai.chat 审计（成功/失败均记，metadata 含
-        provider/model/stream/rag/think/web_search）。
+        provider/model/stream/rag/think/web_search）。备选模型链（H2）：
+        普通对话（无工具）首选模型上游失败且尚未输出任何内容时，按管理端
+        ai.fallback_models 顺序自动切换重试，成功时响应/done 附
+        fallback_from；带工具的循环不回退。配额预警（H3）：Provider
+        daily_quota 已用（含本次）≥80% 时 meta/JSON 附 quota_warning。
       requestBody:
         required: true
         content:
@@ -4549,12 +4553,15 @@ paths:
                 type: object
                 description: >-
                   SSE 事件流：meta（{provider_id,provider_name,model[,
-                  sources|search_failed]}）/ sources（{sources:[{file_id,
-                  name,url}]}）/ thinking（{text} 推理增量，多次）/ tool
-                  （{type:"tool",label,server,tool,input}）/ tool_result
+                  sources|search_failed][,quota_warning]}）/ sources（{sources:
+                  [{file_id,name,url}]}）/ thinking（{text} 推理增量，多次）/
+                  tool（{type:"tool",label,server,tool,input}）/ tool_result
                   （{server,tool,ok,duration_ms,output|error}）/ delta
-                  （{text}，多次）/ done（{usage,content_length}）/ error
-                  （{error,code}）。
+                  （{text}，多次）/ done（{usage,content_length[,
+                  fallback_from]}）/ error（{error,code}）。quota_warning 为
+                  日配额预警（H3：已用≥80% 时提前提示）；fallback_from 为
+                  备选模型链兜底成功标注（H2：非空时实际服务模型与 meta
+                  不同）。
             application/json:
               schema:
                 type: object
@@ -4571,6 +4578,12 @@ paths:
                   provider_id: { type: string }
                   provider_name: { type: string }
                   model: { type: string }
+                  fallback_from:
+                    type: string
+                    description: 备选模型链兜底成功（H2）：切换前的「Provider 名 / 模型」，非空时实际服务模型与上方字段不同。
+                  quota_warning:
+                    type: string
+                    description: 日配额预警（H3）：已用（含本次）≥ Provider daily_quota 的 80% 时提示，接近上限前预警。
                   usage:
                     type: object
                     properties:
@@ -5702,6 +5715,14 @@ paths:
                       properties:
                         provider_id: { type: string }
                         model_id: { type: string }
+                  fallback_models:
+                    type: array
+                    description: 备选模型链（ai.fallback_models 键，H2）：普通对话首选上游失败且零增量时依序切换重试；条目须指向启用 Provider 的 chat 能力模型，≤5 条无重复。
+                    items:
+                      type: object
+                      properties:
+                        provider_id: { type: string }
+                        model_id: { type: string }
                   temperature: { type: number }
                   max_tokens: { type: integer }
                   per_user_per_min: { type: integer }
@@ -5795,6 +5816,14 @@ paths:
                 temperature: { type: number }
                 max_tokens: { type: integer }
                 per_user_per_min: { type: integer }
+                fallback_models:
+                  type: array
+                  description: 备选模型链（H2；缺省 = 保持现值，空数组 = 清空）——普通对话首选上游失败且零增量时依序切换；条目须指向存在 Provider 的 chat 能力模型，≤5 条无重复
+                  items:
+                    type: object
+                    properties:
+                      provider_id: { type: string }
+                      model_id: { type: string }
                 history_search:
                   type: string
                   enum: [keyword, off]

@@ -498,6 +498,9 @@ func (h *Handler) aiChat(c *gin.Context) {
 	// search_failed（失败降级标注）；未开启/未配置时与原结构一致。
 	chatMeta := func() gin.H {
 		meta := gin.H{"provider_id": provider.ID, "provider_name": provider.Name, "model": model}
+		if v, ok := c.Get(aiQuotaWarningCtxKey); ok { // H3 配额预警
+			meta["quota_warning"] = v
+		}
 		if webSearchOn {
 			if searchFailed {
 				meta["search_failed"] = true
@@ -526,7 +529,11 @@ func (h *Handler) aiChat(c *gin.Context) {
 			}
 			h.startAIStream(c)
 			w := sseWriter{c}
-			w.event("meta", gin.H{"provider_id": provider.ID, "provider_name": provider.Name, "model": model})
+			ragMeta := gin.H{"provider_id": provider.ID, "provider_name": provider.Name, "model": model}
+			if v, ok := c.Get(aiQuotaWarningCtxKey); ok { // H3 配额预警
+				ragMeta["quota_warning"] = v
+			}
+			w.event("meta", ragMeta)
 			_, _, res, err := userSvc.AskDocsOpt(c.Request.Context(), user, q, ai.AskOptions{ProviderID: provider.ID, ModelID: model}, history, func(s []ai.Source) {
 				if len(s) > 0 {
 					w.event("sources", gin.H{"sources": aiSourcesJSON(s)})
@@ -554,6 +561,12 @@ func (h *Handler) aiChat(c *gin.Context) {
 		}
 		auditDone(audit.StatusSuccess, res.ProviderID, res.Model)
 		resp := gin.H{"content": res.Content, "sources": aiSourcesJSON(sources), "provider_id": res.ProviderID, "provider_name": res.ProviderName, "model": res.Model, "usage": aiUsageJSON(res)}
+		if res.FallbackFrom != "" { // H2：本次经备选模型兜底成功
+			resp["fallback_from"] = res.FallbackFrom
+		}
+		if v, ok := c.Get(aiQuotaWarningCtxKey); ok { // H3：配额接近上限
+			resp["quota_warning"] = v
+		}
 		if webSearchOn {
 			if searchFailed {
 				resp["search_failed"] = true
@@ -608,7 +621,11 @@ func (h *Handler) aiChat(c *gin.Context) {
 		w.event("sources", gin.H{"sources": aiSourcesJSON(sources)})
 	}
 	auditDone(audit.StatusSuccess, res.ProviderID, res.Model)
-	w.event("done", gin.H{"usage": aiUsageJSON(res), "content_length": len(res.Content)})
+	donePayload := gin.H{"usage": aiUsageJSON(res), "content_length": len(res.Content)}
+	if res.FallbackFrom != "" { // H2：本次经备选模型兜底成功
+		donePayload["fallback_from"] = res.FallbackFrom
+	}
+	w.event("done", donePayload)
 	h.maybeAutoExtractMemory(c, lastUserMessage(messages), res.Content) // 记忆自动提取（后台，静默）
 }
 
@@ -889,7 +906,10 @@ type aiSettingsResponse struct {
 	// HistorySearch 对话历史检索开关（v7.15 A8，ai.history_search 键）：
 	// keyword（默认）/off。
 	HistorySearch string `json:"history_search"`
-	Env           gin.H  `json:"env"`
+	// FallbackModels 备选模型链（H2，ai.fallback_models 键）：普通对话
+	// 首选模型上游失败且零增量时依序切换。
+	FallbackModels []settings.AIModelRef `json:"fallback_models"`
+	Env            gin.H                 `json:"env"`
 }
 
 // aiPersonasOrEmpty 归一 nil 为空数组（JSON 输出 [] 而非 null）。
@@ -1028,6 +1048,7 @@ func (h *Handler) getAISettings(c *gin.Context) {
 		Providers:       aiProviderViews(cfg),
 		DefaultProvider: cfg.DefaultProvider,
 		DefaultModels:   cfg.DefaultModels,
+		FallbackModels:  cfg.FallbackModels,
 		Temperature:     cfg.Temperature,
 		MaxTokens:       cfg.MaxTokens,
 		PerUserPerMin:   cfg.PerUserPerMin,
@@ -1076,6 +1097,7 @@ func (h *Handler) putAISettings(c *gin.Context) {
 		Providers:       aiProviderViews(merged),
 		DefaultProvider: merged.DefaultProvider,
 		DefaultModels:   merged.DefaultModels,
+		FallbackModels:  merged.FallbackModels,
 		Temperature:     merged.Temperature,
 		MaxTokens:       merged.MaxTokens,
 		PerUserPerMin:   merged.PerUserPerMin,
@@ -1337,6 +1359,27 @@ func (l *dynamicRateLimiter) AllowDaily(key string, limit int) (bool, time.Durat
 	return true, 0
 }
 
+// DailyUsed 返回 key 的当日已用次数（含本次请求；窗口外/未计数 = 0）。
+// H3 配额预警用——只读探测，不新建窗口、不递增计数。
+func (l *dynamicRateLimiter) DailyUsed(key string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	day := l.now().UTC().Truncate(24 * time.Hour)
+	b, ok := l.buckets["daily:"+key]
+	if !ok || !b.start.Equal(day) {
+		return 0
+	}
+	return b.count
+}
+
+// aiQuotaWarningCtxKey 为 gin Context 键：日配额接近上限时由限流检查
+// 写入，chat 响应（meta 事件 / JSON）读取后随流下发（H3 提前预警，
+// 非到限后 429 才知道）。
+const aiQuotaWarningCtxKey = "docflow.ai.quota_warning"
+
+// aiQuotaWarnThreshold 日配额预警阈值（已用占比 ≥80% 提示）。
+const aiQuotaWarnThreshold = 0.8
+
 // aiRateLimitForTarget 按解析目标执行每用户限流（个人池感知）：命中个人
 // 池（Personal=true）时跳过平台 Provider 级限流与日配额（个人 Key 用户
 // 自担），仅保留全局 ai.per_user_per_min（>0 时）兜底；平台目标与
@@ -1381,9 +1424,14 @@ func (h *Handler) aiRateLimit(c *gin.Context, provider settings.AIProvider, cfg 
 		return false
 	}
 	if provider.DailyQuota > 0 {
-		if ok, retry := h.aiLimiter.AllowDaily(user+"|"+provider.ID, provider.DailyQuota); !ok {
+		dailyKey := user + "|" + provider.ID
+		if ok, retry := h.aiLimiter.AllowDaily(dailyKey, provider.DailyQuota); !ok {
 			h.aiRateLimited(c, retry)
 			return false
+		}
+		// H3 配额预警：已用（含本次）≥80% 时提前提示，随 meta 事件下发。
+		if used := h.aiLimiter.DailyUsed(dailyKey); float64(used) >= float64(provider.DailyQuota)*aiQuotaWarnThreshold {
+			c.Set(aiQuotaWarningCtxKey, fmt.Sprintf("今日 %s 配额已用 %d/%d（剩余 %d），接近上限，明早（UTC）重置", provider.Name, used, provider.DailyQuota, provider.DailyQuota-used))
 		}
 	}
 	return true

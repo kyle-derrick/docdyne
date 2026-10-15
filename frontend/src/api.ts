@@ -2861,7 +2861,7 @@ export interface AIToolResult {
 
 /** AI 对话流式回调集合。 */
 export interface AIChatStreamHandlers {
-  onMeta?: (meta: { provider_id: string; provider_name: string; model: string }) => void
+  onMeta?: (meta: { provider_id: string; provider_name: string; model: string; quota_warning?: string }) => void
   onSources?: (sources: AISource[]) => void
   onDelta?: (text: string) => void
   onThinking?: (text: string) => void
@@ -2880,7 +2880,7 @@ export interface AIChatStreamHandlers {
  * 完整结果。会话过期自动 refresh 重放。signal 触发 abort 时读取流抛
  * AbortError（「停止生成」语义，非错误）。
  */
-export async function aiChat(opts: AIChatOptions, handlers: AIChatStreamHandlers = {}, signal?: AbortSignal): Promise<{ content: string; sources: AISource[]; providerName: string; usage: AIUsage | null }> {
+export async function aiChat(opts: AIChatOptions, handlers: AIChatStreamHandlers = {}, signal?: AbortSignal): Promise<{ content: string; sources: AISource[]; providerName: string; usage: AIUsage | null; fallbackFrom: string }> {
   const stream = opts.stream !== false
   const body: Record<string, unknown> = {
     providerId: opts.providerId,
@@ -2945,7 +2945,7 @@ async function aiChatOnce(
   stream: boolean,
   handlers: AIChatStreamHandlers,
   signal?: AbortSignal,
-): Promise<{ content: string; sources: AISource[]; providerName: string; usage: AIUsage | null }> {
+): Promise<{ content: string; sources: AISource[]; providerName: string; usage: AIUsage | null; fallbackFrom: string }> {
   const init = withCSRF(jsonInit('POST', body))
   if (signal) init.signal = signal
   const res = await authFetch('/api/v1/ai/chat', init)
@@ -2954,10 +2954,10 @@ async function aiChatOnce(
     throw new ApiError(res.status, data?.error || `AI 请求失败（${res.status}）`, data?.code)
   }
   if (!stream) {
-    const data = (await res.json()) as { content: string; sources?: AISource[]; provider_name?: string; usage?: AIUsage }
+    const data = (await res.json()) as { content: string; sources?: AISource[]; provider_name?: string; usage?: AIUsage; fallback_from?: string }
     handlers.onSources?.(data.sources ?? [])
     handlers.onDone?.(data.usage ?? { prompt_tokens: 0, completion_tokens: 0, duration_ms: 0 })
-    return { content: data.content, sources: data.sources ?? [], providerName: data.provider_name ?? '', usage: data.usage ?? null }
+    return { content: data.content, sources: data.sources ?? [], providerName: data.provider_name ?? '', usage: data.usage ?? null, fallbackFrom: data.fallback_from ?? '' }
   }
   // SSE 解析：按空行分块，块内 event:/data: 行配对。
   const reader = res.body?.getReader()
@@ -2968,6 +2968,7 @@ async function aiChatOnce(
   let sources: AISource[] = []
   let usage: AIUsage | null = null
   let providerName = ''
+  let fallbackFrom = ''
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -3025,18 +3026,19 @@ async function aiChatOnce(
         handlers.onDelta?.(text)
       } else if (name === 'done') {
         usage = (payload.usage as AIUsage) ?? null
+        if (payload.fallback_from !== undefined) fallbackFrom = String(payload.fallback_from)
         handlers.onDone?.(usage ?? { prompt_tokens: 0, completion_tokens: 0, duration_ms: 0 })
         // 事件流结束：主动关闭读取——部分反向代理在 keep-alive 下不立即
         // 向浏览器发 EOF，read() 会挂起导致调用方一直处于「生成中」。
         await reader.cancel()
-        return { content, sources, providerName, usage }
+        return { content, sources, providerName, usage, fallbackFrom }
       } else if (name === 'error') {
         await reader.cancel()
         throw new ApiError(502, String(payload.error ?? 'AI 请求失败'), String(payload.code ?? ''))
       }
     }
   }
-  return { content, sources, providerName, usage }
+  return { content, sources, providerName, usage, fallbackFrom }
 }
 
 /** AI 文件摘要（全类型抽取；非流式）。 */
@@ -3204,6 +3206,8 @@ export interface AISettingsData {
   search?: AISearchSettings
   /** 对话历史检索（v7.15 A8）：'keyword'（默认）| 'off'；旧后端缺省 = keyword。 */
   history_search?: string
+  /** 备选模型链（H2）：普通对话首选上游失败且零增量时依序切换；旧后端缺省 = 空。 */
+  fallback_models?: AIModelRef[]
   env: { enabled: boolean; base_url: string; model: string }
 }
 
@@ -3241,6 +3245,8 @@ export async function putAISettings(input: {
   search?: AISearchSettings
   /** 对话历史检索（'keyword' | 'off'；缺省 = 保持现值）。 */
   history_search?: string
+  /** 备选模型链（H2；缺省 = 保持现值，空数组 = 清空）。 */
+  fallback_models?: AIModelRef[]
 }): Promise<AISettingsData> {
   return api<AISettingsData>('/api/v1/admin/settings/ai', jsonInit('PUT', input))
 }
