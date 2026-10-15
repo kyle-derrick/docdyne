@@ -1005,16 +1005,30 @@
       '- 写整表/批量数据首选 write_table（rows 含表头行的二维数组，自动表头样式），不要为整表逐格 write_cells。',
       '- 公式以 = 开头、英文函数名（=SUM(B2:B10)、=(B5-B6)/B5）；引用的行列号与写入位置按同一张表推算。',
       '- 数字/百分比/日期列用 format_range 的 numberFormat（0.00% / #,##0 / yyyy-mm-dd）。',
+      '- 表格美化（写完后）：表头行加粗+居中+底纹（format_range bold+center+fillColor）、',
+      '  首行冻结（freeze_panes）、关键列自动列宽（set_col_width 或 col_op auto_fit）。',
+      '- 数据条/条件格式：关键指标列可加 set_conditional_format（如 >80% 绿色 / <60% 红色）。',
       '- 写完表格后用 read_range 校验（对照返回的 address 与预期一致再继续）。'
     ].join('\n'),
     word: [
-      'Word 规范：',
+      'Word 规范（格式硬性要求）：',
+      '- 标题层级：# 一级标题（加粗、居中或左对齐、段前 12pt 段后 6pt）；',
+      '  ## 二级标题（加粗、左对齐、段前 10pt 段后 5pt）；### 三级标题（加粗、左对齐、段前 8pt 段后 4pt）。',
+      '- 正文：不缩进、行距 1.15、段前 0 段后 6pt；**重要概念/结论加粗**。',
       '- 元素序号全 1 基：read_document/search_text 返回的 n 直接用于 format_element/delete_element/replace_element 的 index。',
-      '- insert_content 的 md 支持 Markdown：#/##/### 标题、- 与 1. 列表、**粗体**、`行内代码`、|表格|、```代码块```。',
-      '- 表格用 insert_table {rows,header:true}；读取既有表格用 read_table；改单元格 table_op {index,op:"set_cell"}。'
+      '- insert_content 的 md 支持：#/##/### 标题（对应上表样式）、- 与 1. 列表、**粗体**、`行内代码`、|表格|、```代码块```。',
+      '- 表格用 insert_table {rows,header:true}（表头自动加粗+底纹+居中）。',
+      '  读取既有表格用 read_table；改单元格 table_op {index,op:"set_cell"}。',
+      '- 表格必须用 header:true（除非明确不要表头行）；写完用 read_table 校验行列数。',
+      '- 中文文档中英文/数字前后加空格（如「使用 Excel 2019 版本」）；专有名词首字母大写。',
+      '- 代码块用 insert_code_block（等宽字体+灰底）；引用块用 set_paragraph_style quote。'
     ].join('\n'),
     slide: [
-      'PPT 规范：页码 1 起；一页内容用一次 add_slide {title,bullets} 成型；补充文字用 add_text_box（pt 坐标，页面约 960×540）。'
+      'PPT 规范（格式硬性要求）：',
+      '- 页码 1 起；一页内容用一次 add_slide {title,bullets} 成型；补充文字用 add_text_box（pt 坐标，页面约 960×540）。',
+      '- 标题字号 28-32pt 加粗；正文要点 16-20pt；一行不超过 15 字（超长折行或拆点）。',
+      '- 每页要点 3-6 条；用子层级（bults 数组嵌套）表达从属关系。',
+      '- 页面标题 = 该页核心结论（不写「概述」这类空标题）。'
     ].join('\n'),
     pdf: ''
   };
