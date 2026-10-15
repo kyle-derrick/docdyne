@@ -976,6 +976,25 @@ export default function AIEditChat({
     return L.join(String.fromCharCode(10))
   }
 
+  /** G2：发送前确保服务端会话已建——本轮 aiChat 即可携带 conversation_id
+   *  关联用量（此前会话在回合完成后才由同步 effect 创建，首轮用量无法关联）。
+   *  创建失败静默（同步 effect 兜底）；已有会话直接返回。 */
+  const ensureConversation = async (question: string) => {
+    if (!fileId || activeSessIdRef.current) return
+    try {
+      const title = sessionTitleOf([{ id: 0, role: 'user', content: question }]) || (zh ? '新会话' : 'New session')
+      const row = await aiCreateConversation(convoScope, title)
+      activeSessIdRef.current = row.id
+      setActiveSessId(row.id)
+      const rest = [
+        { id: row.id, title, updatedAt: Date.now(), messageCount: 0, turns: [] as ChatTurn[] },
+        ...sessionsRef.current.filter((s) => s.id !== row.id),
+      ].slice(0, 300)
+      sessionsRef.current = rest
+      setSessions(rest)
+    } catch { /* 静默：不阻塞发送 */ }
+  }
+
   /** 建立新问答回合（用户+助手骨架），返回两回合 id。 */
   const openAgentTurn = (question: string, note?: string): [number, number] => {
     const userTurnId = ++turnIdRef.current
@@ -1140,7 +1159,7 @@ ${planText}` },
     try {
       for (let round = 1; round <= maxRounds; round++) {
         let acc = ''
-        await aiChat({ messages: convo }, {
+        await aiChat({ messages: convo, conversation_id: activeSessIdRef.current || undefined }, {
           onDelta: (c) => { acc += c },
           onMeta: () => {}, onThinking: () => {}, onTool: () => {}, onToolResult: () => {}, onSources: () => {},
         })
@@ -1248,6 +1267,8 @@ ${planText}` },
     // 的「未找到」分支兜底并提示重调原工具）。
     toolOutputsRef.current.clear()
     toolOutSeqRef.current = 0
+    // G2：先确保服务端会话存在，本轮各次模型请求即可关联会话计量。
+    await ensureConversation(convo.find((m) => m.role === 'user')?.content ?? '')
     // 过程分段写入（trace）：think=本轮思考段（首个思考增量开段），tool=一次调用。
     let stageSeq = 0
     const pushStage = (stage: Omit<TraceStage, 'key'>): number => {
@@ -1292,7 +1313,7 @@ ${planText}` },
           const view = agentConvoView(convo, ctxBudget)
           lastViewChars = view.reduce((n, m) => n + m.content.length, 0)
           return aiChat(
-            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
+            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, conversation_id: activeSessIdRef.current || undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
           {
             onDelta: (chunk) => {
               acc += chunk
@@ -1337,6 +1358,8 @@ ${planText}` },
           }
         }
         if (thinkKey) patchStage(thinkKey, { ms: Math.max(0, Date.now() - roundThinkStart) })
+        // G4：逐轮写回用量 → TraceView 头部实时「第 N 轮 · tok · 用时」。
+        patchLastTurn(asstTurnId, () => usagePatch())
         const parsed = parseAgentReply(acc)
         if (parsed.type === 'final') {
           // 纯散文回复（无 TOOL_CALL / FINAL 标记）→ 作为叙述行进过程块，
@@ -1493,6 +1516,7 @@ ${planText}` },
     setBusy(true)
     const controller = new AbortController()
     abortRef.current = controller
+    await ensureConversation(question)
     const history: AIMessage[] = turns
       .filter((x) => !x.error && x.content)
       .slice(-HISTORY_ROUNDS * 2)
@@ -1512,6 +1536,7 @@ ${planText}` },
           web_search: toggles.web ? true : undefined,
           think: toggles.think ? true : undefined,
           use_mcp: toggles.mcp ? true : undefined,
+          conversation_id: activeSessIdRef.current || undefined,
         },
         {
           onMeta: (meta) => {

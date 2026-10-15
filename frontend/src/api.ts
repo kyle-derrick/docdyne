@@ -2835,6 +2835,9 @@ export interface AIChatOptions {
   use_files?: boolean
   /** 工作目录 folderID（df_* 相对路径解析基准；空回落默认空间根）。 */
   work_root?: string
+  /** 服务端会话 id（可选）：携带时本次请求的用量行关联该会话
+   *  （管理端按会话聚合 token；非 UUID/他人会话服务端静默忽略关联）。 */
+  conversation_id?: string
 }
 
 /** SSE tool 事件条目：工具执行前下发（label=「服务名 / 工具名」，input=参数摘要）。 */
@@ -2892,6 +2895,7 @@ export async function aiChat(opts: AIChatOptions, handlers: AIChatStreamHandlers
   if (opts.include_docs !== undefined) body.include_docs = opts.include_docs
   if (opts.use_files !== undefined) body.use_files = opts.use_files
   if (opts.work_root) body.work_root = opts.work_root
+  if (opts.conversation_id) body.conversation_id = opts.conversation_id
   if (opts.reasoning_effort) body.reasoning_effort = opts.reasoning_effort
   if (opts.context_budget) body.context_budget = opts.context_budget
   if (opts.ragQuery !== undefined || opts.fileIds !== undefined) {
@@ -3367,6 +3371,48 @@ export async function getAIUsage(from?: string, to?: string): Promise<{ rows: AI
   if (to) params.set('to', to)
   const q = params.toString()
   return api<{ rows: AIUsageRow[]; total: { calls: number; tokens: number } }>(`/api/v1/admin/ai/usage${q ? `?${q}` : ''}`)
+}
+
+/** 会话维度用量聚合行（G2：by=conversation）。 */
+export interface AIConvoUsageRow {
+  conversation_id: string
+  title: string
+  source: string
+  user_id: string
+  username: string
+  calls: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  last_active_at: string
+}
+
+/** 会话维度 AI 用量统计（token 消耗 Top 会话）。 */
+export async function getAIUsageByConversation(from?: string, to?: string): Promise<{ rows: AIConvoUsageRow[]; total: { calls: number; tokens: number } }> {
+  const params = new URLSearchParams({ by: 'conversation' })
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  return api<{ rows: AIConvoUsageRow[]; total: { calls: number; tokens: number } }>(`/api/v1/admin/ai/usage?${params.toString()}`)
+}
+
+/** AI 工具执行统计行（G3：ai.tool 审计按工具名聚合）。 */
+export interface AIToolStatsRow {
+  tool: string
+  calls: number
+  ok: number
+  failed: number
+  avg_duration_ms: number
+  max_duration_ms: number
+  last_used_at: string
+}
+
+/** AI 工具执行统计（调用量/成功率/平均与最大耗时/最近使用）。 */
+export async function getAIToolStats(from?: string, to?: string): Promise<{ rows: AIToolStatsRow[] }> {
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const q = params.toString()
+  return api<{ rows: AIToolStatsRow[] }>(`/api/v1/admin/ai/tool-stats${q ? `?${q}` : ''}`)
 }
 
 // ---------- 个人 AI 配置（双轨制：/ai/personal-settings，本人维度） ----------

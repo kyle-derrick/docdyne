@@ -289,12 +289,22 @@
   触发 mock 摘要集成导致轮询用例失败——环境问题非代码缺陷，已实测确认）
 
 ## G. Agent 可观测性（调试与质量保障）
-- [ ] G1. Agent 执行日志：结构化记录每轮（模型/输入/输出/工具/耗时/错误）
-      → 可查询（管理端审计页或独立面板）
-- [ ] G2. Token 用量追踪：按会话累计（非仅按请求）；管理端可见
-      每用户/每会话/每工具的 token 消耗
-- [ ] G3. 工具调用成功率指标：按工具名统计（成功率/平均耗时/错误类型）
-- [ ] G4. Agent 进度指示：基于已执行轮次/预估总轮次显示进度条
+- [x] G1. Agent 执行日志（v7.15：既有三路结构化日志打通管理端查询——
+      ai.chat 审计记每请求（模型/流式/开关）、ai.tool 审计记每次工具
+      （工具名/参数摘要/状态/耗时）、ai_usage 每模型调用一行（provider/
+      model/tokens/ms + 059 会话/类型维度）；完整输入输出在会话事件
+      （本人可见）——管理端审计页可按 action 过滤查询）
+- [x] G2. Token 用量追踪（v7.15：migration 059 ai_usage 增 conversation_id
+      + kind(chat/agent/summary/ocr)；/ai/chat 请求携带会话 id（前端
+      ensureConversation 发送前建会话，首轮即可关联）；GET /admin/ai/usage?
+      by=conversation 按会话聚合（JOIN 属主校验防伪造，真库验证通过）；
+      管理端用量卡三维度切换：用户/会话/工具）
+- [x] G3. 工具调用成功率指标（v7.15：GET /admin/ai/tool-stats 聚合
+      ai.tool 审计——调用量/成功率/平均与最大耗时/最近使用；统计窗受
+      审计保留期约束；SQL 真库验证通过；用量卡「按工具」维度）
+- [x] G4. Agent 进度指示（v7.15：TraceView 头部运行中实时「第 N 轮 ·
+      累计 tok · 用时」（runAgentLoop 逐轮写回 usage）；不伪造总轮次
+      进度条——MAX_ROUNDS=300 是安全上限非预估，诚实展示已进行量）
       （编辑页 trace 头部已有步数，助手也需要）
 
 ## H. Agent 健壮性

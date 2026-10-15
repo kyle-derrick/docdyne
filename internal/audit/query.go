@@ -110,3 +110,37 @@ func (s *Store) Export(w io.Writer, q Query) error {
 	cw.Flush()
 	return cw.Error()
 }
+
+// ToolStatsRow 为按工具名聚合的执行统计（G3：metadata->>'tool' 分组）。
+type ToolStatsRow struct {
+	Tool       string    `json:"tool"`
+	Calls      int64     `json:"calls"`
+	OK         int64     `json:"ok"`
+	Failed     int64     `json:"failed"`
+	AvgMillis  int64     `json:"avg_duration_ms"`
+	MaxMillis  int64     `json:"max_duration_ms"`
+	LastUsedAt time.Time `json:"last_used_at"`
+}
+
+// ToolStats 按工具名聚合指定动作（如 ai.tool）的审计行：调用量/成功数/
+// 失败数/平均与最大耗时/最近使用。统计窗受审计保留期约束（保留期外的
+// 行已被清理）；from/to 零值 = 不限。
+func (s *Store) ToolStats(action string, from, to time.Time, limit int) ([]ToolStatsRow, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	q := s.db.Model(&Entry{}).
+		Select("metadata->>'tool' AS tool, COUNT(*) AS calls, COUNT(*) FILTER (WHERE status = ?) AS ok, COUNT(*) FILTER (WHERE status <> ?) AS failed, COALESCE(AVG(NULLIF(metadata->>'duration_ms','')::bigint),0)::bigint AS avg_duration_ms, COALESCE(MAX(NULLIF(metadata->>'duration_ms','')::bigint),0) AS max_duration_ms, MAX(created_at) AS last_used_at", StatusSuccess, StatusSuccess).
+		Where("action = ? AND metadata->>'tool' <> ''", action)
+	if !from.IsZero() {
+		q = q.Where("created_at >= ?", from)
+	}
+	if !to.IsZero() {
+		q = q.Where("created_at < ?", to)
+	}
+	var rows []ToolStatsRow
+	if err := q.Group("metadata->>'tool'").Order("calls DESC").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}

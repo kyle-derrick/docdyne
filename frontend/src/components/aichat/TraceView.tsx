@@ -59,7 +59,7 @@ function linkify(text: string): Array<string | { url: string }> {
   return out
 }
 
-export default function TraceView({ stages, running, zh }: { stages: TraceStage[]; running: boolean; zh: boolean }) {
+export default function TraceView({ stages, running, zh, usage }: { stages: TraceStage[]; running: boolean; zh: boolean; usage?: TraceUsage }) {
   // 整块：运行中展开、完成自动折叠（用户可再点开）。
   const [open, setOpen] = useState(running)
   useEffect(() => { setOpen(running) }, [running])
@@ -95,7 +95,12 @@ export default function TraceView({ stages, running, zh }: { stages: TraceStage[
             : (zh ? `已处理 · ${fmtDur(totalMS) || '<0.1s'}` : `Done · ${fmtDur(totalMS) || '<0.1s'}`)}
         </span>
         <span className="ai-trace-meta">
-          {thinkCount + toolCount > 0 ? `${thinkCount + toolCount}${zh ? ' 步' : ' steps'}` : ''}
+          {/* G4：运行中实时进度（轮次/累计 token/用时）；完成态保持步数汇总。 */}
+          {running && usage
+            ? (zh
+                ? `第 ${usage.rounds} 轮 · ${(usage.promptTokens + usage.completionTokens).toLocaleString()} tok${usage.durationMS > 0 ? ` · ${fmtDur(usage.durationMS)}` : ''}`
+                : `Round ${usage.rounds} · ${(usage.promptTokens + usage.completionTokens).toLocaleString()} tok${usage.durationMS > 0 ? ` · ${fmtDur(usage.durationMS)}` : ''}`)
+            : (thinkCount + toolCount > 0 ? `${thinkCount + toolCount}${zh ? ' 步' : ' steps'}` : '')}
         </span>
       </button>
       {open && (

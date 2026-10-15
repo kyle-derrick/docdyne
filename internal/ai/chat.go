@@ -292,6 +292,34 @@ func (s *Service) ForUser(user uuid.UUID) *Service {
 	return &clone
 }
 
+// SetUsageContext 为本次请求的全部用量记录附上会话 id 与请求类型
+// （G1/G2：ai_usage 行关联到会话；agent=带工具循环，chat=普通对话）。
+// 在 ForUser 克隆上调用（每请求一次）；conversation 为空 uuid 时仅记 kind。
+func (s *Service) SetUsageContext(conversation uuid.NullUUID, kind string) {
+	s.usage = usageContextSink{inner: s.usage, conversation: conversation, kind: kind}
+}
+
+// usageContextSink 在内层 sink（UserUsageSink）之上补写会话/类型维度；
+// 内层已填的值不覆盖（kind 归一化在内层 Record 完成）。
+type usageContextSink struct {
+	inner        UsageSink
+	conversation uuid.NullUUID
+	kind         string
+}
+
+func (u usageContextSink) Record(entry UsageEntry) error {
+	if entry.ConversationID.Valid == false {
+		entry.ConversationID = u.conversation
+	}
+	if entry.Kind == "" {
+		entry.Kind = u.kind
+	}
+	if u.inner == nil {
+		return nil
+	}
+	return u.inner.Record(entry)
+}
+
 // Config 返回当前生效配置（调用方读取限流等）。
 func (s *Service) Config() (settings.AIConfig, error) {
 	if s.config == nil {

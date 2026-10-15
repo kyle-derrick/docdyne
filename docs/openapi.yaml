@@ -4517,6 +4517,13 @@ paths:
                     工作目录 folderID（可选）：use_files 平台文件工具相对
                     路径的解析基准（AI 在该目录内读写文件）；空/非法回落
                     用户默认空间根。
+                conversation_id:
+                  type: string
+                  format: uuid
+                  description: >-
+                    服务端会话 id（可选，v7.15 G2）：携带时本次请求的
+                    ai_usage 用量行关联该会话（管理端按会话聚合 token）；
+                    非 UUID/他人会话静默忽略关联。
                 messages:
                   type: array
                   items:
@@ -6221,8 +6228,77 @@ paths:
     get:
       tags: [admin, AI]
       operationId: adminAIUsage
-      summary: AI 用量统计（按用户聚合）
-      description: ai_usage 表按用户+Provider+模型聚合的统计（调用次数/tokens/平均耗时），日期过滤 from/to（YYYY-MM-DD，含 to 当天），limit 缺省 100。
+      summary: AI 用量统计（按用户或按会话聚合）
+      description: >-
+        ai_usage 表聚合统计，日期过滤 from/to（YYYY-MM-DD，含 to 当天），
+        limit 缺省 100。缺省按用户+Provider+模型聚合（调用次数/tokens/
+        平均耗时）；by=conversation 时按会话聚合（token 消耗 Top 会话，
+        含标题/属主/source；JOIN 按「会话属主 = 用量行用户」校验，伪造
+        他人会话 id 的行不进聚合）。
+      parameters:
+        - name: by
+          in: query
+          schema: { type: string, enum: [conversation] }
+          description: 聚合维度；缺省按用户，conversation 按会话。
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: 聚合结果（by=conversation 时行结构为会话维度）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string, format: uuid }
+                        username: { type: string }
+                        provider_id: { type: string }
+                        model: { type: string }
+                        conversation_id: { type: string, format: uuid, description: by=conversation 时返回 }
+                        title: { type: string, description: by=conversation 时返回 }
+                        source: { type: string, description: by=conversation 时返回（assistant/editor/plugin） }
+                        calls: { type: integer }
+                        prompt_tokens: { type: integer }
+                        completion_tokens: { type: integer }
+                        total_tokens: { type: integer }
+                        avg_duration_ms: { type: integer }
+                        last_active_at: { type: string, format: date-time, description: by=conversation 时返回 }
+                  total:
+                    type: object
+                    properties:
+                      calls: { type: integer }
+                      tokens: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503':
+          description: 用量统计未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/ai/tool-stats:
+    get:
+      tags: [admin, AI]
+      operationId: adminAIToolStats
+      summary: AI 工具执行统计（按工具名聚合）
+      description: >-
+        ai.tool 审计行按工具名聚合（v7.15 G3）：调用量/成功与失败数/
+        平均与最大耗时/最近使用。日期过滤 from/to（YYYY-MM-DD，含 to
+        当天），limit 缺省 100。统计窗受审计保留期约束（保留期外的行已
+        被 janitor 清理）。
       parameters:
         - name: from
           in: query
@@ -6246,25 +6322,18 @@ paths:
                     items:
                       type: object
                       properties:
-                        user_id: { type: string, format: uuid }
-                        username: { type: string }
-                        provider_id: { type: string }
-                        model: { type: string }
+                        tool: { type: string }
                         calls: { type: integer }
-                        prompt_tokens: { type: integer }
-                        completion_tokens: { type: integer }
-                        total_tokens: { type: integer }
+                        ok: { type: integer }
+                        failed: { type: integer }
                         avg_duration_ms: { type: integer }
-                  total:
-                    type: object
-                    properties:
-                      calls: { type: integer }
-                      tokens: { type: integer }
+                        max_duration_ms: { type: integer }
+                        last_used_at: { type: string, format: date-time }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '503':
-          description: 用量统计未装配
+          description: 工具统计未装配
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

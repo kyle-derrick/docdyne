@@ -178,6 +178,11 @@ type aiChatRequest struct {
 	// WorkRoot 工作目录 folderID（可选）：use_files 工具相对路径的解析
 	// 基准；空/非法回落用户默认空间根。
 	WorkRoot *string `json:"work_root"`
+	// ConversationID 服务端会话 id（可选，v7.15 G2）：前端持久化会话
+	//（ai_conversations）的 id；携带时本次请求的 ai_usage 用量行关联
+	// 该会话（管理端按会话聚合 token）。非 UUID/他人会话静默忽略关联
+	//（聚合 JOIN 按属主校验，不泄露他人标题）。
+	ConversationID *string `json:"conversation_id"`
 	// Context 为可选上下文：query 触发检索增强（RAG-lite）；fileIds 把
 	// 指定文件抽取文本拼入上下文（两者可并存，RAG 优先拼装）。
 	Context *struct {
@@ -402,6 +407,19 @@ func (h *Handler) aiChat(c *gin.Context) {
 		}
 	}
 	userSvc := h.aiServiceFor(svc, user)
+	// G2：本次请求用量行附会话/类型维度（可空 uuid = 未持久化对话）；
+	// 工具循环（MCP/平台/记忆任一）标记 agent，普通对话 chat。
+	kind := "chat"
+	if len(platformTools) > 0 || useMCP {
+		kind = "agent"
+	}
+	var convoNull uuid.NullUUID
+	if req.ConversationID != nil {
+		if id, err := uuid.Parse(strings.TrimSpace(*req.ConversationID)); err == nil {
+			convoNull = uuid.NullUUID{UUID: id, Valid: true}
+		}
+	}
+	userSvc.SetUsageContext(convoNull, kind)
 
 	// 先行解析目标（Provider + 模型，个人池感知：显式模型先查个人池后查
 	// 平台池；未显式且 prefer_personal 时个人场景默认优先）：模型不属于
@@ -779,6 +797,7 @@ func (h *Handler) aiSummarize(c *gin.Context) {
 	think := req.Think != nil && *req.Think
 	src := aiFileContentSource{files: h.aiFiles, storage: h.storage}
 	userSvc := h.aiServiceFor(svc, user)
+	userSvc.SetUsageContext(uuid.NullUUID{}, "summary") // G2：摘要请求类型
 	// 摘要场景默认模型（summary 回落 chat；个人池感知——prefer_personal
 	// 且个人默认命中时用个人模型并豁免 Provider 级限流）的限流配置执行。
 	if t, terr := userSvc.ResolveChatTargetFor("", "", settings.AIScenarioSummary); terr == nil {
@@ -1171,6 +1190,22 @@ func (h *Handler) adminAIUsage(c *gin.Context) {
 			limit = n
 		}
 	}
+	// G2：by=conversation 时按会话聚合（token 消耗 Top 会话，含标题/属主/
+	// source；JOIN 按属主校验，伪造他人会话 id 的行不进聚合）。
+	if c.Query("by") == "conversation" {
+		convoRows, err := h.aiUsageStore.AggregateConversations(from, to, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to aggregate ai usage"})
+			return
+		}
+		var totalCalls, totalTokens int64
+		for _, r := range convoRows {
+			totalCalls += r.Calls
+			totalTokens += r.TotalTokens
+		}
+		c.JSON(http.StatusOK, gin.H{"rows": convoRows, "total": gin.H{"calls": totalCalls, "tokens": totalTokens}})
+		return
+	}
 	rows, err := h.aiUsageStore.Aggregate(from, to, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to aggregate ai usage"})
@@ -1185,6 +1220,59 @@ func (h *Handler) adminAIUsage(c *gin.Context) {
 }
 
 // ---------- 每用户限流（Provider 级 requests_per_min / daily_quota 热读取） ----------
+
+// aiToolStatsSource 为 G3 工具统计聚合源（*audit.Store 实现的窄接口；
+// h.auditQuery 类型断言取得，旧 fake 不实现时端点 503）。
+type aiToolStatsSource interface {
+	ToolStats(action string, from, to time.Time, limit int) ([]audit.ToolStatsRow, error)
+}
+
+// adminAIToolStats GET /admin/ai/tool-stats?from&to&limit：按工具名聚合
+// ai.tool 审计行——调用量/成功与失败数/平均与最大耗时/最近使用（G3）。
+// 统计窗受审计保留期约束（保留期外的行已被 janitor 清理）。
+func (h *Handler) adminAIToolStats(c *gin.Context) {
+	src, ok := h.auditQuery.(aiToolStatsSource)
+	if !ok || src == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "tool statistics are not configured"})
+		return
+	}
+	parseDay := func(raw string) (time.Time, bool) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return time.Time{}, true
+		}
+		t, err := time.ParseInLocation("2006-01-02", raw, time.UTC)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return t, true
+	}
+	from, ok := parseDay(c.Query("from"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from (YYYY-MM-DD)"})
+		return
+	}
+	to, ok := parseDay(c.Query("to"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to (YYYY-MM-DD)"})
+		return
+	}
+	if !to.IsZero() {
+		to = to.AddDate(0, 0, 1) // 含 to 当天
+	}
+	limit := 100
+	if raw := c.Query("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	rows, err := src.ToolStats(aiToolAuditAction, from, to, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to aggregate tool stats"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows})
+}
 
 // dynamicRateLimiter 为限流值可热调整的固定窗口限流器（按 key 计数；
 // limit 由每次 Allow 调用方读取配置传入；AllowDaily 为按 UTC 自然日的

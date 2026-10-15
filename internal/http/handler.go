@@ -281,14 +281,14 @@ type Handler struct {
 	// aiMemory 为用户 AI 记忆存取（ai_memory 表，migration 050，本人维度；
 	// NewHandler 以 *auth.UserStore 装配，接口化便于单测注入内存实现）；
 	// 未注入时 /ai/memory 端点 503、chat 的 include_memory 静默跳过。
-	aiMemory     aiMemoryStore
+	aiMemory aiMemoryStore
 	// aiConversations 为用户 AI 会话记录存取（ai_conversations 表，
 	// migration 053，本人维度；NewHandler 以 *auth.UserStore 装配）；
 	// 未注入时 /ai/conversations 端点 503。
 	aiConversations aiConvoStore
 	webdav          *davHandler
-	webdavTokens *auth.WebDAVStore
-	commentsDB   *gorm.DB
+	webdavTokens    *auth.WebDAVStore
+	commentsDB      *gorm.DB
 }
 
 func NewHandler(authService *auth.Service, users *auth.UserStore, fileStore *files.Store, shares *share.Service, spaces *space.Service, uploads *upload.Service, storage upload.Storage, cookieSecure bool, cookieDomain string, refreshTokenTTL time.Duration) *Handler {
@@ -815,6 +815,8 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	admin.PUT("/settings/ai/mcp", h.adminPutAIMCPServices)
 	admin.POST("/settings/ai/mcp/test", h.adminTestAIMCP)
 	admin.GET("/ai/usage", h.adminAIUsage)
+	// G3：ai.tool 审计按工具名聚合（调用量/成功率/平均耗时/最近使用）。
+	admin.GET("/ai/tool-stats", h.adminAIToolStats)
 	// HTTPS 运行时切换（热下发 Caddy admin API）：GET 恒注册（未托管时
 	// managed=false 供页面降级展示）；PUT 未托管时 503；POST /tls/cert
 	// 上传自定义证书（custom 模式，multipart cert+key）。
@@ -1248,6 +1250,7 @@ func (h *Handler) listFiles(c *gin.Context) {
 // 网页目录/网页 zip 无「网页」徽标且点击不打开网页）：
 //   - 目录直接子级含 index.html → has_index_web=true（前端默认点击=网页打开）；
 //   - zip 已成功解包（Extract 校验保证含 index.html）→ has_index_web=true。
+//
 // 查询失败不阻塞列举（标记缺省 false）。
 func (h *Handler) filesJSONWithWebMark(out []files.File) []gin.H {
 	folderIDs := make([]uuid.UUID, 0, len(out))

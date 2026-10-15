@@ -41,6 +41,10 @@ import {
   getAISettings,
   getAISkills,
   getAIUsage,
+  getAIUsageByConversation,
+  getAIToolStats,
+  type AIConvoUsageRow,
+  type AIToolStatsRow,
   lookupAIModel,
   putAIMCPAdmin,
   putAIPersonas,
@@ -278,8 +282,12 @@ export default function AISettingsPanel({
   }, [mcpEditing])
   // RAG 重建向量索引（POST /admin/settings/ai/reindex）。
   const [reindexing, setReindexing] = useState(false)
-  // 用量统计。
+  // 用量统计（G2/G3：user=按用户+Provider+模型 / conversation=按会话 /
+  //  tool=ai.tool 审计按工具名聚合）。
+  const [usageBy, setUsageBy] = useState<'user' | 'conversation' | 'tool'>('user')
   const [usageRows, setUsageRows] = useState<AIUsageRow[] | null>(null)
+  const [convoUsageRows, setConvoUsageRows] = useState<AIConvoUsageRow[] | null>(null)
+  const [toolStatsRows, setToolStatsRows] = useState<AIToolStatsRow[] | null>(null)
   const [usageTotal, setUsageTotal] = useState<{ calls: number; tokens: number }>({ calls: 0, tokens: 0 })
   const [usageFrom, setUsageFrom] = useState('')
   const [usageTo, setUsageTo] = useState('')
@@ -315,12 +323,28 @@ export default function AISettingsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const loadUsage = async () => {
+  const loadUsage = async (by = usageBy) => {
     setUsageLoading(true)
     try {
-      const r = await getAIUsage(usageFrom || undefined, usageTo || undefined)
-      setUsageRows(r.rows ?? [])
-      setUsageTotal(r.total ?? { calls: 0, tokens: 0 })
+      if (by === 'conversation') {
+        const r = await getAIUsageByConversation(usageFrom || undefined, usageTo || undefined)
+        setConvoUsageRows(r.rows ?? [])
+        setUsageTotal(r.total ?? { calls: 0, tokens: 0 })
+      } else if (by === 'tool') {
+        const r = await getAIToolStats(usageFrom || undefined, usageTo || undefined)
+        setToolStatsRows(r.rows ?? [])
+        let calls = 0
+        let ok = 0
+        for (const row of r.rows ?? []) {
+          calls += row.calls
+          ok += row.ok
+        }
+        setUsageTotal({ calls, tokens: ok })
+      } else {
+        const r = await getAIUsage(usageFrom || undefined, usageTo || undefined)
+        setUsageRows(r.rows ?? [])
+        setUsageTotal(r.total ?? { calls: 0, tokens: 0 })
+      }
     } catch (err) {
       onError(err instanceof Error ? err.message : t(locale, 'loadFailed'))
     } finally {
@@ -1312,32 +1336,81 @@ export default function AISettingsPanel({
         </p>
       </Card>
 
-      {/* 用量统计。 */}
+      {/* 用量统计（G2/G3：用户 / 会话 / 工具三维度）。 */}
       <Card size="small" title={t(locale, 'adminAIUsage')} style={{ marginTop: 12 }} extra={
         <div className="ai-usage-filters">
+          <Select
+            size="small"
+            style={{ width: zh ? 110 : 120 }}
+            value={usageBy}
+            onChange={(v) => {
+              setUsageBy(v)
+              void loadUsage(v)
+            }}
+            options={[
+              { value: 'user', label: zh ? '按用户' : 'By user' },
+              { value: 'conversation', label: zh ? '按会话' : 'By conversation' },
+              { value: 'tool', label: zh ? '按工具' : 'By tool' },
+            ]}
+          />
           <input type="date" aria-label={t(locale, 'adminAIFrom')} value={usageFrom} onChange={(e) => setUsageFrom(e.target.value)} />
           <span className="muted">→</span>
           <input type="date" aria-label={t(locale, 'adminAITo')} value={usageTo} onChange={(e) => setUsageTo(e.target.value)} />
           <Button size="small" loading={usageLoading} onClick={() => void loadUsage()}>{t(locale, 'refresh')}</Button>
         </div>
       }>
-        <Table
-          size="small"
-          rowKey={(r) => `${r.user_id}-${r.provider_id}-${r.model}`}
-          dataSource={usageRows ?? []}
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          locale={{ emptyText: t(locale, 'adminAIUsageEmpty') }}
-          columns={[
-            { title: t(locale, 'adminAIUsageUser'), dataIndex: 'username', render: (v: string, r: AIUsageRow) => v || r.user_id.slice(0, 8) },
-            { title: t(locale, 'adminAIProvider'), dataIndex: 'provider_id' },
-            { title: t(locale, 'adminAIModel'), dataIndex: 'model' },
-            { title: t(locale, 'adminAIUsageCalls'), dataIndex: 'calls' },
-            { title: t(locale, 'adminAIUsageTokens'), dataIndex: 'total_tokens' },
-            { title: t(locale, 'adminAIUsageAvgMs'), dataIndex: 'avg_duration_ms', render: (v: number) => `${Math.round(v)} ms` },
-          ]}
-        />
+        {usageBy === 'conversation' ? (
+          <Table
+            size="small"
+            rowKey="conversation_id"
+            dataSource={convoUsageRows ?? []}
+            pagination={{ pageSize: 10, hideOnSinglePage: true }}
+            locale={{ emptyText: t(locale, 'adminAIUsageEmpty') }}
+            columns={[
+              { title: zh ? '会话' : 'Conversation', dataIndex: 'title', render: (v: string, r: AIConvoUsageRow) => `${v || (zh ? '（无标题）' : '(untitled)')} · ${r.source}` },
+              { title: t(locale, 'adminAIUsageUser'), dataIndex: 'username', render: (v: string, r: AIConvoUsageRow) => v || r.user_id.slice(0, 8) },
+              { title: t(locale, 'adminAIUsageCalls'), dataIndex: 'calls' },
+              { title: t(locale, 'adminAIUsageTokens'), dataIndex: 'total_tokens' },
+              { title: zh ? '最近活跃' : 'Last active', dataIndex: 'last_active_at', render: (v: string) => new Date(v).toLocaleString() },
+            ]}
+          />
+        ) : usageBy === 'tool' ? (
+          <Table
+            size="small"
+            rowKey="tool"
+            dataSource={toolStatsRows ?? []}
+            pagination={{ pageSize: 10, hideOnSinglePage: true }}
+            locale={{ emptyText: t(locale, 'adminAIUsageEmpty') }}
+            columns={[
+              { title: zh ? '工具' : 'Tool', dataIndex: 'tool' },
+              { title: t(locale, 'adminAIUsageCalls'), dataIndex: 'calls' },
+              { title: zh ? '成功率' : 'Success', render: (_: unknown, r: AIToolStatsRow) => r.calls > 0 ? `${Math.round((r.ok * 100) / r.calls)}%（${r.ok}/${r.calls}）` : '—' },
+              { title: t(locale, 'adminAIUsageAvgMs'), dataIndex: 'avg_duration_ms', render: (v: number) => `${Math.round(v)} ms` },
+              { title: zh ? '最慢' : 'Max', dataIndex: 'max_duration_ms', render: (v: number) => `${Math.round(v)} ms` },
+              { title: zh ? '最近使用' : 'Last used', dataIndex: 'last_used_at', render: (v: string) => new Date(v).toLocaleString() },
+            ]}
+          />
+        ) : (
+          <Table
+            size="small"
+            rowKey={(r) => `${r.user_id}-${r.provider_id}-${r.model}`}
+            dataSource={usageRows ?? []}
+            pagination={{ pageSize: 10, hideOnSinglePage: true }}
+            locale={{ emptyText: t(locale, 'adminAIUsageEmpty') }}
+            columns={[
+              { title: t(locale, 'adminAIUsageUser'), dataIndex: 'username', render: (v: string, r: AIUsageRow) => v || r.user_id.slice(0, 8) },
+              { title: t(locale, 'adminAIProvider'), dataIndex: 'provider_id' },
+              { title: t(locale, 'adminAIModel'), dataIndex: 'model' },
+              { title: t(locale, 'adminAIUsageCalls'), dataIndex: 'calls' },
+              { title: t(locale, 'adminAIUsageTokens'), dataIndex: 'total_tokens' },
+              { title: t(locale, 'adminAIUsageAvgMs'), dataIndex: 'avg_duration_ms', render: (v: number) => `${Math.round(v)} ms` },
+            ]}
+          />
+        )}
         <div className="muted" style={{ marginTop: 6 }}>
-          {zh ? '合计' : 'Total'}：{usageTotal.calls} {zh ? '次' : 'calls'} · {usageTotal.tokens} tokens
+          {usageBy === 'tool'
+            ? (zh ? `合计 ${usageTotal.calls} 次 · 成功 ${usageTotal.tokens} 次（统计窗受审计保留期约束）` : `${usageTotal.calls} calls · ${usageTotal.tokens} ok (bounded by audit retention)`)
+            : (zh ? '合计' : 'Total') + `：${usageTotal.calls} ` + (zh ? '次' : 'calls') + ` · ${usageTotal.tokens} tokens`}
         </div>
       </Card>
 

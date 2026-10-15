@@ -209,7 +209,7 @@ export default function ChatThread({
               <div className="ai-bubble ai-bubble-assistant">
                 {(() => {
                   const stages = synthStages(msg, zh)
-                  if (stages) return <TraceView stages={stages} running={!!msg.streaming} zh={zh} />
+                  if (stages) return <TraceView stages={stages} running={!!msg.streaming} zh={zh} usage={msg.usage} />
                   return <AIChatThinking text={msg.thinking ?? ''} streaming={msg.streaming} thinkingMS={msg.thinkingMS} zh={zh} />
                 })()}
                 {/* 破坏性工具对话内确认卡（v7.7 谨慎模式；参考 Cherry Studio）。 */}
