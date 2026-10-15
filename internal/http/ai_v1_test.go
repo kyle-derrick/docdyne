@@ -649,15 +649,18 @@ func TestAIMemoryContextBlockTruncation(t *testing.T) {
 	if nl <= 0 {
 		t.Fatal("块应含首行说明")
 	}
-	// 总量有界：首行 + 4 条 ×（48 rune 标题 + 前缀 + 省略号）。
-	if got := len([]rune(block)); got > nl+1+4*(aiMemoryTitleRunes+len([]rune("…\n- "))) {
+	// 总量有界：首行 + 4 条 ×（48 rune 标题 + 前缀 + 省略号）+ J2 围栏
+	// 固定开销（UntrustedBlock 的标题/告示/边界标记，与条数无关）。
+	fence := ai.UntrustedBlock("用户记忆标题", "s")
+	fenceOverhead := len([]rune(fence)) - len("s")
+	if got := len([]rune(block)); got > nl+1+4*(aiMemoryTitleRunes+len([]rune("…\n- ")))+fenceOverhead {
 		t.Fatalf("注入块 %d rune 超出标题列表有界预算", got)
 	}
 }
 
 // TestAIMemoryContextBlock 注入格式与条数上限（v7.15 A7 标题列表）：
 // 头部说明（含工具用法提示）+ 逐条「- 」标题、取最近 20 条且按时间正序
-//（阅读自然）；无记忆/读取失败/未装配返回空串。
+// （阅读自然）；无记忆/读取失败/未装配返回空串。
 func TestAIMemoryContextBlock(t *testing.T) {
 	// 25 条倒序（最新在前）：记忆24 … 记忆00。
 	items := make([]auth.AIMemory, 25)

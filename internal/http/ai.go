@@ -696,7 +696,12 @@ func (h *Handler) aiFileContextBlock(ctx context.Context, svc *ai.Service, user 
 		b.WriteString(fmt.Sprintf("\n文件：%s（链接 /view/%s）\n%s\n", meta.Name, meta.ID.String(), ai.TruncateForPrompt(text)))
 		sources = append(sources, ai.Source{FileID: meta.ID.String(), Name: meta.Name, URL: "/view/" + meta.ID.String()})
 	}
-	return b.String(), sources, images, nil
+	// 附件全文为不可信数据：整体围栏隔离（J2 提示注入防护）。
+	block := ""
+	if b.Len() > 0 {
+		block = "以下是用户随本次对话附带的文件内容（按文件分隔）：\n" + ai.UntrustedBlock("附件文件内容", strings.TrimPrefix(b.String(), "\n"))
+	}
+	return block, sources, images, nil
 }
 
 // startAIStream 写出 SSE 响应头（进入流式后错误一律经 event: error）。

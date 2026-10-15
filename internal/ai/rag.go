@@ -127,15 +127,18 @@ func (s *Service) AskDocsOpt(ctx context.Context, user uuid.UUID, query string, 
 		var b strings.Builder
 		b.WriteString(sys)
 		b.WriteString("\n\n参考资料（按相关度排序）：\n")
+		var data strings.Builder
 		for i, r := range results {
 			if r.Type != "file" {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("\n[%d] 文件名：%s\n链接：/view/%s\n", i+1, r.Name, r.ID.String()))
+			fmt.Fprintf(&data, "\n[%d] 文件名：%s\n链接：/view/%s\n", i+1, r.Name, r.ID.String())
 			if snippet := strings.TrimSpace(stripSnippetMarks(r.Snippet)); snippet != "" {
-				b.WriteString("片段：" + snippet + "\n")
+				data.WriteString("片段：" + snippet + "\n")
 			}
 		}
+		// 检索片段来自用户文档（不可信数据）：整体围栏隔离（J2）。
+		b.WriteString(UntrustedBlock("知识库检索片段", data.String()))
 		sys = b.String()
 	} else {
 		sys += "\n\n（本次检索未命中任何资料，请按通用知识回答并说明未检索到相关文档。）"
@@ -160,9 +163,13 @@ func (s *Service) AskDocsOpt(ctx context.Context, user uuid.UUID, query string, 
 	return res.Content, sources, res, nil
 }
 
+// docsBlockIntro「我的文件」上下文块的导语（可信指令，置于围栏外）。
+const docsBlockIntro = "以下是按相关度排序的用户的文档检索结果（回答时可参考，并优先依据这些资料）："
+
 // DocsContextBlock 把检索结果拼装为「我的文件」上下文块与来源列表
 // （include_docs 用：普通对话模式下把检索到的本人可见文档片段注入
-// system 上下文，语料拼装与 AskDocsOpt 的参考资料块一致）。无 file
+// system 上下文，语料拼装与 AskDocsOpt 的参考资料块一致；片段为不可信
+// 数据，整体经 UntrustedBlock 围栏隔离——J2 提示注入防护）。无 file
 // 结果时返回空串（调用方跳过注入，对话不中断）。
 func DocsContextBlock(results []search.Result) (string, []Source) {
 	var b strings.Builder
@@ -173,16 +180,16 @@ func DocsContextBlock(results []search.Result) (string, []Source) {
 			continue
 		}
 		idx++
-		if idx == 1 {
-			b.WriteString("以下是按相关度排序的用户的文档检索结果（回答时可参考，并优先依据这些资料）：")
-		}
 		sources = append(sources, Source{FileID: r.ID.String(), Name: r.Name, URL: "/view/" + r.ID.String()})
-		b.WriteString(fmt.Sprintf("\n\n[%d] 文件名：%s\n链接：/view/%s\n", idx, r.Name, r.ID.String()))
+		fmt.Fprintf(&b, "\n\n[%d] 文件名：%s\n链接：/view/%s\n", idx, r.Name, r.ID.String())
 		if snippet := strings.TrimSpace(stripSnippetMarks(r.Snippet)); snippet != "" {
 			b.WriteString("片段：" + snippet + "\n")
 		}
 	}
-	return b.String(), sources
+	if idx == 0 {
+		return "", sources
+	}
+	return docsBlockIntro + "\n" + UntrustedBlock("文档检索片段", strings.TrimPrefix(b.String(), "\n\n")), sources
 }
 
 // stripSnippetMarks 去掉 ts_headline 的 [[..]] 高亮标记。

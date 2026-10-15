@@ -88,7 +88,7 @@ func (m *memoryToolCtx) execute(name string, argsJSON json.RawMessage) (string, 
 	if err != nil {
 		status = audit.StatusFailure
 	}
-	m.auditTool(name, status, summary, time.Since(started).Milliseconds())
+	m.auditTool(name, status, summary, time.Since(started).Milliseconds(), result, err)
 	if err != nil {
 		return platformToolResult(gin.H{"error": err.Error()}), nil
 	}
@@ -148,20 +148,30 @@ func (m *memoryToolCtx) toolWriteMemory(content string) (any, error) {
 	return gin.H{"id": item.ID, "kind": item.Kind, "note": "已记录；用户可在 AI 记忆设置中查看或删除"}, nil
 }
 
-// auditTool 写一条记忆工具执行审计（口径同 platformToolCtx.auditTool）。
-func (m *memoryToolCtx) auditTool(name, status, summary string, durationMS int64) {
+// auditTool 写一条记忆工具执行审计（口径同 platformToolCtx.auditTool；
+// J3 增强：失败附 error 原文，写记忆结果附 memory_id）。
+func (m *memoryToolCtx) auditTool(name, status, summary string, durationMS int64, result any, callErr error) {
 	if m.h == nil {
 		return
 	}
-	meta, _ := json.Marshal(map[string]any{
+	meta := map[string]any{
 		"tool": name, "args": summary, "status": status, "duration_ms": durationMS,
-	})
+	}
+	if callErr != nil {
+		meta["error"] = callErr.Error()
+	}
+	if r, ok := result.(gin.H); ok && r != nil {
+		if v, ok := r["id"]; ok {
+			meta["memory_id"] = v
+		}
+	}
+	metaJSON, _ := json.Marshal(meta)
 	entry := audit.Entry{
 		UserID:       &m.user,
 		Action:       aiToolAuditAction,
 		ResourceType: audit.ResourceAI,
 		Status:       status,
-		Metadata:     string(meta),
+		Metadata:     string(metaJSON),
 	}
 	if m.c != nil {
 		m.h.recordAudit(m.c, entry)

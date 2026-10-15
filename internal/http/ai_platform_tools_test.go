@@ -219,6 +219,76 @@ func TestExecutePlatformToolRejections(t *testing.T) {
 	}
 }
 
+// TestPlatformToolSandboxPaths 工具沙箱（J1 钉死）：`.`/`..` 段被路径
+// 校验拒绝（NormalizeName 尾点规则），无「向上跳出工作目录」的写法；
+// 前导 / 视为相对路径（Trim 语义）。
+func TestPlatformToolSandboxPaths(t *testing.T) {
+	ptc, _, _, _ := newPlatformToolEnv(t)
+
+	for _, path := range []string{"..", "../上级", "a/../..", ".", "./当前", "目录/."} {
+		if ok, msg := callTool(t, ptc, "df_read_file", fmt.Sprintf(`{"path":%q}`, path)); ok {
+			t.Fatalf("路径 %q 含 . 或 .. 段应被拒绝", path)
+		} else if !strings.Contains(msg, "路径不合法") {
+			t.Fatalf("路径 %q 应报路径不合法, got %q", path, msg)
+		}
+	}
+	// mkdir 同样拒绝。
+	if ok, _ := callTool(t, ptc, "df_mkdir", `{"path":"../逃逸"}`); ok {
+		t.Fatal("mkdir 的 .. 段应被拒绝")
+	}
+	// write 同样拒绝。
+	if ok, _ := callTool(t, ptc, "df_write_file", `{"path":"../逃逸.md","content":"x"}`); ok {
+		t.Fatal("write 的 .. 段应被拒绝")
+	}
+	// 前导斜杠按相对路径处理（Trim 后从工作目录根解析）。
+	if ok, msg := callTool(t, ptc, "df_mkdir", `{"path":"/斜杠目录"}`); !ok {
+		t.Fatalf("前导 / 应视为相对路径: %s", msg)
+	}
+}
+
+// TestPlatformToolAuditWriteDetails 审计增强（J3）：写操作审计 metadata
+// 含 file_id 与 created；失败含 error 原文——「谁/何时/改了什么/结果」。
+func TestPlatformToolAuditWriteDetails(t *testing.T) {
+	ptc, _, _, rec := newPlatformToolEnv(t)
+
+	if ok, msg := callTool(t, ptc, "df_mkdir", `{"path":"审计目录"}`); !ok {
+		t.Fatalf("df_mkdir 失败: %s", msg)
+	}
+	if ok, msg := callTool(t, ptc, "df_write_file", `{"path":"审计目录/文件.md","content":"内容"}`); !ok {
+		t.Fatalf("df_write_file 失败: %s", msg)
+	}
+	// 失败写（父目录不存在）→ error 原文入审计。
+	if ok, _ := callTool(t, ptc, "df_write_file", `{"path":"不存在的父/a.md","content":"x"}`); ok {
+		t.Fatal("父目录缺失应失败")
+	}
+
+	var success, failure *audit.Entry
+	for i := range rec.entries {
+		e := rec.entries[i]
+		if e.Action != "ai.tool" || !strings.Contains(e.Metadata, `"tool":"df_write_file"`) {
+			continue
+		}
+		if e.Status == "success" && success == nil {
+			success = &rec.entries[i]
+		}
+		if e.Status == "failure" && failure == nil {
+			failure = &rec.entries[i]
+		}
+	}
+	if success == nil {
+		t.Fatal("缺少 df_write_file 成功审计")
+	}
+	if !strings.Contains(success.Metadata, `"file_id"`) || !strings.Contains(success.Metadata, `"created":true`) {
+		t.Fatalf("成功审计应含 file_id/created（J3）: %s", success.Metadata)
+	}
+	if failure == nil {
+		t.Fatal("缺少 df_write_file 失败审计")
+	}
+	if !strings.Contains(failure.Metadata, `"error"`) || !strings.Contains(failure.Metadata, "父目录不存在") {
+		t.Fatalf("失败审计应含 error 原文（J3）: %s", failure.Metadata)
+	}
+}
+
 // TestExecutePlatformToolSearch df_search：未装配检索服务时报错不中断。
 func TestExecutePlatformToolSearch(t *testing.T) {
 	ptc, _, _, _ := newPlatformToolEnv(t)

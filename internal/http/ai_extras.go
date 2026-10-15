@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
+	"github.com/docflow/docflow/internal/ai"
 	"github.com/docflow/docflow/internal/auth"
 	"github.com/docflow/docflow/internal/mcpclient"
 	"github.com/docflow/docflow/internal/settings"
@@ -429,8 +430,9 @@ var _ aiMemoryStore = (*auth.UserStore)(nil)
 // appendContextSystem 并入首条 system 消息，v7.15 A7 工具式记忆）：
 // 只注入最近 20 条的「标题列表」（每条截 aiMemoryTitleRunes 字符，时间
 // 正序阅读自然）+ 工具用法提示——完整内容由模型在需要时 df_read_memory
-// 按需读取，用户明确表达新偏好时 df_write_memory 记录。未装配存储 /
-// 读取失败 / 无记忆返回空串（静默降级，不阻塞对话）。
+// 按需读取，用户明确表达新偏好时 df_write_memory 记录。标题列表为用户
+// 自述数据（AI 亦可代写），整体经 ai.UntrustedBlock 围栏隔离（J2）。
+// 未装配存储 / 读取失败 / 无记忆返回空串（静默降级，不阻塞对话）。
 func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
 	if h.aiMemory == nil {
 		return ""
@@ -440,7 +442,6 @@ func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("以下是用户的长期偏好记忆标题列表（完整内容用 df_read_memory 工具按关键词查询；用户明确表达值得长期记住的偏好时用 df_write_memory 记录）：")
 	for i := len(items) - 1; i >= 0; i-- { // List 为倒序，注入反转为时间正序
 		title := []rune(items[i].Content)
 		if len(title) > aiMemoryTitleRunes {
@@ -448,7 +449,8 @@ func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
 		}
 		b.WriteString("\n- " + string(title))
 	}
-	return b.String()
+	return "以下是用户的长期偏好记忆标题列表（完整内容用 df_read_memory 工具按关键词查询；用户明确表达值得长期记住的偏好时用 df_write_memory 记录）：\n" +
+		ai.UntrustedBlock("用户记忆标题", strings.TrimPrefix(b.String(), "\n"))
 }
 
 // aiMemoryList GET /api/v1/ai/memory：本人记忆列表（最新在前，≤200 条）。

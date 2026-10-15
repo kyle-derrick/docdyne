@@ -591,7 +591,7 @@ func (p *platformToolCtx) executePlatformTool(name string, argsJSON json.RawMess
 	if err != nil {
 		status = audit.StatusFailure
 	}
-	p.auditTool(name, status, summary, time.Since(started).Milliseconds())
+	p.auditTool(name, status, summary, time.Since(started).Milliseconds(), result, err)
 	if err != nil {
 		return platformToolResult(gin.H{"error": err.Error()}), nil
 	}
@@ -616,20 +616,34 @@ func platformToolResult(failure gin.H) string {
 }
 
 // auditTool 写一条工具执行审计（照 aiChat 的 recordAudit 写法：best-effort，
-// 失败不影响主流程；metadata 含工具名/参数摘要/结果状态/耗时）。
-func (p *platformToolCtx) auditTool(name, status, summary string, durationMS int64) {
+// 失败不影响主流程；metadata 含工具名/参数摘要/结果状态/耗时；J3 增强：
+// 失败附 error 原文，写类结果附 file_id/created——「谁/何时/改了什么/结果」
+// 四要素齐备）。
+func (p *platformToolCtx) auditTool(name, status, summary string, durationMS int64, result any, callErr error) {
 	if p.h == nil {
 		return
 	}
-	meta, _ := json.Marshal(map[string]any{
+	meta := map[string]any{
 		"tool": name, "args": summary, "status": status, "duration_ms": durationMS,
-	})
+	}
+	if callErr != nil {
+		meta["error"] = callErr.Error()
+	}
+	if m, ok := result.(gin.H); ok && m != nil {
+		if v, ok := m["file_id"]; ok {
+			meta["file_id"] = v
+		}
+		if v, ok := m["created"]; ok {
+			meta["created"] = v
+		}
+	}
+	metaJSON, _ := json.Marshal(meta)
 	entry := audit.Entry{
 		UserID:       &p.user,
 		Action:       aiToolAuditAction,
 		ResourceType: audit.ResourceAI,
 		Status:       status,
-		Metadata:     string(meta),
+		Metadata:     string(metaJSON),
 	}
 	if p.c != nil {
 		p.h.recordAudit(p.c, entry)

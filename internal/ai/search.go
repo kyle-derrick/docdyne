@@ -208,18 +208,21 @@ func clipRunes(s string, max int) string {
 	return string(runes[:max])
 }
 
+// webSearchIntro 网络搜索上下文块的导语（可信指令，置于围栏外）。
+const webSearchIntro = "以下是网络搜索结果，供参考。回答时可引用编号 [n] 与对应链接；搜索结果可能过时或不准确，请结合问题自行判断。"
+
 // BuildWebSearchContext 把搜索结果拼为 system 上下文块（[n] 标题 + 链接 +
-// 摘要），供注入消息头部。
+// 摘要），供注入消息头部。外部网页内容为最高风险的不可信数据源——
+// 结果条目整体经 UntrustedBlock 围栏隔离（J2 提示注入防护）。
 func BuildWebSearchContext(results []WebSearchResult) string {
 	var b strings.Builder
-	b.WriteString("以下是网络搜索结果，供参考。回答时可引用编号 [n] 与对应链接；搜索结果可能过时或不准确，请结合问题自行判断。\n")
 	for i, r := range results {
 		fmt.Fprintf(&b, "\n[%d] %s\n%s\n", i+1, r.Title, r.URL)
 		if snippet := strings.TrimSpace(r.Content); snippet != "" {
 			b.WriteString("摘要：" + snippet + "\n")
 		}
 	}
-	return b.String()
+	return webSearchIntro + "\n" + UntrustedBlock("网络搜索结果", b.String())
 }
 
 // ApplyWebSearch 执行联网搜索并注入上下文：查询取 messages 中最后一条
