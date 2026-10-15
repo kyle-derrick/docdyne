@@ -383,6 +383,10 @@ export default function ExcalidrawPage({
   // 静置 8s 自动保存（v2.7 自动保存间隔）。
   const handleChange: ExcalidrawChange = (elements, appState, files) => {
     sceneRef.current = { elements, appState, files }
+    // v7.15 D1：同步选区到 ref（AI 上下文感知选中元素）。
+    selectedIdsRef.current = new Set(
+      Object.keys(appState.selectedElementIds ?? {}).filter((id) => appState.selectedElementIds?.[id])
+    )
     void import('@excalidraw/excalidraw')
       .then(({ serializeAsJSON }) => serializeAsJSON(elements, appState, files, 'local'))
       .then((json) => {
@@ -471,8 +475,22 @@ export default function ExcalidrawPage({
     return parts.join('\n').slice(0, 4000)
   }
 
-  /** AI 上下文目标：白板无选区概念，恒全文（=摘要）。 */
-  const aiGetTarget = (): AIEditTarget => ({ hasSelection: false, text: sceneSummary() })
+  // v7.15 D1：选区跟踪（handleChange 同步 appState.selectedElementIds → ref）。
+  const selectedIdsRef = useRef<Set<string>>(new Set())
+  /** AI 上下文目标：有选中元素时返回选中摘要（id/type/文字/坐标），经
+   *  sendAgent 注入 system 提示（D4），AI 可针对性修改选区而非整图；
+   *  无选区=全文摘要（仅对话模式上下文）。 */
+  const aiGetTarget = (): AIEditTarget => {
+    const selected = selectedIdsRef.current
+    if (selected.size === 0) return { hasSelection: false, text: sceneSummary() }
+    const els = (sceneRef.current?.elements ?? []).filter((e) => selected.has(e.id))
+    const parts = els.map((e) => {
+      const base = `id=${e.id} type=${e.type} (${Math.round(e.x)},${Math.round(e.y)}) ${Math.round(e.width ?? 0)}x${Math.round(e.height ?? 0)}`
+      const text = (e as unknown as { text?: string }).text
+      return text ? `${base} 文字="${text.slice(0, 30)}"` : base
+    })
+    return { hasSelection: true, text: `【用户当前选中 ${els.length} 个元素】\n${parts.join('\n')}` }
+  }
 
   /** 骨架 JSON → 校验 → 官方转换 → 定位插入（insert_elements 工具与单轮
    * aiApply 共用管线）。定位：调用方给定锚点 at（整批包围盒左上角平移至
@@ -609,6 +627,22 @@ export default function ExcalidrawPage({
     }
     const apiOr = () => excalidrawAPIRef.current
     return [
+      {
+        name: 'get_selection',
+        desc: '{} → 读当前选中的元素（id/type/文字/坐标/尺寸），未选中返回空。用户选中了要修改的元素时优先用本工具获取精确信息。',
+        label: () => '读取选中元素',
+        exec: async () => {
+          const selected = selectedIdsRef.current
+          if (selected.size === 0) return { ok: true, elements: [], note: '当前无选中元素' }
+          const els = sceneEls().filter((e) => selected.has(e.id))
+          const items = els.map((el) => {
+            const e = el as unknown as Record<string, unknown>
+            const text = el.type === 'text' ? String(e.text ?? '') : (e.label && typeof (e.label as { text?: unknown }).text === 'string' ? (e.label as { text: string }).text : '')
+            return { id: el.id, type: el.type, x: Math.round(el.x), y: Math.round(el.y), w: Math.round(el.width ?? 0), h: Math.round(el.height ?? 0), text: text || undefined }
+          })
+          return { ok: true, elements: items, count: items.length }
+        },
+      },
       {
         name: 'read_scene',
         desc: '{} → 读画布元素清单（id/type/坐标/尺寸/文字/描边色/填充色/容器绑定，最多 300 个）——修改前先读，拿元素 id。',

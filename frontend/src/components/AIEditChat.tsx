@@ -1005,8 +1005,13 @@ export default function AIEditChat({
     const tools = agentToolsRef.current ?? []
     // 用户发送 = 关注最新输出：强制恢复贴底跟随（即便此前上滚阅读）。
     sticky.scrollToBottom()
-    const sys = buildAgentSystem(tools, false)
     const tgt = getTargetRef.current()
+    // v7.15 D4：选区进模型上下文（此前只显示「选区 N 字」徽标，模型并不知
+    // 道用户选了什么）。截 2000 字防选区撑爆 system；无选区不注入。
+    const selBlock = tgt.hasSelection && tgt.text.trim()
+      ? `【用户当前选区】用户在文档中选中了以下内容（很可能就是本轮修改对象，优先针对性处理；如需精确详情可调用 get_selection 类工具）：\n${tgt.text.slice(0, 2000)}${tgt.text.length > 2000 ? '…（截断）' : ''}`
+      : ''
+    const sys = buildAgentSystem(tools, false) + (selBlock ? `\n\n${selBlock}` : '')
     const [, asstTurnId] = openAgentTurn(question, tgt.hasSelection ? `选区 ${tgt.text.length} 字` : '全文上下文')
     setBusy(true)
     const controller = new AbortController()

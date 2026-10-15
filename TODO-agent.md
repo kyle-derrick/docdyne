@@ -42,10 +42,25 @@
 - [ ] C4. PPT/Excel 同样补默认格式规范
 
 ## D. 选区上下文（所有编辑器类型）
-- [ ] D1. 编辑器 getTarget 返回当前选中元素 ID（drawio/白板）
-- [ ] D2. 富文本 getTarget 返回选中块类型和内容
-- [ ] D3. Word get_selection 已有；确认 Excel/PPT 是否有对应工具
-- [ ] D4. AI 系统提示注入当前选区信息（AI 知道用户选了什么）
+- [x] D1. 编辑器 getTarget 返回当前选中元素 ID（drawio/白板）
+      - drawio：官方 embed 协议**无** select 事件（对 vendored 27.0.9 app.min.js
+        全量 grep 实证）→ 自建插件链路：frontend/docker/drawio/plugins/
+        docflow-selection.js（Draw.loadPlugin + mxEvent.CHANGE → postMessage
+        select）+ Dockerfile 给 PreConfig.js 追加 ALLOW_CUSTOM_PLUGINS=true
+        + DrawioPage 同源写 .drawio-config 注册插件；跨源/写失败静默降级
+      - 白板：handleChange 同步 selectedElementIds → aiGetTarget 选中摘要
+      - 两宿主均新增 get_selection 工具（模型可随时查当前选区）
+      - 附带（官方 drawio skill 方法论）：drawio 新增 auto_layout 工具
+        （embed 协议 action:layout，实测存在；树/流程/力导向等 8 种），
+        AI 可粗略坐标+连线后一键排版，替代手算坐标
+- [x] D2. 富文本 getTarget 返回选中块类型和内容（DfdocEditorPage 既有实现：
+      tiptap 选区 → docToAIText，markdown 结构标记即块类型；D4 后进 system）
+- [x] D3. Word get_selection 已有；Excel/PPT 补齐（插件 v21：get_selection
+      统一入口按 kind 分支——cell=Api.GetSelection().GetAddress()+值预览，
+      slide=GetCurrentSlide 页序号；TOOL_DOCS 同步，toolsForKind 自动下发）
+- [x] D4. AIEditChat.sendAgent 注入【用户当前选区】块进 system（截 2000 字；
+      此前仅显示「选区 N 字」徽标，模型不可见——参照 OpenCode 的
+      selection → system-reminder 注入模式）
 
 ## E. 工具调用稳定性
 - [ ] E1. df_search 在编辑页上下文中误调：编辑页 system 提示更明确
@@ -290,6 +305,23 @@
       JWT/版本管理 → docflow.ai/office（2580 行）
 - [ ] K10. Go 文件版本库（pkg/versioning）：版本链+自动保留策略+
       回滚 → docflow.ai/versioning（从 files/ 提取）
+
+## L. 参考项目复盘产出（2026-10-15，经 20170 代理拉源码实证：drawio-mcp
+## 官方 / excalidraw-diagram-skill / opencode / pi-mono / cherry-studio）
+- [ ] L1. drawio search_shapes 工具（对标官方 drawio-mcp：按关键词查形状库
+      返回精确 style 串——模型不再手编 style；可内置常用形状子集映射表）
+- [ ] L2. 指南按需读取（官方 MCP get_drawio_reference 模式：图表/白板/
+      office 指南改为 get_reference 工具按需返回，system 只留一句指引——
+      当前 EXCALIDRAW_JSON_GUIDE 等常驻 system，每轮白耗 token）
+- [ ] L3. 压缩溢出降级重试（opencode SHRINK_STEPS：压缩后仍超限时按
+      70%/50%/35% 递减保留窗口重试，而非直接失败/硬截断）
+- [ ] L4. 超大工具结果落盘+路径（pi/opencode 模式：read_diagram 大图等
+      截断时全量存临时文件并在结果中给路径，模型需要时可再取）
+- [ ] L5. token 估算掺实测（opencode：以上次同 provider 响应 usage 为基准
+      +其后增量估算，替代纯 chars/4——压缩触发点更准）
+- 已采纳（随 D1-D4 落地）：auto_layout 工具（官方 skill 布局优先方法论）；
+  选区→system 注入（opencode selection system-reminder 模式）；
+  get_selection 三编辑器统一（官方 search/reference 工具面思路）
 
 ## 已知问题（需用户配合排查）
 - "未知工具"偶发：已在 5a5f978 加诊断日志，等复现时看控制台输出

@@ -60,9 +60,45 @@ function drawioEditorURL(base: string, lang: string, view: boolean, dark: boolea
   return `${trimmed}/?${params.toString()}`
 }
 
-/** draw.io postMessage JSON 协议消息（仅用到的事件/字段；exit 标记保存并退出）。 */
+/**
+ * v7.15 D1：向 drawio 的本地设置注册选区跟踪插件（读改写 .drawio-config
+ * 的 plugins 列表）。官方 embed 协议不发送选中事件——插件由镜像内 vendor 的
+ * drawio webapp 加载（PreConfig.js 置 ALLOW_CUSTOM_PLUGINS=true，见
+ * frontend/docker/drawio/），选中变更以 {event:'select', cells:[id]} 上报。
+ * 前置条件：drawio 与 SPA 同源（本仓库部署形态 caddy 单域名 /drawio/*，满足）；
+ * 跨源/隐私模式等失败时静默跳过——仅退化为选区感知不可用，其余能力不受影响。
+ */
+function enableSelectionPlugin(base: string): void {
+  try {
+    let origin: URL
+    try {
+      origin = new URL(base, window.location.href)
+    } catch {
+      return
+    }
+    if (origin.origin !== window.location.origin) return // 跨源无法写 drawio 设置
+    const KEY = '.drawio-config'
+    const PLUGIN = 'plugins/docflow-selection.js'
+    let cfg: Record<string, unknown> = {}
+    try {
+      cfg = JSON.parse(window.localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>
+    } catch {
+      cfg = {}
+    }
+    const plugins = Array.isArray(cfg.plugins) ? cfg.plugins.filter((p): p is string => typeof p === 'string' && p !== PLUGIN) : []
+    cfg.plugins = [...plugins, PLUGIN]
+    window.localStorage.setItem(KEY, JSON.stringify(cfg))
+  } catch {
+    // localStorage 不可用（隐私模式等）——选区跟踪静默降级
+  }
+}
+
+/** draw.io postMessage JSON 协议消息（仅用到的事件/字段；exit 标记保存并退出；
+ *  cells 为选区跟踪插件上报的选中单元格 id——官方协议无此事件，见
+ *  docker/drawio/plugins/docflow-selection.js）。 */
 interface DrawioMessage {
   event?: string
+  cells?: unknown[]
   action?: string
   xml?: string
   exit?: boolean
@@ -312,6 +348,11 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   // exec 立即返回，紧随的 read_diagram 读到旧 xmlRef，模型误判失败反复
   // 整图替换，造成元素「丢失又回来」闪烁）。
   const pendingExportRef = useRef<((xml: string) => void) | null>(null)
+  // v7.15 D1：当前选中单元格 id——由 vendor 进 drawio webapp 的选区跟踪插件
+  // 经 postMessage select 事件上报（官方 embed 协议无 select 事件，见
+  // docker/drawio/plugins/docflow-selection.js）；get_selection 工具与
+  // aiGetTarget 据此感知用户选区。
+  const selectedCellIdsRef = useRef<Set<string>>(new Set())
   // 自动保存 debounce（autosave 事件静置 10s 落版本；v2.7 自动保存间隔）。
   const autosaveTimerRef = useRef(0)
   // 「保存并退出」之外的退出流程抑制 beforeunload（返回确认走 antd 弹窗，
@@ -345,6 +386,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         if (!alive) return
         setFile(meta)
         xmlRef.current = text.trim() ? text : EMPTY_DRAWIO_XML
+        if (!viewMode) enableSelectionPlugin(status.url)
         // ui 主题取当前明暗（效应不依赖 colorMode，切换主题不重载编辑器 iframe，
         // 避免编辑中途丢失未保存内容；下次进入生效）。
         setEditorURL(viewMode ? status.url.replace(/\/+$/, '') : drawioEditorURL(status.url, locale === 'zh-CN' ? 'zh' : 'en', false, colorMode === 'dark'))
@@ -403,6 +445,12 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
       }
       if (msg.event === 'exit') {
         closeEditor()
+        return
+      }
+      if (msg.event === 'select') {
+        // v7.15 D1：drawio 选中变更（cells = 选中的 cell id 数组）。
+        const ids = Array.isArray(msg.cells) ? msg.cells.map(String) : []
+        selectedCellIdsRef.current = new Set(ids)
         return
       }
       if (msg.event === 'autosave') {
@@ -497,8 +545,27 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   // ---- 编辑器 AI（applyKind=drawio-xml）：AI 基于当前 XML 生成/修改完整
   //      drawio XML，经既有 postMessage 通道整体替换画布并落新版本 ----
 
-  /** AI 上下文目标：图表无选区概念，恒全文（=当前最新已知 XML）。 */
-  const aiGetTarget = (): AIEditTarget => ({ hasSelection: false, text: xmlRef.current })
+  /** AI 上下文目标：无选区=当前最新已知 XML（仅对话模式全文上下文用）；
+   *  v7.15 D1：有选区=选中单元格摘要（id/类型/文本/坐标，经选区跟踪插件），
+   *  注入 Agent system 提示让 AI 感知用户选了什么，配合 get_selection 取详情。 */
+  const aiGetTarget = (): AIEditTarget => {
+    const selected = selectedCellIdsRef.current
+    if (selected.size === 0) return { hasSelection: false, text: xmlRef.current }
+    try {
+      const root = parseDrawioDoc(xmlRef.current).root
+      const cells = drawioCells(root).filter((c) => selected.has(c.getAttribute('id') ?? ''))
+      if (cells.length > 0) {
+        const parts = cells.map((c) => {
+          const info = drawioCellInfo(c)
+          return `- id=${String(info.id)} 类型=${String(info.kind ?? 'cell')}${info.value ? ` 文本="${String(info.value).slice(0, 40)}"` : ''}`
+        })
+        return { hasSelection: true, text: `【用户当前选中 ${cells.length} 个元素】\n${parts.join(String.fromCharCode(10))}` }
+      }
+    } catch {
+      // XML 暂不可解析时回退全文
+    }
+    return { hasSelection: false, text: xmlRef.current }
+  }
 
   /** 应用 XML 到画布（Agent 工具与单轮 aiApply 共用）：fixDrawioXML 守门
    * （悬空引用/缺几何/坐标漂移/重叠）→ iframe load 整体替换 → 主动 export
@@ -538,6 +605,53 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
     /** 改动应用：返回 string=失败原因，void=成功（已 load+export 落版本）。 */
     const apply = (doc: Document): Promise<string | void> => applyDiagramXML(new XMLSerializer().serializeToString(doc))
     return [
+      {
+        name: 'get_selection',
+        desc: '{} → 读当前选中的单元格（id/类型/文本/坐标），未选中返回空。用户选中了要修改的元素时优先用本工具获取精确信息。',
+        label: () => '读取选中元素',
+        exec: async () => {
+          const selected = selectedCellIdsRef.current
+          if (selected.size === 0) return { ok: true, cells: [], note: '当前无选中元素' }
+          const xml = await currentXML()
+          const root = parseDrawioDoc(xml).root
+          const cells = drawioCells(root).filter((c) => selected.has(c.getAttribute('id') ?? ''))
+          return { ok: true, cells: cells.map(drawioCellInfo), count: cells.length }
+        },
+      },
+      {
+        name: 'auto_layout',
+        desc: '{layout} → 全图自动布局（结构/连线不变，仅重排坐标）：tree=树状层级 / flow_v=竖向流程 / flow_h=横向流程 / organic=力导向 / circle=环形 / radial=放射 / stack_h|stack_v=堆叠。新建图时可粗略甚至 (0,0) 坐标+正确连线，再调本工具排版（比手算坐标可靠）。',
+        label: () => '自动布局',
+        exec: async (a: Record<string, unknown>) => {
+          const frame = frameRef.current?.contentWindow
+          if (!frame) return { ok: false, error: '图表编辑器未就绪' }
+          const presets: Record<string, { layout: string; config: Record<string, unknown> }> = {
+            tree: { layout: 'mxCompactTreeLayout', config: { orientation: 'north', levelDistance: 40, nodeDistance: 16 } },
+            flow_v: { layout: 'mxHierarchicalLayout', config: { orientation: 'north', intraCellSpacing: 30, interRankCellSpacing: 60 } },
+            flow_h: { layout: 'mxHierarchicalLayout', config: { orientation: 'west', intraCellSpacing: 30, interRankCellSpacing: 60 } },
+            organic: { layout: 'mxFastOrganicLayout', config: { forceConstant: 90 } },
+            circle: { layout: 'mxCircleLayout', config: {} },
+            radial: { layout: 'mxRadialTreeLayout', config: {} },
+            stack_h: { layout: 'mxStackLayout', config: { horizontal: true, spacing: 12, fill: true } },
+            stack_v: { layout: 'mxStackLayout', config: { horizontal: false, spacing: 12, fill: true } },
+          }
+          const key = String(a?.layout ?? 'flow_v')
+          const preset = presets[key]
+          if (!preset) return { ok: false, error: `layout 须为以下之一：${Object.keys(presets).join('/')}` }
+          // embed 协议 action:layout（drawio 27.x 实测可用）——布局在 iframe 内
+          // 以可撤销编辑执行；随即 export 等回执（v7.10 教训：不等回执则后续
+          // read_diagram 读到旧 XML）。
+          frame.postMessage(JSON.stringify({ action: 'layout', layouts: [preset] }), '*')
+          dirtyRef.current = true
+          frame.postMessage(JSON.stringify({ action: 'export', format: 'xml' }), '*')
+          const got = await new Promise<string | null>((resolve) => {
+            pendingExportRef.current = (xml) => resolve(xml)
+            window.setTimeout(() => resolve(null), 4000)
+          })
+          if (!got) return { ok: true, layout: key, note: '布局已应用，但导出回执超时（下次读取自动同步）' }
+          return { ok: true, layout: key, note: '已应用自动布局并同步最新 XML' }
+        },
+      },
       {
         name: 'read_diagram',
         desc: '{} → 读当前图表完整 XML（超 12000 字截断；小图优先用本工具掌握全貌）。',

@@ -211,9 +211,32 @@
     return { ok: true, total: sc.count, hits: sc.hits.slice(0, 30) };
   }
   function t_get_selection() {
+    // v7.15 D3：三类编辑器统一入口——word=选中文本；cell=选中区域（地址+值
+    // 预览）；slide=当前页序号（幻灯片无元素级选区 API，按页感知）。
+    var k = rt_kind();
+    if (k === 'cell') {
+      try {
+        var r = Api.GetSelection();
+        var addr = '';
+        try { addr = r && r.GetAddress ? String(r.GetAddress()) : ''; } catch (e2) { addr = ''; }
+        var vals = [];
+        try { vals = r && r.GetValues ? (r.GetValues() || []) : []; } catch (e3) { vals = []; }
+        var clip = vals.slice(0, 20);
+        return { ok: true, kind: 'cell', address: addr, rows: vals.length, values: clip, empty: !addr };
+      } catch (e) { return { ok: true, kind: 'cell', address: '', empty: true, note: '当前无法读取选区（多选区或编辑器不支持）' }; }
+    }
+    if (k === 'slide') {
+      try {
+        var s = Api.GetPresentation().GetCurrentSlide();
+        if (!s) return { ok: true, kind: 'slide', slide: 0, empty: true, note: '未取到当前页' };
+        var pos = 0;
+        try { pos = s.GetPos ? Number(s.GetPos()) + 1 : 0; } catch (e2) { pos = 0; }
+        return { ok: true, kind: 'slide', slide: pos, empty: !pos, note: '当前页序号（1 基）；幻灯片按页感知' };
+      } catch (e) { return { ok: true, kind: 'slide', slide: 0, empty: true, note: '当前无法读取页序号' }; }
+    }
     var sel = '';
     try { if (Api.GetDocument().GetSelectedText) sel = Api.GetDocument().GetSelectedText() || ''; } catch (e) {}
-    return { ok: true, selection: rt_clip(sel, 3000), empty: !sel };
+    return { ok: true, kind: 'word', selection: rt_clip(sel, 3000), empty: !sel };
   }
   function t_insert_content(a) {
     var d = Api.GetDocument(), es = rt_mdE(a.md || '');
@@ -799,7 +822,7 @@
       // word
       read_document: { kinds: ['word'], fn: t_read_document },
       search_text: { kinds: ['word'], fn: t_search_text },
-      get_selection: { kinds: ['word'], fn: t_get_selection },
+      get_selection: { kinds: ['word', 'cell', 'slide'], fn: t_get_selection },
       insert_content: { kinds: ['word'], fn: t_insert_content },
       replace_text: { kinds: ['word'], fn: t_replace_text },
       replace_all: { kinds: ['word'], fn: t_replace_all },
@@ -962,6 +985,7 @@
     ].join('\n'),
     cell: [
       'get_doc_info {} → 已用区域（rows/cols 为 1 基计数）与工作表名。',
+      'get_selection {} → 读当前选中区域（address + 值预览；用户选中了要处理的区域时优先用）。',
       'read_range {r1,c1,r2?,c2?} → 读区域值（1 基：r1=1,c1=1 即 A1；返回 address 如 "A1:D9" 供校验）。',
       'write_table {rows,startRow?,startCol?,header?,autofit?,freeze?} → ★写表格首选：rows 二维数组（含表头行）整表写入；header=true（默认）表头自动加粗+浅蓝底纹+居中，autofit 默认自适应列宽，freeze=true 冻结表头行。',
       'write_cells {cells:[[r,c,v],…]} → 逐格写入（1 基 [1,1]=A1；值以 = 开头即公式；返回实际写入 range 地址）。',
@@ -983,6 +1007,7 @@
     ].join('\n'),
     slide: [
       'get_doc_info {} → 页数。',
+      'get_selection {} → 读当前页序号（幻灯片按页感知，1 基）。',
       'read_slide {slide} → 读页内容（texts 文本列表 + 形状数 + 备注）。',
       'add_slide {title,bullets?} → 文末加页（标题+要点一次成型）。',
       'add_text_box {slide,text,x?,y?,w?,h?,fontSize?} → 文本框（pt 坐标，页约 960×540，标题区 y<100）。',
