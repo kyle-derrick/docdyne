@@ -623,50 +623,41 @@ func TestAIMemoryUpdate(t *testing.T) {
 	}
 }
 
-// TestAIMemoryContextBlockTruncation 注入总量截断：4 条 ×1800 字符（合计
-// 7200 > 6000）→ 只注入最新 3 条（5400 + 首行说明与前缀 ≤ 阈值），最旧
-// 一条丢弃；正序不变；单条超长（正常链路限 2000 不会出现）仍保底注入。
+// TestAIMemoryContextBlockTruncation 标题截断（v7.15 A7）：单条超
+// aiMemoryTitleRunes 的记忆只注入前缀 + "…"；全部条目仍可见（标题列表
+// 无总量丢弃——条数 ×截断长度天然有界）。
 func TestAIMemoryContextBlockTruncation(t *testing.T) {
 	items := make([]auth.AIMemory, 4)
-	for i := range items { // items[0] 最新（List 倒序），每条恰 1800 rune
+	for i := range items { // items[0] 最新（List 倒序），每条 1800 rune
 		prefix := fmt.Sprintf("记忆%02d:", 3-i)
 		items[i] = auth.AIMemory{ID: uuid.New(), Kind: auth.AIMemoryKindManual,
 			Content: prefix + strings.Repeat("字", 1800-len([]rune(prefix)))}
 	}
 	h := &Handler{aiMemory: &fakeAIMemoryStore{items: items}}
 	block := h.aiMemoryContextBlock(uuid.New())
-	// 只含最新 3 条（记忆03/02/01），最旧的 记忆00 被截断。
-	for _, want := range []string{"记忆03", "记忆02", "记忆01"} {
+	// 4 条标题全部可见（标题列表不丢条目）。
+	for _, want := range []string{"记忆03", "记忆02", "记忆01", "记忆00"} {
 		if !strings.Contains(block, want) {
-			t.Fatalf("块 缺 %q（最新 3 条应注入）", want)
+			t.Fatalf("标题列表缺 %q: %q", want, block)
 		}
 	}
-	if strings.Contains(block, "记忆00") {
-		t.Fatal("超过总量上限的最旧一条不应注入")
+	// 超长条目截断为 48 rune + "…"：正文 1800 字不整体注入。
+	if strings.Contains(strings.Repeat("字", 100), strings.TrimSpace(block[strings.Index(block, "记忆00"):])) {
+		t.Fatal("超长记忆不应整体注入")
 	}
-	// 正序：记忆01（注入中最旧）在记忆03（最新）之前。
-	if strings.Index(block, "记忆01") > strings.Index(block, "记忆03") {
-		t.Fatal("截断后仍应按时间正序注入")
-	}
-	// 总量：块 rune 数 ≤ 阈值 + 首行说明 + 3 条条目前缀（"\n- "）。
 	nl := strings.IndexByte(block, '\n')
 	if nl <= 0 {
 		t.Fatal("块应含首行说明")
 	}
-	if got := len([]rune(block)); got > aiMemoryContextMaxRunes+len([]rune(block[:nl]))+3*len("\n- ") {
-		t.Fatalf("注入块 %d rune 超出阈值（%d + 首行 %d + 前缀）", got, aiMemoryContextMaxRunes, len([]rune(block[:nl])))
-	}
-	// 保底：单条超长（>阈值）仍注入该条，维持「至少一条」的原样注入逻辑。
-	solo := auth.AIMemory{ID: uuid.New(), Kind: auth.AIMemoryKindManual,
-		Content: strings.Repeat("超", aiMemoryContextMaxRunes+500)}
-	b := (&Handler{aiMemory: &fakeAIMemoryStore{items: []auth.AIMemory{solo}}}).aiMemoryContextBlock(uuid.New())
-	if !strings.HasPrefix(b, "以下是用户的长期偏好记忆") || !strings.Contains(b, "超") {
-		t.Fatal("单条超长仍应保底注入")
+	// 总量有界：首行 + 4 条 ×（48 rune 标题 + 前缀 + 省略号）。
+	if got := len([]rune(block)); got > nl+1+4*(aiMemoryTitleRunes+len([]rune("…\n- "))) {
+		t.Fatalf("注入块 %d rune 超出标题列表有界预算", got)
 	}
 }
 
-// TestAIMemoryContextBlock 注入格式与条数上限：头部说明 + 逐条「- 」列出、
-// 取最近 20 条且按时间正序（阅读自然）；无记忆/读取失败/未装配返回空串。
+// TestAIMemoryContextBlock 注入格式与条数上限（v7.15 A7 标题列表）：
+// 头部说明（含工具用法提示）+ 逐条「- 」标题、取最近 20 条且按时间正序
+//（阅读自然）；无记忆/读取失败/未装配返回空串。
 func TestAIMemoryContextBlock(t *testing.T) {
 	// 25 条倒序（最新在前）：记忆24 … 记忆00。
 	items := make([]auth.AIMemory, 25)
@@ -675,8 +666,11 @@ func TestAIMemoryContextBlock(t *testing.T) {
 	}
 	h := &Handler{aiMemory: &fakeAIMemoryStore{items: items}}
 	block := h.aiMemoryContextBlock(uuid.New())
-	if !strings.HasPrefix(block, "以下是用户的长期偏好记忆") {
-		t.Fatalf("应以头部说明开头: %q", block)
+	if !strings.HasPrefix(block, "以下是用户的长期偏好记忆标题列表") {
+		t.Fatalf("应以标题列表头部说明开头: %q", block)
+	}
+	if !strings.Contains(block, "df_read_memory") || !strings.Contains(block, "df_write_memory") {
+		t.Fatalf("头部说明应含工具用法提示: %q", block)
 	}
 	// 条数上限：最近 20 条（记忆05..记忆24），更旧的（记忆00..记忆04）不注入。
 	for _, want := range []string{"\n- 记忆05", "\n- 记忆24"} {
@@ -695,7 +689,7 @@ func TestAIMemoryContextBlock(t *testing.T) {
 	// 与既有 persona/system 合并：块并入首条 system（appendContextSystem）。
 	msgs := appendContextSystem([]ai.Message{{Role: "system", Content: "你是写作助手"}, {Role: "user", Content: "你好"}}, block)
 	if len(msgs) != 2 || msgs[0].Role != "system" ||
-		!strings.HasPrefix(msgs[0].Content, "你是写作助手") || !strings.Contains(msgs[0].Content, "以下是用户的长期偏好记忆") {
+		!strings.HasPrefix(msgs[0].Content, "你是写作助手") || !strings.Contains(msgs[0].Content, "以下是用户的长期偏好记忆标题列表") {
 		t.Fatalf("记忆块应并入首条 system（persona 在前、记忆在后）: %+v", msgs)
 	}
 	// 无 system 时新建首条（不破坏消息顺序）。

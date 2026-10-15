@@ -141,6 +141,10 @@ const (
 	KeyAISearchSearxngURL = "ai.search.searxng_url"
 	KeyAISearchTavilyKey  = "ai.search.tavily_api_key"
 	KeyAISearchMaxResults = "ai.search.max_results"
+	// KeyAIHistorySearch 对话历史检索开关（v7.15 A8）：keyword（默认，消息
+	// 行表 + pg_trgm 子串检索）/ off（关闭——df_search_history 不注入）。
+	// 管理端 /admin/settings/ai 维护；不进 Definitions（专用 AI 设置页读写）。
+	KeyAIHistorySearch = "ai.history_search"
 	// KeyAIOCR 为图片 OCR 配置（整体 JSON 块：enabled/provider_id/model_id/
 	// max_image_bytes）：开启后索引管道对图片文件调具备「视觉图片」能力的
 	// 模型提取文字入索引。同 ai.personas 模式——不进 Definitions（通用设置
@@ -491,6 +495,11 @@ type AIConfig struct {
 	Personas []AIPersonaDef `json:"personas,omitempty"`
 	// AgentPackages 为技能包（ai.agent_packages 键）：合并语义同 Personas。
 	AgentPackages []AIAgentPackageDef `json:"agent_packages,omitempty"`
+	// HistorySearch 对话历史检索（v7.15 A8，ai.history_search 键）：
+	// "keyword"（默认，含空值——消息行表 + pg_trgm 子串检索）或 "off"
+	//（关闭：df_search_history 工具不注入）。vector 预留值位：会话消息
+	// 向量化需按轮 embedding（成本/链路另行评估），当前未启用。
+	HistorySearch string `json:"history_search,omitempty"`
 }
 
 type AIRAGConfig struct {
@@ -641,7 +650,7 @@ const (
 
 // DefaultAIConfig 返回默认 AI 配置（无 Provider）。
 func DefaultAIConfig() AIConfig {
-	return AIConfig{Temperature: AITemperatureDefault, MaxTokens: AIMaxTokensDefault, PerUserPerMin: AIPerUserPerMinDefault, RAG: AIRAGConfig{Mode: "keyword", QdrantURL: "http://qdrant:6333", CollectionPrefix: "docflow_", EmbeddingProvider: "mock", EmbeddingModel: "text-embedding-3-small", TopK: 8, ChunkSize: 1000, ChunkOverlap: 100}, Search: AISearchConfig{MaxResults: AISearchMaxResultsDefault}}
+	return AIConfig{Temperature: AITemperatureDefault, MaxTokens: AIMaxTokensDefault, PerUserPerMin: AIPerUserPerMinDefault, RAG: AIRAGConfig{Mode: "keyword", QdrantURL: "http://qdrant:6333", CollectionPrefix: "docflow_", EmbeddingProvider: "mock", EmbeddingModel: "text-embedding-3-small", TopK: 8, ChunkSize: 1000, ChunkOverlap: 100}, Search: AISearchConfig{MaxResults: AISearchMaxResultsDefault}, HistorySearch: "keyword"}
 }
 
 // ValidateAIProvider 校验单个 Provider 条目（ID 唯一性由 ValidateAI 统一判）。
@@ -753,6 +762,9 @@ func ValidateAI(c AIConfig) error {
 		if r.CollectionPrefix == "" {
 			return fmt.Errorf("%w: collection_prefix required", ErrInvalidValue)
 		}
+	}
+	if c.HistorySearch != "" && c.HistorySearch != "keyword" && c.HistorySearch != "off" {
+		return fmt.Errorf("%w: ai.history_search must be keyword or off", ErrInvalidValue)
 	}
 	return validateAISearch(c.Search)
 }
@@ -1557,6 +1569,12 @@ func (s *Store) AIOverrides() (AIConfig, bool, error) {
 	if err := readInt(KeyAISearchMaxResults, &out.Search.MaxResults); err != nil {
 		return out, set, err
 	}
+	if err := readString(KeyAIHistorySearch, &out.HistorySearch); err != nil {
+		return out, set, err
+	}
+	if out.HistorySearch == "" {
+		out.HistorySearch = "keyword" // v7.15 A8 默认（vector 预留位，未启用）
+	}
 	if out.Search.MaxResults <= 0 {
 		out.Search.MaxResults = AISearchMaxResultsDefault
 	}
@@ -1683,6 +1701,15 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 	if merged.Search.MaxResults <= 0 {
 		merged.Search.MaxResults = AISearchMaxResultsDefault
 	}
+	// history_search 合并（v7.15 A8）：载荷空（旧客户端不带）= 保持现值；
+	// 仍空回退默认 keyword。合法值 keyword/off（ValidateAI 校验）。
+	merged.HistorySearch = strings.TrimSpace(merged.HistorySearch)
+	if merged.HistorySearch == "" {
+		merged.HistorySearch = current.HistorySearch
+	}
+	if merged.HistorySearch == "" {
+		merged.HistorySearch = "keyword"
+	}
 	// ocr 合并（同 search 整体块零值=保持现值语义）：载荷未带（零值块，
 	// 旧客户端/其他入口不带 ocr）= 保持现值；带载荷 trim 规整 id/model，
 	// max_image_bytes <=0 回默认、超限钳制。ValidateAI 不校验 OCR
@@ -1806,6 +1833,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		{KeyAISearchSearxngURL, merged.Search.SearxngURL, TypeString},
 		{KeyAISearchTavilyKey, merged.Search.TavilyAPIKey, TypeString},
 		{KeyAISearchMaxResults, int64(merged.Search.MaxResults), TypeInt},
+		{KeyAIHistorySearch, merged.HistorySearch, TypeString},
 		{KeyAIOCR, merged.OCR, TypeString},
 	}
 	for _, w := range writes {
@@ -1834,8 +1862,9 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		Enabled: merged.Enabled, Providers: auditedProviders, DefaultProvider: merged.DefaultProvider,
 		DefaultModels: merged.DefaultModels,
 		Temperature:   merged.Temperature, MaxTokens: merged.MaxTokens, PerUserPerMin: merged.PerUserPerMin, RAG: merged.RAG,
-		Search: auditedSearch,
-		OCR:    merged.OCR,
+		Search:        auditedSearch,
+		OCR:           merged.OCR,
+		HistorySearch: merged.HistorySearch,
 	}})
 	_ = s.audit.Record(audit.Entry{UserID: &actor, Action: audit.ActionSettingsUpdate, ResourceType: audit.ResourceSettings, ResourceID: "ai", Status: audit.StatusSuccess, Metadata: string(metadata)})
 	return merged, nil

@@ -3198,6 +3198,8 @@ export interface AISettingsData {
   ocr?: AIOCRSettings
   /** 联网搜索（GET/PUT /admin/settings/ai 响应字段；旧后端缺省）。 */
   search?: AISearchSettings
+  /** 对话历史检索（v7.15 A8）：'keyword'（默认）| 'off'；旧后端缺省 = keyword。 */
+  history_search?: string
   env: { enabled: boolean; base_url: string; model: string }
 }
 
@@ -3233,6 +3235,8 @@ export async function putAISettings(input: {
   personas?: AIPlatformPersona[]
   ocr?: AIOCRSettings
   search?: AISearchSettings
+  /** 对话历史检索（'keyword' | 'off'；缺省 = 保持现值）。 */
+  history_search?: string
 }): Promise<AISettingsData> {
   return api<AISettingsData>('/api/v1/admin/settings/ai', jsonInit('PUT', input))
 }

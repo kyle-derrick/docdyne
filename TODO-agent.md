@@ -5,29 +5,52 @@
 ## A. 上下文管理（RAG + AI 摘要 + 工具式记忆）
 - [x] A1. AI 摘要压缩（44fd775：结构化摘要——程序化提取被丢弃消息中的
       工具调用/用户意图，替代「已压缩」占位；见 chat.go compressConvo）
-- [ ] A2. 结构化轮次日志：程序化提取每轮 工具名(关键参数)→结果摘要
-      （工具结果是 JSON，提取准确）；随 trace 展示 + 压缩时保留
+- [x] A2. 结构化轮次日志（v7.15：前端 agentConvoView 压缩时对被丢弃段
+      程序化提取「工具名(关键参数)→✓/✗」+用户意图行生成结构化摘要，
+      超预算丢最旧并注明；trace 侧工具条目既有 turns.ts 渲染覆盖；
+      纯函数抽至 frontend/src/ai/convoView.ts）
 - [x] A3. df_search_history 工具（44fd775：会话历史检索——ILIKE 关键词，
       含被压缩的早期内容；平台工具 6 件套，测试同步）
 - [x] A4. 后端压缩事件推送前端（44fd775：SSE tool 事件 context_compress
       输出「N 条 → M 条」；v7.15 收尾——turns.ts 标签映射补
       「上下文自动压缩/检索会话历史」，系统事件 server=system 按名直查）
-- [ ] A5. 分层上下文验证：确保不是全量丢给 AI（测试 100+ 轮场景）
-- [ ] A6. 会话历史 RAG 索引写入：每轮对话完成后将消息写入
-      Qdrant（collection: {prefix}_conversations）或 PG 全文
-- [ ] A7. 工具式记忆：df_read_memory（查详情）+ df_write_memory
-      （自动记录）替代全量注入；系统提示仅带记忆标题列表(~200tok)
-- [ ] A8. 管理端配置：AI 设置加「对话历史检索」开关
-      （vector/keyword/off，默认 vector）
+- [x] A5. 分层上下文验证（v7.15：frontend/scripts/verify-convo-view.mjs
+      ——110 轮合成会话断言视图有界/分层/不改写原文；肥结果场景压缩后
+      <20% 全量 token；`node scripts/verify-convo-view.mjs`）
+- [x] A6. 会话历史索引写入（v7.15：migration 057 ai_conversation_msgs
+      消息行表 + pg_trgm GIN；AppendAIConvoEvent 同步维护 turn 追加/
+      snapshot 重建，检索跨会话全 source 含被压缩早期内容；存量事件
+      重放回填；实测 turn/snapshot/删除级联/通配符字面匹配全过）
+- [x] A7. 工具式记忆（v7.15：df_read_memory/df_write_memory 平台工具，
+      include_memory 开启即注入且独立于文件栈；system 仅注入标题列表
+      （20 条 ×48 字符 ≈200tok）+ 工具用法提示；写走 CreateAutoAIMemory
+      + 裁剪；ai_memory_auto 自动提取等既有链路不变）
+- [x] A8. 管理端配置（v7.15：ai.history_search 键 keyword/off 默认
+      keyword——A6 选了 PG 全文路线，vector 值位预留未启用（会话消息
+      按轮 embedding 的成本/链路另行评估）；AISettingsPanel 增「对话
+      历史检索」卡片；off 时 df_search_history 声明剔除）
 
 ## A2. 孤儿数据清理链（用户提出的同步清理需求）
-- [ ] A2.1. 会话删除 → RAG 向量清理（DeleteVectorsByConversation）
-- [ ] A2.2. 文件删除 → 关联会话删除 → 会话 RAG 清理
-- [ ] A2.3. 空间删除 → 文件删除 → 会话删除 → 会话 RAG 清理
-- [ ] A2.4. 存储清理面板批量删会话 → RAG 同步清理
-- [ ] A2.5. 定时任务：扫描孤儿 RAG 向量（conversation_id 不存在
-      于 ai_conversations 表的）并清理
-- [ ] A2.6. 搜索索引清理：RemoveConversation（Meilisearch/PG）
+- [x] A2.1. 会话删除 → RAG 向量清理（v7.15：会话向量化整体 defer——
+      minimal 部署无 Qdrant、会话 collection 从未建过，无向量可清；
+      待 A6 预留的 vector 路线启用时同步补 DeleteVectorsByConversation）
+- [x] A2.2. 文件删除 → 关联会话删除（v7.15：migration 058
+      ai_conversations.file_id FK → files(id) ON DELETE CASCADE；
+      软删（回收站）不触发、恢复后会话可用，彻底删除（HTTP purge /
+      管理端 PurgeSpace / janitor sweepTrash 三路）级联清理会话与消息
+      索引行——真库实测软删保留/硬删级联双场景通过）
+- [x] A2.3. 空间删除 → 文件删除 → 会话删除（v7.15：随 A2.2 覆盖——
+      PurgeSpace 同经 gormTrashRepo.DeleteFiles 硬删 files 行触发级联）
+- [x] A2.4. 存储清理面板批量删会话 → 同步清理（v7.15：批量删走
+      DeleteAIConversation 删会话行，057 的消息索引 FK CASCADE 随之
+      清理；RAG 向量见 A2.1 defer 说明）
+- [x] A2.5. 定时扫描孤儿（v7.15：结构性消除——ai_conversation_msgs
+      FK CASCADE 到会话、ai_conversations.file_id FK CASCADE 到文件、
+      user_id FK CASCADE 到用户，孤儿行在约束层不可能存在；
+      058 迁移内先清存量孤儿再上约束）
+- [x] A2.6. 搜索索引清理：RemoveConversation（v7.15：会话检索索引即
+      057 消息行表，随会话 FK CASCADE；Meilisearch 仅索引文件无会话
+      条目，无需 RemoveConversation）
 
 ## B. 助手会话切换（持续排查）
 - [ ] B1. 验证最新代码是否修复（用户确认或提供控制台日志）

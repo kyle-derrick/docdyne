@@ -25,6 +25,10 @@ const (
 	PlatformToolWriteFile = "df_write_file" // 创建/覆盖文件
 	PlatformToolMkdir     = "df_mkdir"      // 建目录（多级）
 	PlatformToolSearch    = "df_search"     // 平台全文搜索
+	// PlatformToolReadMemory/WriteMemory 用户长期记忆读写（v7.15 A7：
+	// include_memory 开启时注入——system 仅带标题列表，详情按需查询）。
+	PlatformToolReadMemory  = "df_read_memory"  // 查记忆详情
+	PlatformToolWriteMemory = "df_write_memory" // 记录新记忆
 )
 
 // 工具行为边界常量（执行器与声明共同引用）。
@@ -37,6 +41,9 @@ const (
 	PlatformToolWriteMaxBytes = 2 << 20
 	// PlatformToolSearchLimit df_search 返回条目上限。
 	PlatformToolSearchLimit = 8
+	// PlatformToolHistorySearchLimit df_search_history 返回条目上限
+	//（v7.15 A6 索引检索沿用 A3 的 10 条边界）。
+	PlatformToolHistorySearchLimit = 10
 )
 
 // PlatformToolWriteExts df_write_file 允许的扩展名白名单（小写，不含点；
@@ -163,10 +170,11 @@ var platformToolsAll = []PlatformTool{
 			},
 		},
 	},
-	// v7.15 A3：会话历史搜索（AI 主动查询被压缩掉的早期内容）。
+	// v7.15 A3：会话历史搜索（AI 主动查询被压缩掉的早期内容）；A6 升级
+	// 为索引检索（跨会话、全 source）。
 	{
 		Name:        PlatformToolSearchHistory,
-		Description: "搜索当前会话的历史消息（包括因上下文窗口限制被压缩掉的早期内容）。query 为搜索关键词，返回最相关的消息片段。用于需要回看此前某个操作的具体结果、某个决策的依据等场景。",
+		Description: "搜索你的历史会话消息（跨全部会话，包括因上下文窗口限制被压缩掉的早期内容）。query 为搜索关键词，返回最相关的消息片段（附会话标题与角色）。用于需要回看此前某个操作的具体结果、某个决策的依据、或查找在别的会话里讨论过的内容。",
 		Params: map[string]any{
 			"type":     "object",
 			"required": []string{"query"},
@@ -178,16 +186,63 @@ var platformToolsAll = []PlatformTool{
 			},
 		},
 	},
+	// v7.15 A7：工具式记忆（system 只带标题列表，详情按需读取）。
+	{
+		Name:        PlatformToolReadMemory,
+		Description: "读取用户的长期偏好记忆详情。query 为关键词（匹配记忆内容片段），留空返回最近的记忆。当对话与用户偏好、习惯、既往要求相关而标题列表信息不足时调用。",
+		Params: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "搜索关键词（可省略 = 最近记忆）",
+				},
+			},
+		},
+	},
+	{
+		Name:        PlatformToolWriteMemory,
+		Description: "为用户记录一条长期偏好/事实记忆（如「回复用中文」「代码注释要简洁」）。仅在用户明确表达值得长期记住的偏好，或对话中确认了稳定的个人习惯时调用；单条 ≤2000 字符，内容用一句完整陈述句。",
+		Params: map[string]any{
+			"type":     "object",
+			"required": []string{"content"},
+			"properties": map[string]any{
+				"content": map[string]any{
+					"type":        "string",
+					"description": "记忆内容（必填，一句完整陈述句）",
+				},
+			},
+		},
+	},
 }
 
 // itoa 拼接工具描述中的数值边界（strconv.Itoa 的短名别名）。
 func itoa(n int) string { return strconv.Itoa(n) }
 
-// PlatformTools 返回内置平台文件工具声明（openai 格式 tools 数组的数据源；
-// HTTP 层 use_files=true 时注入 ChatRequest.PlatformTools）。
+// PlatformTools 返回内置平台文件工具声明全集（openai 格式 tools 数组的
+// 数据源；HTTP 层 use_files=true 时注入 ChatRequest.PlatformTools）。
 func PlatformTools() []PlatformTool {
 	out := make([]PlatformTool, len(platformToolsAll))
 	copy(out, platformToolsAll)
+	return out
+}
+
+// PlatformToolsFor 按开关返回内置工具声明（v7.15 A8）：
+//   - historySearch=false：剔除 df_search_history（管理端「对话历史检索」
+//     关闭——声明即不可见，模型无从调用）；
+//   - memory=false：剔除 df_read_memory/df_write_memory（include_memory
+//     未开启或记忆存储未装配时）。
+func PlatformToolsFor(historySearch, memory bool) []PlatformTool {
+	out := make([]PlatformTool, 0, len(platformToolsAll))
+	for _, t := range platformToolsAll {
+		if !historySearch && t.Name == PlatformToolSearchHistory {
+			continue
+		}
+		if !memory && (t.Name == PlatformToolReadMemory || t.Name == PlatformToolWriteMemory) {
+			continue
+		}
+		out = append(out, t)
+	}
 	return out
 }
 
@@ -199,4 +254,10 @@ func PlatformToolNames() map[string]bool {
 		names[t.Name] = true
 	}
 	return names
+}
+
+// IsMemoryToolName 判定是否记忆工具（v7.15 A7：HTTP 层合并执行器按名
+// 分发到 memoryToolCtx，其余走文件执行器）。
+func IsMemoryToolName(name string) bool {
+	return name == PlatformToolReadMemory || name == PlatformToolWriteMemory
 }

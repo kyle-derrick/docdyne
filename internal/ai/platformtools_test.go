@@ -1,5 +1,5 @@
 // Package ai —— platformtools_test.go：内置平台文件工具声明完整性单测
-// （6 工具、schema 必填参数、白名单判定、名称集合）。
+// （8 工具、schema 必填参数、白名单判定、名称集合、按开关过滤）。
 package ai
 
 import (
@@ -34,11 +34,11 @@ func requiredOf(t *testing.T, params map[string]any) []string {
 	return list
 }
 
-// TestPlatformToolsDeclarations 验证 6 个内置工具声明齐全、名称/描述/
+// TestPlatformToolsDeclarations 验证 8 个内置工具声明齐全、名称/描述/
 // schema 结构合法且必填参数正确。
 func TestPlatformToolsDeclarations(t *testing.T) {
 	tools := PlatformTools()
-	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history"}
+	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history", "df_read_memory", "df_write_memory"}
 	if len(tools) != len(want) {
 		t.Fatalf("工具数 = %d, want %d（%v）", len(tools), len(want), tools)
 	}
@@ -61,17 +61,22 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 			t.Fatalf("工具 %s 缺少 properties 对象", name)
 		}
 	}
-	// 必填参数：path（read/write/mkdir）、content（write）、query（search/
-	// search_history）；df_list_dir 的 path 可选。
+	// 必填参数：path（read/write/mkdir）、content（write/memory）、
+	// query（search/search_history）；df_list_dir 的 path 与 df_read_memory
+	// 的 query 可选。
 	if got := requiredOf(t, byName["df_list_dir"].Params); got != nil {
 		t.Fatalf("df_list_dir required = %v, want 无（path 可选）", got)
 	}
+	if got := requiredOf(t, byName["df_read_memory"].Params); got != nil {
+		t.Fatalf("df_read_memory required = %v, want 无（query 可选）", got)
+	}
 	for name, wantReq := range map[string][]string{
-		"df_read_file":       {"path"},
-		"df_write_file":      {"path", "content"},
-		"df_mkdir":           {"path"},
-		"df_search":          {"query"},
-		"df_search_history":  {"query"},
+		"df_read_file":      {"path"},
+		"df_write_file":     {"path", "content"},
+		"df_mkdir":          {"path"},
+		"df_search":         {"query"},
+		"df_search_history": {"query"},
+		"df_write_memory":   {"content"},
 	} {
 		got := requiredOf(t, byName[name].Params)
 		if len(got) != len(wantReq) {
@@ -94,7 +99,7 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 // TestPlatformToolNames 名称集合与声明一致。
 func TestPlatformToolNames(t *testing.T) {
 	names := PlatformToolNames()
-	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history"}
+	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history", "df_read_memory", "df_write_memory"}
 	if len(names) != len(want) {
 		t.Fatalf("名称集合大小 = %d, want %d", len(names), len(want))
 	}
@@ -108,6 +113,40 @@ func TestPlatformToolNames(t *testing.T) {
 	first[0].Description = "篡改"
 	if PlatformTools()[0].Description == "篡改" {
 		t.Fatalf("PlatformTools() 应返回副本，不受外部篡改影响")
+	}
+}
+
+// TestPlatformToolsFor 按开关过滤（v7.15 A7/A8）：history=false 剔
+// df_search_history；memory=false 剔记忆双工具；两者均 true = 全集。
+func TestPlatformToolsFor(t *testing.T) {
+	names := func(tools []PlatformTool) map[string]bool {
+		out := map[string]bool{}
+		for _, t := range tools {
+			out[t.Name] = true
+		}
+		return out
+	}
+	full := names(PlatformToolsFor(true, true))
+	if len(full) != 8 {
+		t.Fatalf("全集 = %d, want 8", len(full))
+	}
+	noHist := names(PlatformToolsFor(false, true))
+	if noHist[PlatformToolSearchHistory] || len(noHist) != 7 {
+		t.Fatalf("history=false 应剔 df_search_history: %v", noHist)
+	}
+	noMem := names(PlatformToolsFor(true, false))
+	if noMem[PlatformToolReadMemory] || noMem[PlatformToolWriteMemory] || len(noMem) != 6 {
+		t.Fatalf("memory=false 应剔记忆双工具: %v", noMem)
+	}
+	memOnly := names(PlatformToolsFor(false, false))
+	if len(memOnly) != 5 || memOnly[PlatformToolSearchHistory] || memOnly[PlatformToolReadMemory] {
+		t.Fatalf("双关均关应只剩 5 个文件工具: %v", memOnly)
+	}
+	if !IsMemoryToolName(PlatformToolReadMemory) || !IsMemoryToolName(PlatformToolWriteMemory) {
+		t.Fatal("IsMemoryToolName 应识别记忆双工具")
+	}
+	if IsMemoryToolName(PlatformToolSearch) || IsMemoryToolName("df_read_file") {
+		t.Fatal("IsMemoryToolName 不应误判文件工具")
 	}
 }
 

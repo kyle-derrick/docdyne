@@ -356,6 +356,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	useFiles := (req.UseFiles == nil || *req.UseFiles) && !ragQuery
 	var platformTools []ai.PlatformTool
 	var toolExec ai.ToolExecutorFunc
+	var fileExec ai.ToolExecutorFunc
 	if useFiles {
 		// work_root：前端可指定工作目录 folderID（相对路径解析基准）；
 		// 空/零值/非 UUID 回落默认空间根。读授权在 base() 经 Get 校验。
@@ -366,17 +367,38 @@ func (h *Handler) aiChat(c *gin.Context) {
 			}
 		}
 		if ptc := h.newPlatformToolCtx(c, user, workRoot); ptc != nil {
-			platformTools = ai.PlatformTools()
-			toolExec = ptc.executePlatformTool
+			fileExec = ptc.executePlatformTool
 		}
 	}
-	filesToolsOn := len(platformTools) > 0
-	// 用户长期记忆注入（include_memory，默认 false）：取本人最近 20 条
-	// 手动记忆拼入 system 上下文；失败/无记忆静默跳过。
+	// 用户长期记忆（include_memory，默认 false）：system 只注入标题列表
+	//（v7.15 A7，aiMemoryContextBlock），详情经 df_read_memory 按需读取；
+	// 记忆工具执行器独立于文件栈（use_files 关闭时仍可用）。
 	memoryOn := req.IncludeMemory != nil && *req.IncludeMemory
-	if memoryOn {
+	var memExec ai.ToolExecutorFunc
+	if memoryOn && h.aiMemory != nil {
 		if block := h.aiMemoryContextBlock(user); block != "" {
 			messages = appendContextSystem(messages, block)
+		}
+		if !ragQuery { // 记忆工具与 use_mcp/use_files 同语义：RAG 模式忽略
+			memExec = (&memoryToolCtx{h: h, c: c, user: user}).execute
+		}
+	}
+	// 声明集按可执行能力裁剪（v7.15 A7/A8）：文件工具仅在文件栈可用时
+	// 声明（历史检索关再剔 df_search_history）；记忆工具随 include_memory。
+	// 执行器合并分发——记忆名走 memExec，其余走 fileExec。
+	filesToolsOn := fileExec != nil
+	historySearchOn := filesToolsOn && h.aiHistorySearchEnabled()
+	if filesToolsOn || memExec != nil {
+		platformTools = ai.PlatformToolsFor(historySearchOn, memExec != nil)
+		fe, me := fileExec, memExec
+		toolExec = func(name string, args json.RawMessage) (string, error) {
+			if me != nil && ai.IsMemoryToolName(name) {
+				return me(name, args)
+			}
+			if fe != nil {
+				return fe(name, args)
+			}
+			return "", fmt.Errorf("工具 %q 在当前对话不可用", name)
 		}
 	}
 	userSvc := h.aiServiceFor(svc, user)
@@ -676,6 +698,20 @@ func aiUsageJSON(res ai.ChatResult) gin.H {
 	return gin.H{"prompt_tokens": res.PromptTokens, "completion_tokens": res.CompletionTokens, "duration_ms": res.DurationMS}
 }
 
+// aiHistorySearchEnabled 对话历史检索开关（v7.15 A8，ai.history_search 键，
+// 热读取）：off = df_search_history 不注入；keyword/空（默认）= 开启。
+// settings 未装配/读取失败按默认开启处理（管理面为增强项，故障不降级）。
+func (h *Handler) aiHistorySearchEnabled() bool {
+	if h.settings == nil {
+		return true
+	}
+	cfg, _, err := h.settings.AIOverrides()
+	if err != nil {
+		return true
+	}
+	return cfg.HistorySearch != "off"
+}
+
 // aiErrorCode 把服务错误映射为机器可读 code。
 func aiErrorCode(err error) string {
 	switch {
@@ -727,8 +763,8 @@ func (h *Handler) aiSummarize(c *gin.Context) {
 		// Think 开启推理思考（默认 false）：仅当摘要场景默认模型勾选
 		// capabilities.reasoning 时透传；模型不支持时静默忽略。
 		Think *bool `json:"think"`
-	// Effort 思考等级（low/medium/high；空 = medium）。
-	Effort string `json:"reasoning_effort"`
+		// Effort 思考等级（low/medium/high；空 = medium）。
+		Effort string `json:"reasoning_effort"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.FileID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fileId is required"})
@@ -831,7 +867,10 @@ type aiSettingsResponse struct {
 	// Personas 为平台人设（ai.personas 键，非敏感明文回显；保存并入
 	// PUT /admin/settings/ai——载荷未带 = 保持现值，语义同 rag 块）。
 	Personas []settings.AIPersonaDef `json:"personas"`
-	Env      gin.H                   `json:"env"`
+	// HistorySearch 对话历史检索开关（v7.15 A8，ai.history_search 键）：
+	// keyword（默认）/off。
+	HistorySearch string `json:"history_search"`
+	Env           gin.H  `json:"env"`
 }
 
 // aiPersonasOrEmpty 归一 nil 为空数组（JSON 输出 [] 而非 null）。
@@ -977,6 +1016,7 @@ func (h *Handler) getAISettings(c *gin.Context) {
 		Search:          aiSearchSettingsViewOf(cfg),
 		OCR:             cfg.OCR,
 		Personas:        aiPersonasOrEmpty(h.platformPersonas()),
+		HistorySearch:   cfg.HistorySearch,
 		Env: gin.H{
 			"enabled":  len(h.aiEnv.Providers) > 0,
 			"base_url": envOrDefault("AI_BASE_URL", "https://api.openai.com/v1"),
@@ -1024,6 +1064,7 @@ func (h *Handler) putAISettings(c *gin.Context) {
 		Search:          aiSearchSettingsViewOf(merged),
 		OCR:             merged.OCR,
 		Personas:        aiPersonasOrEmpty(merged.Personas),
+		HistorySearch:   merged.HistorySearch,
 		Env: gin.H{
 			"enabled":  len(h.aiEnv.Providers) > 0,
 			"base_url": envOrDefault("AI_BASE_URL", "https://api.openai.com/v1"),

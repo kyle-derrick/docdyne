@@ -5720,6 +5720,10 @@ paths:
                       searxng_url: { type: string }
                       max_results: { type: integer, description: 1-20，默认 5 }
                       tavily_api_key_configured: { type: boolean }
+                  history_search:
+                    type: string
+                    enum: [keyword, off]
+                    description: 对话历史检索（ai.history_search 键，v7.15 A8）——keyword=df_search_history 工具注入（消息行表 pg_trgm 子串检索，跨会话）；off=不注入。默认 keyword。
                   ocr:
                     type: object
                     description: 图片 OCR 配置（ai.ocr 键整体块）
@@ -5784,6 +5788,10 @@ paths:
                 temperature: { type: number }
                 max_tokens: { type: integer }
                 per_user_per_min: { type: integer }
+                history_search:
+                  type: string
+                  enum: [keyword, off]
+                  description: 对话历史检索开关（v7.15 A8；缺省 = 保持现值，默认 keyword）
                 personas:
                   type: array
                   description: 平台人设整块替换（缺省 = 保持现值；空数组 = 清空）

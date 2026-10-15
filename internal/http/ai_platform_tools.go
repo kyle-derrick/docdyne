@@ -30,6 +30,7 @@ import (
 
 	"github.com/docflow/docflow/internal/ai"
 	"github.com/docflow/docflow/internal/audit"
+	"github.com/docflow/docflow/internal/auth"
 	"github.com/docflow/docflow/internal/files"
 	"github.com/docflow/docflow/internal/search"
 	"github.com/docflow/docflow/internal/space"
@@ -168,12 +169,43 @@ func segmentsOf(path string) ([]string, error) {
 	return segments, nil
 }
 
-// toolSearchHistory df_search_history：搜索当前用户最近的会话历史消息
-// （v7.15 A3）。ILIKE 子串匹配（tsvector 对中文无效），最多返回 10 条。
+// aiConvoMsgSearcher 会话消息检索索引能力（v7.15 A6，生产实现
+// *auth.UserStore）。刻意不并入 aiConvoStore：以类型断言解耦，旧测试
+// fake 未实现时回落旧扫描路径（模式同 aiAutoMemoryStore）。
+type aiConvoMsgSearcher interface {
+	SearchAIConversationMsgs(userID uuid.UUID, pattern string, limit int) ([]auth.AIConvoMsgHit, error)
+}
+
+var _ aiConvoMsgSearcher = (*auth.UserStore)(nil)
+
+// toolSearchHistory df_search_history：搜索当前用户的会话历史消息
+// （v7.15 A3 落地、A6 升级为索引检索）。优先走消息检索索引
+// （ai_conversation_msgs，migration 057：跨会话、覆盖 assistant/editor/
+// plugin 全部 source、含被压缩的早期内容，ILIKE 经 pg_trgm GIN 加速）；
+// 存储未实现新方法（旧测试 fake）时回落旧路径（最近 10 个 assistant
+// 会话的 messages JSON 逐条扫描）。最多返回 ai.PlatformToolHistorySearchLimit 条。
 func (p *platformToolCtx) toolSearchHistory(query string) (any, error) {
 	if p.h == nil || p.h.aiConversations == nil {
 		return gin.H{"results": []any{}, "total": 0, "note": "无活跃会话可搜索"}, nil
 	}
+	if searcher, ok := p.h.aiConversations.(aiConvoMsgSearcher); ok {
+		hits, err := searcher.SearchAIConversationMsgs(p.user, query, ai.PlatformToolHistorySearchLimit)
+		if err != nil {
+			return nil, fmt.Errorf("会话历史检索失败")
+		}
+		results := make([]map[string]any, 0, len(hits))
+		for _, h := range hits {
+			results = append(results, map[string]any{
+				"conversation_title": h.Title,
+				"source":             h.Source,
+				"role":               h.Role,
+				"fragment":           h.Fragment,
+				"created_at":         h.CreatedAt,
+			})
+		}
+		return gin.H{"results": results, "total": len(results), "query": query, "indexed": true}, nil
+	}
+	// 旧路径（无索引能力）：最近 10 个 assistant 会话 ILIKE 扫描。
 	convs, err := p.h.aiConversations.ListAIConversations(p.user, nil, "assistant", 10)
 	if err != nil {
 		return nil, err

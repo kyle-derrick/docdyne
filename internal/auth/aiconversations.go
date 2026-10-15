@@ -1,6 +1,6 @@
 // aiconversations.go：AI 会话记录（用户维度，ai_conversations 表，
 // migration 053）。全局助手（file_id=NULL）与编辑页/Office 插件
-//（file_id=对应文件）的对话会话统一服务端持久化——跨设备一致，替代
+// （file_id=对应文件）的对话会话统一服务端持久化——跨设备一致，替代
 // 此前的 localStorage 本机存储（前端首载时自动迁移本机历史）。
 //
 // messages 为整段 JSON 数组（前端回合结构直存；无跨会话查询需求，不拆
@@ -44,12 +44,12 @@ var ErrInvalidAIConversation = errors.New("invalid ai conversation")
 
 // AIConversation 对应 ai_conversations 表一行（正文在事件表，读取时重放）。
 type AIConversation struct {
-	ID           uuid.UUID    `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID       uuid.UUID    `gorm:"type:uuid;not null;index" json:"-"`
-	FileID       *uuid.UUID   `gorm:"type:uuid" json:"file_id"`
-	Source       string       `gorm:"size:16;not null" json:"source"`
-	Title        string       `gorm:"not null" json:"title"`
-	MessageCount int          `gorm:"not null" json:"message_count"`
+	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID       uuid.UUID  `gorm:"type:uuid;not null;index" json:"-"`
+	FileID       *uuid.UUID `gorm:"type:uuid" json:"file_id"`
+	Source       string     `gorm:"size:16;not null" json:"source"`
+	Title        string     `gorm:"not null" json:"title"`
+	MessageCount int        `gorm:"not null" json:"message_count"`
 	// Messages 为事件重放产物（GetAIConversation 填充；非数据库列）。
 	Messages  json.RawMessage `gorm:"-" json:"messages"`
 	CreatedAt time.Time       `gorm:"not null" json:"created_at"`
@@ -58,7 +58,7 @@ type AIConversation struct {
 
 // AIConvoEvent 对应 ai_conversation_events 一行（append-only）。
 // kind: turn=追加回合（payload 为消息数组，按序拼接）；snapshot=全量快照
-//（payload 为完整消息数组，重放时替换此前状态——删除/导入等重排操作经
+// （payload 为完整消息数组，重放时替换此前状态——删除/导入等重排操作经
 // 快照表达，日志本身只追加）。会话行维护 title/updated_at/message_count。
 type AIConvoEvent struct {
 	ID             uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
@@ -72,17 +72,50 @@ type AIConvoEvent struct {
 // TableName 显式映射到 ai_conversation_events。
 func (AIConvoEvent) TableName() string { return "ai_conversation_events" }
 
+// AIConvoMsg 对应 ai_conversation_msgs 一行（migration 057，v7.15 A6）：
+// 事件写入时同步维护的消息检索索引（df_search_history 的数据源，覆盖
+// assistant/editor/plugin 全部 source 的跨会话与被压缩早期内容）。derived
+// data——会话删除经 FK CASCADE 同步清理，重放语义与事件表一致（turn 追加
+// 行 / snapshot 重建），索引失败不阻塞会话保存（见 AppendAIConvoEvent）。
+type AIConvoMsg struct {
+	ID             uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	ConversationID uuid.UUID `gorm:"type:uuid;not null;index" json:"conversation_id"`
+	UserID         uuid.UUID `gorm:"type:uuid;not null;index" json:"-"`
+	Seq            int64     `gorm:"not null" json:"seq"`
+	Role           string    `gorm:"size:16;not null" json:"role"`
+	Content        string    `gorm:"not null" json:"content"`
+	CreatedAt      time.Time `gorm:"not null" json:"created_at"`
+}
+
+// AIConvoMsgMaxRunes 单行索引内容上限（rune 计）：检索只需命中与片段，
+// 超长消息（TOOL_RESULT/代码块）截断入库，控制表体量。
+const AIConvoMsgMaxRunes = 8000
+
+// TableName 显式映射到 ai_conversation_msgs。
+func (AIConvoMsg) TableName() string { return "ai_conversation_msgs" }
+
+// AIConvoMsgHit 为 SearchAIConversationMsgs 的命中条目（附会话元信息，
+// 供工具结果直接展示「哪个会话里的什么消息」）。
+type AIConvoMsgHit struct {
+	ConversationID uuid.UUID `json:"conversation_id"`
+	Title          string    `json:"title"`
+	Source         string    `json:"source"`
+	Role           string    `json:"role"`
+	Fragment       string    `json:"fragment"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 // TableName 显式映射到 ai_conversations。
 func (AIConversation) TableName() string { return "ai_conversations" }
 
 // AIConversationMeta 列表条目（不带 messages 正文）。
 type AIConversationMeta struct {
-	ID           uuid.UUID `json:"id"`
+	ID           uuid.UUID  `json:"id"`
 	FileID       *uuid.UUID `json:"file_id"`
-	Source       string    `json:"source"`
-	Title        string    `json:"title"`
-	MessageCount int       `json:"message_count"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Source       string     `json:"source"`
+	Title        string     `json:"title"`
+	MessageCount int        `json:"message_count"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // ValidateAIConvoSource 校验 source 取值。
@@ -177,11 +210,11 @@ func (s *UserStore) CreateAIConversation(userID uuid.UUID, fileID *uuid.UUID, so
 		return AIConversation{}, err
 	}
 	row := AIConversation{
-		ID:       uuid.Must(uuid.NewV7()),
-		UserID:   userID,
-		FileID:   fileID,
-		Source:   source,
-		Title:    strings.TrimSpace(title),
+		ID:           uuid.Must(uuid.NewV7()),
+		UserID:       userID,
+		FileID:       fileID,
+		Source:       source,
+		Title:        strings.TrimSpace(title),
 		MessageCount: 0,
 	}
 	if err := s.db.Create(&row).Error; err != nil {
@@ -239,7 +272,7 @@ func (s *UserStore) replayAIConvo(id uuid.UUID) (json.RawMessage, error) {
 
 // AppendAIConvoEvent 追加事件（turn=追加 payload 消息 / snapshot=全量替换）
 // 并维护会话行 message_count 与 updated_at。校验沿用 ValidateAIConvoMessages
-//（对 snapshot 的完整数组校验；turn 校验本段增量）。
+// （对 snapshot 的完整数组校验；turn 校验本段增量）。
 func (s *UserStore) AppendAIConvoEvent(userID, id uuid.UUID, kind string, payload json.RawMessage) (bool, error) {
 	if kind != "turn" && kind != "snapshot" {
 		return false, fmt.Errorf("%w: kind 须为 turn|snapshot", ErrInvalidAIConversation)
@@ -278,7 +311,130 @@ func (s *UserStore) AppendAIConvoEvent(userID, id uuid.UUID, kind string, payloa
 	}).Error; err != nil {
 		return false, err
 	}
+	// v7.15 A6：同步维护消息检索索引（turn 追加行 / snapshot 重建，重放
+	// 语义与事件表一致）。best-effort——索引是 derived data，失败不阻塞
+	// 会话保存（下次 snapshot 全量重建自愈），与 trimAIConversations 同口径。
+	_ = s.syncConvoMsgIndex(id, row.UserID, kind, items, count)
 	return true, nil
+}
+
+// syncConvoMsgIndex 维护 ai_conversation_msgs（AppendAIConvoEvent 内调用）：
+// turn 按 items 增量追加（seq 接续会话内现行 message_count 起算）；snapshot
+// 全量重建（先删后插——删除/导入等重排后索引与重放结果保持一致）。只索引
+// 带 role/content 字符串的条目（前端消息形态），内容截 AIConvoMsgMaxRunes。
+func (s *UserStore) syncConvoMsgIndex(convoID, userID uuid.UUID, kind string, items []json.RawMessage, nextCount int) error {
+	if kind == "snapshot" {
+		if err := s.db.Where("conversation_id = ?", convoID).Delete(&AIConvoMsg{}).Error; err != nil {
+			return err
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	base := int64(nextCount) - int64(len(items))
+	if kind == "snapshot" {
+		base = 0
+	}
+	rows := make([]AIConvoMsg, 0, len(items))
+	for i, raw := range items {
+		var msg struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		if json.Unmarshal(raw, &msg) != nil || msg.Role == "" || msg.Content == "" {
+			continue
+		}
+		content := []rune(msg.Content)
+		if len(content) > AIConvoMsgMaxRunes {
+			content = content[:AIConvoMsgMaxRunes]
+		}
+		rows = append(rows, AIConvoMsg{
+			ID: uuid.Must(uuid.NewV7()), ConversationID: convoID, UserID: userID,
+			Seq: base + int64(i), Role: msg.Role, Content: string(content),
+			CreatedAt: time.Now(),
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return s.db.Create(&rows).Error
+}
+
+// SearchAIConversationMsgs 跨会话检索消息行（df_search_history 数据源，
+// v7.15 A6）：本人维度 + ILIKE 子串匹配（content 上的 pg_trgm GIN 加速），
+// created_at 倒序取 limit 条，片段以 pattern 首次命中位置为中心截取。
+// pattern 中的 %/_ 按字面匹配（转义）；空 pattern 返回空。
+func (s *UserStore) SearchAIConversationMsgs(userID uuid.UUID, pattern string, limit int) ([]AIConvoMsgHit, error) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || limit <= 0 {
+		return []AIConvoMsgHit{}, nil
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	like := "%" + escapeLikePattern(pattern) + "%"
+	var rows []struct {
+		ConversationID uuid.UUID
+		Title          string
+		Source         string
+		Role           string
+		Content        string
+		CreatedAt      time.Time
+	}
+	err := s.db.Raw(`
+		SELECT m.conversation_id, c.title, c.source, m.role, m.content, m.created_at
+		FROM ai_conversation_msgs m
+		JOIN ai_conversations c ON c.id = m.conversation_id
+		WHERE m.user_id = ? AND m.content ILIKE ?
+		ORDER BY m.created_at DESC
+		LIMIT ?`, userID, like, limit).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AIConvoMsgHit, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, AIConvoMsgHit{
+			ConversationID: r.ConversationID, Title: r.Title, Source: r.Source,
+			Role: r.Role, Fragment: fragmentAround(r.Content, pattern), CreatedAt: r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// escapeLikePattern 转义 ILIKE 通配符（%/_/转义符本身按字面匹配）。
+func escapeLikePattern(p string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(p)
+}
+
+// fragmentAround 截取 pattern 首次命中位置附近的片段（大小写不敏感定位，
+// 宽度约 160 字符；未命中返回头部）。
+func fragmentAround(content, pattern string) string {
+	const width = 160
+	lower, lowQ := strings.ToLower(content), strings.ToLower(pattern)
+	idx := strings.Index(lower, lowQ)
+	if idx < 0 {
+		if len(content) > width {
+			return content[:width] + "…"
+		}
+		return content
+	}
+	start := idx - width/3
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(pattern) + width*2/3
+	if end > len(content) {
+		end = len(content)
+	}
+	frag := content[start:end]
+	if start > 0 {
+		frag = "…" + frag
+	}
+	if end < len(content) {
+		frag += "…"
+	}
+	return frag
 }
 
 // UpdateAIConversation 更新标题（本人维度；内容写走 AppendAIConvoEvent，

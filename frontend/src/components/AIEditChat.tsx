@@ -29,6 +29,7 @@ import type { AIWebSource } from './aichat'
 import { normalizeWebSources } from './aichat'
 import AIModelSelect from './AIModelSelect'
 import { useAIEnabled, aiFeatureStatus } from '../aiFeature'
+import { agentConvoView, calibrateTokRatio, suggestTools } from '../ai/convoView'
 import { t, useLocale } from '../i18n'
 /** 选区描述（无选区 = 全文模式；原独立 AIEdit.tsx 移除后迁此）。 */
 export interface AIEditTarget {
@@ -73,84 +74,9 @@ type ChatMode = 'edit' | 'chat' | 'plan'
 /** 只读工具判定（计划模式可用的工具子集：探查类，不改文档）。 */
 const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
 
-/** 未知工具时的近名建议（E2）：相等/子串/公共前缀启发，取前 3——模型
- *  拼错工具名（如 read_scene→read_scence、update_cells→update_cell）时
- *  能在下一轮自纠，不再靠反复试错烧轮次。 */
-function suggestTools(name: string, candidates: string[]): string {
-  if (!name || candidates.length === 0) return ''
-  const n = name.toLowerCase()
-  const scored = candidates
-    .map((c) => {
-      const t = c.toLowerCase()
-      let score = 0
-      if (t === n) score = 100
-      else if (t.includes(n) || n.includes(t)) score = 70
-      else {
-        let common = 0
-        while (common < n.length && common < t.length && n[common] === t[common]) common++
-        score = common * 2
-        let i = 0
-        for (const ch of n) {
-          if (ch === t[i]) i++
-        }
-        if (i >= Math.min(t.length, 3)) score += 10
-      }
-      return { c, score }
-    })
-    .filter((x) => x.score >= 6)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-  return scored.length ? `（你是不是想用：${scored.map((x) => x.c).join(' / ')}？）` : ''
-}
-
-/** token 估算掺实测（v7.15 L5，opencode 模式）：以最近一轮真实 usage 的
- *  「发送字符数 / prompt_tokens」为比率做 EMA 校准（夹在 [1.5,8]），替代
- *  纯 chars/4——中文/代码/XML 的 token 密度差异大，实测后压缩触发点更准。
- *  模块级共享：跨编辑器会话延续校准。 */
-let tokRatio = 4 // chars per token
-function calibrateTokRatio(viewChars: number, promptTokens: number): void {
-  if (!viewChars || !promptTokens) return
-  const r = viewChars / promptTokens
-  if (!Number.isFinite(r) || r <= 0) return
-  const clamped = Math.min(8, Math.max(1.5, r))
-  tokRatio = Math.min(8, Math.max(1.5, tokRatio * 0.6 + clamped * 0.4))
-}
-function estTokens(chars: number): number {
-  return Math.ceil(chars / tokRatio)
-}
-
-/** Agent 会话压缩视图（pi/opencode 式滑动窗口 + 预算感知降级）：基线窗口
- *  40 条（尾保 20）；估算 token 超预算 80% 时按 opencode SHRINK_STEPS 思路
- *  递减保留窗口（尾保 20→14→10→7 ≈ 70/50/35%，尾段 TOOL_RESULT 截断同步
- *  收紧，v7.15 L3），而非直接失败或一刀切硬截断。只影响发给模型的视图，
- *  不改写原始 convo（「继续」恢复仍基于全量）——300 轮预算下防上下文爆窗
- *  的关键。预算取 /ai/status 的 context_budget（v7.15 L5；未知回落 96K）。 */
-const CONVO_SHRINK_STEPS: readonly number[] = [20, 14, 10, 7]
-const TOOL_RESULT_TRUNC_STEPS: readonly number[] = [300, 220, 160, 110]
-function agentConvoView(convo: AIMessage[], budgetTokens = 0): AIMessage[] {
-  // v7.14d Token 优化：窗口 60→40（尾保 36→20），尾段 TOOL_RESULT 截短。
-  // 27 万 tok 图表任务的主因：大量 read_scene TOOL_RESULT（全画布 XML
-  // ~3000 字）× 45 轮反复重发 ≈ 13.5 万 tok 仅历史上下文。
-  if (convo.length <= 40) return convo
-  const budget = budgetTokens > 0 ? budgetTokens : 96 * 1024
-  const build = (keepTail: number, trunc: number): AIMessage[] => {
-    const head = convo.slice(0, 2)
-    const tail = convo.slice(-keepTail)
-    const dropped = convo.length - head.length - tail.length
-    const shrink = (m: AIMessage): AIMessage =>
-      m.role === 'user' && m.content.startsWith('TOOL_RESULT ') && m.content.length > trunc
-        ? { ...m, content: `${m.content.slice(0, trunc)}…（已压缩）` }
-        : m
-    const note: AIMessage = { role: 'user', content: `（系统注：此前 ${dropped} 条历史已压缩省略——需要时用读工具重取）` }
-    return [...head, note, ...tail.map(shrink)]
-  }
-  for (let i = 0; i < CONVO_SHRINK_STEPS.length; i++) {
-    const view = build(CONVO_SHRINK_STEPS[i], TOOL_RESULT_TRUNC_STEPS[i])
-    const chars = view.reduce((n, m) => n + m.content.length, 0)
-    if (estTokens(chars) <= budget * 0.8) return view
-  }
-  return build(CONVO_SHRINK_STEPS[CONVO_SHRINK_STEPS.length - 1], TOOL_RESULT_TRUNC_STEPS[TOOL_RESULT_TRUNC_STEPS.length - 1])
-}
+// 会话视图纯函数（压缩/token 校准/近名建议/结构化摘要）已抽至
+// ../ai/convoView——无 React 依赖，scripts/verify-convo-view.mjs 直接
+// import 做 100+ 轮分层上下文验证（v7.15 A5）。
 
 /** 应用通道类型（默认 text 行为完全不变）：
  * - text：写作助手（回复=最终文本，选区替换/文末追加）；

@@ -258,6 +258,8 @@ export default function AISettingsPanel({
   // tavily_api_key 只写不读——GET 只回 configured 标志，输入留空 = 保持）。
   const [search, setSearch] = useState<AISearchSettings>({ provider: '', searxng_url: '', max_results: 5 })
   const [tavilyConfigured, setTavilyConfigured] = useState(false)
+  // 对话历史检索（v7.15 A8，随 ai 主设置一并 PUT；旧后端缺省 = keyword）。
+  const [historySearch, setHistorySearch] = useState('keyword')
   // 平台人设 / 技能模板（各自独立 PUT 整块保存，不入 putAISettings）。
   const [personas, setPersonas] = useState<AIPersonaDef[]>([])
   const [personaEditing, setPersonaEditing] = useState<PersonaForm | null>(null)
@@ -295,6 +297,7 @@ export default function AISettingsPanel({
         setSearch({ provider: d.search.provider ?? '', searxng_url: d.search.searxng_url ?? '', max_results: d.search.max_results > 0 ? d.search.max_results : 5, tavily_api_key: '' })
         setTavilyConfigured(d.search.tavily_api_key_configured === true)
       }
+      setHistorySearch(d.history_search === 'off' ? 'off' : 'keyword')
       setDefaultProvider(d.default_provider || (d.providers.find((p) => p.enabled)?.id ?? ''))
       setDefaultModels(d.default_models ?? {})
       setTemperature(d.temperature)
@@ -370,8 +373,10 @@ export default function AISettingsPanel({
         rag,
         ocr,
         search,
+        history_search: historySearch,
       })
       setData(merged)
+      setHistorySearch(merged.history_search === 'off' ? 'off' : 'keyword')
       setAIEnabled(merged.enabled)
       setDefaultProvider(merged.default_provider)
       if (merged.default_models) setDefaultModels(merged.default_models)
@@ -1129,6 +1134,34 @@ export default function AISettingsPanel({
               value={search.max_results}
               disabled={readOnly || !search.provider}
               onChange={(v) => setSearch({ ...search, max_results: Number(v ?? 5) })}
+            />
+          </label>
+        </div>
+        <div className="modal-actions" style={{ marginTop: 8 }}>
+          {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
+        </div>
+      </Card>
+
+      {/* 对话历史检索（v7.15 A8）：df_search_history 工具开关，随 ai 主设置保存。 */}
+      <Card size="small" title={zh ? '对话历史检索（AI 工具）' : 'Conversation history search (AI tool)'} style={{ marginTop: 12 }}>
+        {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；该配置将保留，启用 AI 后生效。' : 'AI is off; this setting is retained until AI is enabled.'}</p>}
+        <p className="hint">
+          {zh
+            ? '控制 AI 对话中的 df_search_history 工具：开启后模型可跨会话检索历史消息（含被上下文压缩掉的早期内容）；关闭则不注入该工具。检索为关键词子串匹配（中文有效），索引随会话写入自动维护。'
+            : 'Controls the df_search_history tool in AI chats: when on, the model can search conversation history across sessions (including early content compressed out of context); off removes the tool. Keyword substring matching (Chinese-friendly), indexed as conversations are saved.'}
+        </p>
+        <div className="ai-defaults-form">
+          <label className="field">
+            <span>{zh ? '检索模式' : 'Search mode'}</span>
+            <Select
+              value={historySearch}
+              disabled={readOnly}
+              onChange={(v) => setHistorySearch(v)}
+              options={[
+                { value: 'keyword', label: zh ? '关键词检索（默认）' : 'Keyword (default)' },
+                { value: 'off', label: zh ? '关闭（不注入工具）' : 'Off (tool not injected)' },
+              ]}
+              style={{ minWidth: 220 }}
             />
           </label>
         </div>

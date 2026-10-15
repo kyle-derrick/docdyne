@@ -151,11 +151,10 @@ func (h *Handler) adminPutAISkills(c *gin.Context) {
 // aiMemoryContextLimit include_memory 注入时取的最近记忆条数。
 const aiMemoryContextLimit = 20
 
-// aiMemoryContextMaxRunes 注入上下文的总字数上限（rune 计）。记忆只增不
-// 减（单条 ≤2000、最多取 20 条，理论上限 4 万字符），不设总量上限会随
-// 条数膨胀撑爆 system 上下文、挤占对话本身的预算，故拼装时按总量截断
-// （最近记忆优先，见 aiMemoryContextBlock）。
-const aiMemoryContextMaxRunes = 6000
+// aiMemoryTitleRunes 标题列表中单条记忆的截取长度（rune 计，v7.15 A7：
+// system 只带标题不再全量注入）。20 条 ×≤48 字符 ≈ 千字符内（~200 tok），
+// 替代旧的全量注入（≤6000 字符常驻）；详情由模型按需 df_read_memory。
+const aiMemoryTitleRunes = 48
 
 // aiMemoryStore 抽象记忆存取（生产实现 *auth.UserStore，NewHandler 装配；
 // 接口化便于单测注入内存实现，模式同 aiPrefsStore）。
@@ -169,11 +168,11 @@ type aiMemoryStore interface {
 var _ aiMemoryStore = (*auth.UserStore)(nil)
 
 // aiMemoryContextBlock 拼装记忆上下文块（include_memory 开启时经
-// appendContextSystem 并入首条 system 消息）：取最近 20 条，按时间正序
-// 阅读更自然；注入总量按 aiMemoryContextMaxRunes 截断——从最新一条开始
-// 累计，加入某条会超上限则丢弃该条及更旧条目（最近记忆优先注入；至少
-// 保底注入最新 1 条，单条本身限 2000 不会超上限）。未装配存储 / 读取
-// 失败 / 无记忆返回空串（静默降级，不阻塞对话）。
+// appendContextSystem 并入首条 system 消息，v7.15 A7 工具式记忆）：
+// 只注入最近 20 条的「标题列表」（每条截 aiMemoryTitleRunes 字符，时间
+// 正序阅读自然）+ 工具用法提示——完整内容由模型在需要时 df_read_memory
+// 按需读取，用户明确表达新偏好时 df_write_memory 记录。未装配存储 /
+// 读取失败 / 无记忆返回空串（静默降级，不阻塞对话）。
 func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
 	if h.aiMemory == nil {
 		return ""
@@ -182,20 +181,14 @@ func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
 	if err != nil || len(items) == 0 {
 		return ""
 	}
-	kept := make([]auth.AIMemory, 0, len(items))
-	total := 0
-	for _, it := range items { // List 为倒序：最新在前，故从第 0 条开始累计
-		n := len([]rune(it.Content))
-		if len(kept) > 0 && total+n > aiMemoryContextMaxRunes {
-			break // 该条及更旧条目均丢弃，防止记忆膨胀撑爆 system 上下文
-		}
-		kept = append(kept, it)
-		total += n
-	}
 	var b strings.Builder
-	b.WriteString("以下是用户的长期偏好记忆（用户本人手动维护，回答时请结合这些偏好）：")
-	for i := len(kept) - 1; i >= 0; i-- { // 注入反转为时间正序
-		b.WriteString("\n- " + kept[i].Content)
+	b.WriteString("以下是用户的长期偏好记忆标题列表（完整内容用 df_read_memory 工具按关键词查询；用户明确表达值得长期记住的偏好时用 df_write_memory 记录）：")
+	for i := len(items) - 1; i >= 0; i-- { // List 为倒序，注入反转为时间正序
+		title := []rune(items[i].Content)
+		if len(title) > aiMemoryTitleRunes {
+			title = append(title[:aiMemoryTitleRunes], []rune("…")...)
+		}
+		b.WriteString("\n- " + string(title))
 	}
 	return b.String()
 }
@@ -467,7 +460,6 @@ func aiMCPTestRespond(c *gin.Context, url, authHeader string, headers map[string
 	})
 }
 
-
 // agentPackagesForKind 返回编辑器 Agent 技能包（内置 + 平台定义合并；
 // kind 非空时过滤适用包）。内置包按编辑类型提供领域专家规范。
 func (h *Handler) agentPackagesForKind(kind string) []settings.AIAgentPackageDef {
@@ -477,7 +469,9 @@ func (h *Handler) agentPackagesForKind(kind string) []settings.AIAgentPackageDef
 		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校（成熟 docx/pdf skill 方法论）：逐条定位（find 用 10-80 字唯一片段，逐字复制原文）；改动最小化（格式调整用 format_text/set_block_type，不整段替换；嵌入占位行 [DocFlow-*] 一律不动）；标题层级连续（不跳级）、列表风格统一、中英文间距一致。【自检循环（硬性）】每批修改后 read_document 抽查改动点：格式未破坏、无重复段落、占位行完整；发现问题先修复再继续。语言：始终使用中文。"},
 	}
 	if h.settings != nil {
-		if svc, ok := h.settings.(interface{ AIAgentPackages() ([]settings.AIAgentPackageDef, error) }); ok {
+		if svc, ok := h.settings.(interface {
+			AIAgentPackages() ([]settings.AIAgentPackageDef, error)
+		}); ok {
 			if extra, err := svc.AIAgentPackages(); err == nil {
 				packs = append(packs, extra...)
 			}
