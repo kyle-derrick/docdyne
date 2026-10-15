@@ -1282,6 +1282,9 @@ ${planText}` },
             onTool: () => {},
             onToolResult: () => {},
             onSources: () => {},
+            onRetry: (attempt) => {
+              pushStage({ kind: 'note', text: zh ? `网络中断，正在重连…（第 ${attempt} 次）` : `Network interrupted, retrying… (attempt ${attempt})` })
+            },
           },
           controller.signal,
         )

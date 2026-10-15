@@ -2867,6 +2867,8 @@ export interface AIChatStreamHandlers {
   onTool?: (tool: AIToolCall) => void
   /** 工具执行后回调（与 onTool 按 server+tool 顺序配对；渲染层更新状态/结果）。 */
   onToolResult?: (result: AIToolResult) => void
+  /** 网络中断自动重试时回调（attempt=第几次重试；UI 层可展示「正在重连…」）。 */
+  onRetry?: (attempt: number) => void
 }
 
 /**
@@ -2890,9 +2892,56 @@ export async function aiChat(opts: AIChatOptions, handlers: AIChatStreamHandlers
   if (opts.include_docs !== undefined) body.include_docs = opts.include_docs
   if (opts.use_files !== undefined) body.use_files = opts.use_files
   if (opts.work_root) body.work_root = opts.work_root
+  if (opts.reasoning_effort) body.reasoning_effort = opts.reasoning_effort
+  if (opts.context_budget) body.context_budget = opts.context_budget
   if (opts.ragQuery !== undefined || opts.fileIds !== undefined) {
     body.context = { query: opts.ragQuery ?? '', fileIds: opts.fileIds ?? [] }
   }
+
+  // v7.14j：前端网络级重试（后端 5xx 重试不覆盖 Caddy 重启/网络断开
+  // 导致的 SSE 连接中断）。仅当「零增量收到」时重试（有增量则内容不完整
+  // 无法安全重试）；最多 2 次，1s/2s 退避；通知 onRetry 回调供 UI 展示。
+  let hasDelta = false
+  const wrappedHandlers: AIChatStreamHandlers = {
+    ...handlers,
+    onDelta: (chunk: string) => {
+      hasDelta = true
+      handlers.onDelta?.(chunk)
+    },
+    onThinking: (chunk: string) => {
+      hasDelta = true
+      handlers.onThinking?.(chunk)
+    },
+  }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      handlers.onRetry?.(attempt)
+      await new Promise((r) => setTimeout(r, attempt * 1000))
+    }
+    hasDelta = false
+    try {
+      return await aiChatOnce(body, stream, wrappedHandlers, signal)
+    } catch (err) {
+      // 用户取消不重试
+      if (err instanceof Error && (err.name === 'AbortError' || signal?.aborted)) throw err
+      // API 错误（4xx/5xx 有明确错误信息）不重试——后端已有 5xx 重试
+      if (err instanceof ApiError) throw err
+      // 网络错误且零增量 → 重试
+      const isNetworkErr = err instanceof TypeError || (err instanceof Error && !('status' in err) && /network|fetch|failed/i.test(err.message))
+      if (!isNetworkErr || hasDelta || attempt >= 2) throw err
+      // 零增量 + 网络错误 → 继续重试
+    }
+  }
+  throw new Error('unreachable')
+}
+
+/** 内部：单次 SSE/非流式 AI 请求（重试包装的底层）。 */
+async function aiChatOnce(
+  body: Record<string, unknown>,
+  stream: boolean,
+  handlers: AIChatStreamHandlers,
+  signal?: AbortSignal,
+): Promise<{ content: string; sources: AISource[]; providerName: string; usage: AIUsage | null }> {
   const init = withCSRF(jsonInit('POST', body))
   if (signal) init.signal = signal
   const res = await authFetch('/api/v1/ai/chat', init)

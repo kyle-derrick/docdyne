@@ -2018,6 +2018,18 @@ useEffect(() => {
             })
           },
           onSources: (sources) => updateTurn(assistantId, () => ({ sources })),
+          // v7.14j：网络中断重试时在过程块中显示状态（用户可见「正在重连…」）。
+          onRetry: (attempt) => {
+            updateTurn(assistantId, (x) => {
+              const trace = [...(x.trace ?? [])]
+              trace.push({
+                key: ++traceSeqRef.current,
+                kind: 'note' as const,
+                text: zh ? `网络中断，正在重连…（第 ${attempt} 次）` : `Network interrupted, retrying… (attempt ${attempt})`,
+              })
+              return { trace }
+            })
+          },
           onThinking: (text) => {
             if (thinkStageStart === 0) thinkStageStart = Date.now()
             updateTurn(assistantId, (x) => {
