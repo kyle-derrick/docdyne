@@ -7618,6 +7618,16 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 /* v7.10：Office 插件 SPA 面板（/office-ai，iframe 内全高承载 AIEditChat）。 */
 .office-ai-root { height: 100vh; display: flex; flex-direction: column; background: var(--surface); }
 .office-ai-root .ai-edit-chat-panel { width: 100%; max-width: none; flex: 1; border: none; border-radius: 0; }
+/* v7.15 F2：面板宽度自适应——DS 面板拖宽后正文/输入列封顶居中（超宽行长
+   可读性，同主流聊天客户端的可读列宽），窄面板（DS 默认 ~360px）收紧留白。 */
+@media (min-width: 640px) {
+  .office-ai-root .ai-edit-chat-thread,
+  .office-ai-root .chat-input-wrap { width: 100%; max-width: 720px; margin-left: auto; margin-right: auto; }
+}
+@media (max-width: 380px) {
+  .office-ai-root .ai-edit-chat-thread { padding: 8px; gap: 8px; }
+  .office-ai-root .chat-input-wrap { padding: 6px 6px 8px; }
+}
 .office-ai-empty { margin: auto; padding: 24px; text-align: center; font-size: 13px; }
 
 /* v7.11：过程叙述行（note）与外层标题态。 */

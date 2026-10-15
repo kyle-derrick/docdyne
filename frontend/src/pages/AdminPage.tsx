@@ -1567,10 +1567,14 @@ function QuarantinePanel({ onError, onNotice }: { onError: (msg: string) => void
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Key[]>([])
   const [batchBusy, setBatchBusy] = useState(false)
+  /** F3：增量分页——首批 100 条，满额提示「加载更多」（每轮 +200，服务端
+   * 列表查询本身走 status 索引 + LATERAL LIMIT，增量拉大 limit 即可）。 */
+  const [limit, setLimit] = useState(100)
+  const [loadingMore, setLoadingMore] = useState(false)
 
-  const load = async () => {
+  const load = async (nextLimit = limit) => {
     try {
-      setItems(await adminListQuarantine())
+      setItems(await adminListQuarantine(nextLimit))
     } catch (err) {
       onError(err instanceof Error ? err.message : '隔离区加载失败')
     }
@@ -1745,6 +1749,21 @@ function QuarantinePanel({ onError, onNotice }: { onError: (msg: string) => void
             },
           ]}
         />
+      )}
+      {items !== null && items.length === limit && (
+        <div style={{ marginTop: 8, textAlign: 'center' }}>
+          <Button
+            loading={loadingMore}
+            onClick={() => {
+              const next = limit + 200
+              setLoadingMore(true)
+              setLimit(next)
+              void load(next).finally(() => setLoadingMore(false))
+            }}
+          >
+            加载更多（已显示 {items.length} 条）
+          </Button>
+        </div>
       )}
       <Checkbox
         checked={confirmRelease}
