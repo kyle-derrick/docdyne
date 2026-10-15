@@ -112,11 +112,14 @@
 - [x] F3. 存储清理面板扫描速度优化（v7.15：隔离区面板增量分页——首批
       100 条，满额「加载更多」每轮 +200（服务端 status 索引 + LATERAL
       LIMIT 本就有界，补齐 UI 侧异步分页与加载态））
-- [ ] F4. 版本历史默认保留数从 30 调回合理值（用户确认具体数字；
-      现状：MAX_VERSIONS_PER_FILE 默认 30（v7.10 由 5 上调，AI 编辑
-      每次工具应用落版本），另有 upload.version_retention_days 时间窗
-      （默认 0 不启用）；blob 内容寻址去重下多版本仅多元数据行，
-      建议 20~50 均可，等待用户定值）
+- [x] F4. 版本历史默认保留数（用户定夺 2026-10-15：全量保留，除非用户
+      自己手动删除或清理）：默认 0 = 不限——env MAX_VERSIONS_PER_FILE
+      默认 0（校验 ≥0）、settings upload.max_versions_per_file 默认 0
+      （min 0）、defaultMaxVersions 0、pruneVersionsLogic keep<=0 直接
+      跳过裁剪（语义反转：原 keep<=0 会裁到仅剩 current+时间窗）；
+      手动删除能力既有（DELETE /files/:id/versions/:versionId + 回收站/
+      清理面板）；测试钉死新语义（maxversions_test 重写 + 新增
+      KeepZeroKeepsAll/EffectiveMaxVersionsZeroMeansUnlimited）
 
 ## 阶段一：提取共享 UI 组件（从 AIEditChat 提取到 aichat/）
 

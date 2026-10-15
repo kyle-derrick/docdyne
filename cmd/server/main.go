@@ -81,9 +81,10 @@ func main() {
 	// 链上无适用条目回退空间角色判定（无 ACL 行为完全不变）。
 	aclService := acl.NewService(acl.NewGormRepo(db))
 	fileStore.SetACLResolver(aclService.ResolveForFile)
-	// 版本管理：每文件保留版本数上限（MAX_VERSIONS_PER_FILE，默认 5）为回退值；
-	// 运行时经 system_settings 的 upload.max_versions_per_file 热读取覆盖
-	//（读失败回退 config 值）。
+	// 版本管理：每文件保留版本数上限（MAX_VERSIONS_PER_FILE，默认 0=不限，
+	// F4——版本全量保留，仅经用户手动删除/清理移除）为回退值；运行时经
+	// system_settings 的 upload.max_versions_per_file 热读取覆盖（读失败回退
+	// config 值）。
 	fileStore.SetMaxVersions(cfg.MaxVersionsPerFile)
 	settingsStore := settings.NewStore(db)
 	settingsStore.SetAuditRecorder(auditStore)
@@ -109,10 +110,10 @@ func main() {
 	})
 	fileStore.SetMaxVersionsProvider(func() int {
 		n, err := settingsStore.GetInt(settings.KeyUploadMaxVersionsPerFile)
-		if err != nil || n < 1 {
+		if err != nil || n < 0 {
 			return cfg.MaxVersionsPerFile
 		}
-		return n
+		return n // 0 = 不限（F4 全量保留），正数 = 数量上限
 	})
 	// 版本保留时间窗（G6）：upload.version_retention_days 热读取；0 = 不启用
 	//（仅按数量上限裁剪，与既有行为一致），读取失败回退 0。

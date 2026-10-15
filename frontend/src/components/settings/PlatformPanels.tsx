@@ -471,7 +471,7 @@ const SYSTEM_SETTING_GROUPS: Array<{ id: string; prefixes: string[]; title: { zh
  * 不下发范围，前端自带以渲染 InputNumber 的 min/max 并在组保存前本地
  * 校验；未收录的 int 键不设范围，仍由后端最终校验）。 */
 const INT_RANGES: Record<string, { min: number; max: number }> = {
-  'upload.max_versions_per_file': { min: 1, max: 1000 },
+  'upload.max_versions_per_file': { min: 0, max: 1000 },
   'upload.version_retention_days': { min: 0, max: 3650 },
   'upload.max_file_size': { min: 1, max: 1 << 40 },
   'upload.default_quota': { min: 1, max: 1 << 50 },
@@ -555,7 +555,7 @@ export const SETTING_KEY_META: Record<string, { zh: string; en: string; dzh: str
   'ai.search.searxng_url': { zh: 'SearXNG 地址', en: 'SearXNG URL', dzh: 'SearXNG 基地址（需启用 JSON API）', den: 'SearXNG base URL (JSON API enabled)' },
   'ai.search.max_results': { zh: '搜索结果条数上限', en: 'Search max results', dzh: '每次联网搜索返回的结果数上限', den: 'Max results per web search query' },
   // ---- upload.* ----
-  'upload.max_versions_per_file': { zh: '每文件版本数上限', en: 'Max versions per file', dzh: '覆盖上传后按版本号裁剪历史版本', den: 'Trim history versions above this count after overwrites' },
+  'upload.max_versions_per_file': { zh: '每文件版本数上限', en: 'Max versions per file', dzh: '0 = 不限（默认，全量保留，版本仅经手动删除/清理移除）；正数 = 覆盖上传后按版本号裁剪历史版本', den: '0 = unlimited (default; keep all, removal only via manual delete/cleanup); positive = trim history above this count after overwrites' },
   'upload.version_retention_days': { zh: '版本保留时间窗', en: 'Version retention window', dzh: '窗口内的版本不因数量裁剪删除；0 = 不启用', den: 'Versions inside the window survive count trims; 0 = disabled' },
   'upload.blocked_extensions': { zh: '上传扩展名黑名单', en: 'Blocked extensions', dzh: '逗号分隔（如 exe,bat,sh）；空 = 不拦截', den: 'Comma-separated (e.g. exe,bat,sh); empty = allow all' },
   'upload.max_file_size': { zh: '单文件上传大小上限', en: 'Max file size', dzh: '单文件上传的字节上限', den: 'Per-file upload size limit in bytes' },

@@ -483,3 +483,60 @@ func TestAuthorizeFileWriteMatrix(t *testing.T) {
 		}
 	}
 }
+
+// TestPruneVersionsKeepZeroKeepsAll F4 语义钉死：keep<=0（0 = 不限，默认）
+// 不做任何裁剪——版本全量保留，仅经用户手动删除/清理移除；时间窗启用
+// 亦不改变该语义（时间窗本就只保护、不主动删）。
+func TestPruneVersionsKeepZeroKeepsAll(t *testing.T) {
+	repo := newMemVersionsRepo()
+	owner := uuid.New()
+	f, _, _ := repo.seedFile(owner, shaA)
+	for _, sha := range []string{shaB, shaC, shaD} {
+		if _, _, err := addVersionLogic(repo, f.ID, "objects/"+sha, sha, 3, "text/plain", owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cutoff := time.Now().UTC().Add(-24 * time.Hour) // 时间窗启用（旧于 1 天的可裁）
+	for _, keep := range []int{0, -1} {
+		pruned, err := pruneVersionsLogic(repo, f.ID, keep, cutoff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pruned != 0 {
+			t.Fatalf("keep=%d pruned = %d, want 0（F4：全量保留）", keep, pruned)
+		}
+		after, _ := repo.ListVersionsDesc(f.ID)
+		if len(after) != 4 {
+			t.Fatalf("keep=%d versions = %d, want 4（一个不少）", keep, len(after))
+		}
+	}
+}
+
+// TestEffectiveMaxVersionsZeroMeansUnlimited 提供器/静态值的 0 均为合法的
+// 「不限」（F4 默认）；负值（读取失败哨兵）回退静态值。
+func TestEffectiveMaxVersionsZeroMeansUnlimited(t *testing.T) {
+	s := &Store{}
+	if got := s.effectiveMaxVersions(); got != 0 {
+		t.Fatalf("零值 Store（未注入）= %d, want 0（defaultMaxVersions 不限）", got)
+	}
+	s.SetMaxVersions(7)
+	if got := s.effectiveMaxVersions(); got != 7 {
+		t.Fatalf("static 7 = %d, want 7", got)
+	}
+	s.SetMaxVersions(0) // 显式不限
+	if got := s.effectiveMaxVersions(); got != 0 {
+		t.Fatalf("static 0 = %d, want 0（不限）", got)
+	}
+	s.SetMaxVersionsProvider(func() int { return 0 }) // settings 值 0 = 不限
+	if got := s.effectiveMaxVersions(); got != 0 {
+		t.Fatalf("provider 0 = %d, want 0（不限，不回退静态值）", got)
+	}
+	s.SetMaxVersionsProvider(func() int { return -1 }) // 读取失败哨兵
+	if got := s.effectiveMaxVersions(); got != 0 {
+		t.Fatalf("provider -1 = %d, want 回退静态 0", got)
+	}
+	s.SetMaxVersions(5)
+	if got := s.effectiveMaxVersions(); got != 5 {
+		t.Fatalf("provider -1 after static 5 = %d, want 5", got)
+	}
+}

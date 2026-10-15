@@ -64,7 +64,7 @@ var envCatalog = []struct {
 	}},
 	{"存储与上传", [][2]string{
 		{"STORAGE_DRIVER", "local"}, {"STORAGE_ROOT", "./storage"}, {"MAX_FILE_SIZE", "536870912"},
-		{"MAX_VERSIONS_PER_FILE", "20"}, {"S3_ENDPOINT", ""}, {"S3_BUCKET", ""},
+		{"MAX_VERSIONS_PER_FILE", "0"}, {"S3_ENDPOINT", ""}, {"S3_BUCKET", ""},
 		{"S3_REGION", "us-east-1"}, {"S3_PATH_STYLE", "true"}, {"S3_ACCESS_KEY", ""}, {"S3_SECRET_KEY", ""},
 		{"CLAMAV_ADDR", ""}, {"CLAMAV_REQUIRED", "false"},
 		{"CONTENT_PUBLIC_BASE_URL", ""}, {"RAW_URL_SECRET", ""},

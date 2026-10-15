@@ -47,8 +47,9 @@ type Config struct {
 	LoginRateLimitPerMinute int
 	// PublicRateLimitPerMinute 为公开分享接口单独限流，按 IP（每分钟次数，0 表示禁用）。
 	PublicRateLimitPerMinute int
-	// MaxVersionsPerFile 每文件保留的版本数上限（覆盖上传后裁剪历史版本）；
-	// 运行时可被 system_settings 的 upload.max_versions_per_file 热覆盖（读取失败回退本值）。
+	// MaxVersionsPerFile 每文件保留的版本数上限（覆盖上传后裁剪历史版本；
+	// 0 = 不限，F4 默认——全量保留，仅经用户手动删除/清理移除）；运行时可被
+	// system_settings 的 upload.max_versions_per_file 热覆盖（读取失败回退本值）。
 	MaxVersionsPerFile int
 	// JanitorEnabled 控制后台清理任务（janitor）；env JANITOR_ENABLED 默认 true
 	//（兼容任务书旧拼写 JANIOR_ENABLED 作为别名）。
@@ -257,10 +258,11 @@ func Load() (Config, error) {
 	if e != nil {
 		return Config{}, e
 	}
-	// v7.10：默认 30（原 5——AI 编辑每次工具应用都落版本，5 版会被迅速
-	// 裁剪造成"老版本丢失"；可经 env 或 system_settings 的
-	// upload.max_versions_per_file 覆盖）。
-	maxVersions, e := intEnv("MAX_VERSIONS_PER_FILE", 30)
+	// F4（2026-10-15 用户定夺）：默认 0 = 不限——版本全量保留，仅经用户手动
+	// 删除/清理移除（v7.10 曾默认 30，v7.10 前默认 5，AI 编辑频繁落版本
+	// 场景下均会自动裁掉旧版本，与用户预期不符）。可经 env 或
+	// system_settings 的 upload.max_versions_per_file 覆盖为正数上限。
+	maxVersions, e := intEnv("MAX_VERSIONS_PER_FILE", 0)
 	if e != nil {
 		return Config{}, e
 	}
@@ -401,8 +403,9 @@ func Load() (Config, error) {
 	if c.AccessSalt == "" {
 		c.AccessSalt = "docflow-access:" + c.JWTSecret
 	}
-	if c.MaxVersionsPerFile < 1 {
-		return Config{}, errors.New("MAX_VERSIONS_PER_FILE must be >= 1")
+	// 0 = 不限（F4 默认，全量保留）；负数非法。
+	if c.MaxVersionsPerFile < 0 {
+		return Config{}, errors.New("MAX_VERSIONS_PER_FILE must be >= 0 (0 = unlimited)")
 	}
 	if c.LoginMaxRetries < 1 {
 		return Config{}, errors.New("LOGIN_MAX_RETRIES must be >= 1")

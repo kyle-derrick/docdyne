@@ -2513,9 +2513,10 @@ paths:
         携带 file_id 时为「覆盖为新版本」会话：目标须为 type=file 且当前用户有
         CanWrite 权限（个人 owner / 团队 editor+），name 与 parent_id 被忽略，
         沿用目标文件现有名称与父目录；Complete 成功后内容成为该文件的新版本，
-        并按 MAX_VERSIONS_PER_FILE（默认 5，upload.max_versions_per_file 热调）
-        裁剪历史版本（upload.version_retention_days 时间窗内的版本不因数量
-        裁剪删除；0=不启用）。
+        并按 MAX_VERSIONS_PER_FILE（默认 0 = 不限——F4 全量保留，仅经手动
+        删除/清理移除；upload.max_versions_per_file 热调）裁剪历史版本
+        （upload.version_retention_days 时间窗内的版本不因数量裁剪删除；
+        0=不启用）。
         门控：扩展名命中 upload.blocked_extensions 黑名单时 400；每用户活跃
         （非终态）会话达到 upload.max_concurrent_uploads_per_user 上限时 429
         （DB COUNT 计数，多实例共享）。
@@ -2677,7 +2678,7 @@ paths:
         携带 file_id（UUID，base64 编码）时为「覆盖为新版本」会话：目标须为
         type=file 且当前用户有 CanWrite 权限，filename/parent_id 被忽略，
         沿用目标文件现有名称与父目录；写满自动完成后内容成为新版本并按
-        MAX_VERSIONS_PER_FILE 裁剪历史。
+        MAX_VERSIONS_PER_FILE（默认 0 = 不限）裁剪历史。
       parameters:
         - name: Upload-Length
           in: header

@@ -88,8 +88,8 @@ type Store struct {
 	spaceDeleter SpaceDeleter
 	// acl 空间作用域资源的路径级 ACL 求值器（acl 包注入；nil 未接线）。
 	acl ACLResolver
-	// maxVersions 为版本保留数的静态值；maxVersionsFn 为运行时提供器
-	//（settings 热读取）；nil 时用 maxVersions。
+	// maxVersions 为版本保留数的静态值（0 = 不限，F4 全量保留默认）；
+	// maxVersionsFn 为运行时提供器（settings 热读取）；nil 时用 maxVersions。
 	maxVersions   int
 	maxVersionsFn func() int
 	// retentionDaysFn 为版本保留时间窗（天）的运行时提供器（settings

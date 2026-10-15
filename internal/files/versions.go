@@ -20,8 +20,10 @@ var (
 	ErrCurrentVersion  = errors.New("current version cannot be deleted")
 )
 
-// defaultMaxVersions 每文件默认保留的版本数上限（可经 SetMaxVersions / MAX_VERSIONS_PER_FILE 覆盖）。
-const defaultMaxVersions = 5
+// defaultMaxVersions 每文件默认保留的版本数上限：0 = 不限（F4 决策——
+// 版本全量保留，仅经用户手动删除/清理移除；可经 SetMaxVersions /
+// MAX_VERSIONS_PER_FILE / upload.max_versions_per_file 覆盖为正数上限）。
+const defaultMaxVersions = 0
 
 // VersionDetail 是版本列表项：FileVersion 不可变字段 + 关联 blob 的实时状态摘要。
 type VersionDetail struct {
@@ -196,8 +198,12 @@ func setCurrentVersionLogic(r versionsRepo, fileID, versionID uuid.UUID) (FileVe
 // PurgeBlobs 的两步语义，失败可安全重试）。行锁与 AddVersion 的复活路径互斥，
 // 先后取得锁的一方胜出，不会删除仍被引用（或已复活）的对象。
 // 仍被其他版本/文件引用的对象只递减计数，绝不标记或删除。
-// keep<=0 时仅保护 current 与时间窗。返回被裁版本数。
+// keep<=0 时不做任何裁剪（F4：全量保留，版本仅经用户手动删除/清理移除）。
+// 返回被裁版本数。
 func pruneVersionsLogic(r versionsRepo, fileID uuid.UUID, keep int, keepNewerThan time.Time) (int, error) {
+	if keep <= 0 {
+		return 0, nil // 全量保留（F4 默认）：无数量上限时不进入裁剪路径
+	}
 	f, err := r.GetFileForUpdate(fileID)
 	if err != nil {
 		return 0, err
@@ -338,9 +344,10 @@ func (g *gormVersionsRepo) MarkBlobDeletingIfZero(id uuid.UUID) (bool, error) {
 	return result.RowsAffected > 0, result.Error
 }
 
-// SetMaxVersions 设置每文件保留版本数上限（幂等；n<1 时保持默认 5）。
+// SetMaxVersions 设置每文件保留版本数上限（幂等；n<0 忽略）：0 = 不限
+//（F4 默认——全量保留），正数 = 保留最新 n 个。
 func (s *Store) SetMaxVersions(n int) {
-	if n >= 1 {
+	if n >= 0 {
 		s.maxVersions = n
 	}
 }
@@ -374,17 +381,19 @@ func (s *Store) retentionCutoff(now time.Time) time.Time {
 
 // SetMaxVersionsProvider 注入版本保留数的运行时提供器（幂等；nil 不覆盖）：
 // 提供器在每次 Prune 前热读取（如 system_settings 的 upload.max_versions_per_file），
-// 返回非正值（含读取失败时的回退哨兵 0/-1）时回退 SetMaxVersions 的静态值。
+// 返回 0 = 不限（合法值，F4 默认）；负值（读取失败的回退哨兵）时回退
+// SetMaxVersions 的静态值。
 func (s *Store) SetMaxVersionsProvider(fn func() int) {
 	if fn != nil {
 		s.maxVersionsFn = fn
 	}
 }
 
-// effectiveMaxVersions 返回当前生效的版本保留数：提供器优先，异常回退静态值。
+// effectiveMaxVersions 返回当前生效的版本保留数（0 = 不限，全量保留）：
+// 提供器优先，负值/异常回退静态值。
 func (s *Store) effectiveMaxVersions() int {
 	if s.maxVersionsFn != nil {
-		if n := s.maxVersionsFn(); n >= 1 {
+		if n := s.maxVersionsFn(); n >= 0 {
 			return n
 		}
 	}
@@ -554,8 +563,12 @@ func (s *Store) SetCurrentVersion(user, fileID, versionID uuid.UUID) (File, File
 // PruneVersions 裁剪文件历史版本，组合保留策略生效：保留最新 keep 个 ∪
 // 时间窗内（upload.version_retention_days，经 SetVersionRetentionDaysProvider
 // 热读取；0=不启用，仅按数量裁剪）的版本；current 指向的版本受保护。
-// 返回被裁数量；blob 物理删除延后至 janitor（见 pruneVersionsLogic）。
+// keep<=0（含默认 0=不限，F4）时不裁剪任何版本。返回被裁数量；blob 物理
+// 删除延后至 janitor（见 pruneVersionsLogic）。
 func (s *Store) PruneVersions(fileID uuid.UUID, keep int) (int, error) {
+	if keep <= 0 {
+		return 0, nil
+	}
 	cutoff := s.retentionCutoff(time.Now().UTC())
 	var pruned int
 	err := s.db.Transaction(func(tx *gorm.DB) error {

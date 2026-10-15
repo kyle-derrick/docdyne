@@ -2,8 +2,9 @@ package files
 
 import "testing"
 
-// effectiveMaxVersions 热读取语义：提供器优先，读取失败（提供器返回非正值，
-// 调用方约定以 0/-1 作回退哨兵）或未注入时回退 SetMaxVersions 的静态值。
+// effectiveMaxVersions 热读取语义：提供器优先，读取失败（提供器返回负值，
+// 调用方约定以 -1 作回退哨兵）或未注入时回退 SetMaxVersions 的静态值；
+// 0 为合法的「不限」（F4：版本全量保留，仅经用户手动删除/清理移除）。
 func TestEffectiveMaxVersionsHotReadAndFallback(t *testing.T) {
 	s := NewStore(nil)
 	s.SetMaxVersions(5)
@@ -23,12 +24,12 @@ func TestEffectiveMaxVersionsHotReadAndFallback(t *testing.T) {
 		t.Fatalf("provider after change = %d, want 9 (hot read)", got)
 	}
 
-	// 提供器读取失败（返回 0）：回退静态值 5。
+	// 提供器返回 0：合法的「不限」（F4），不回退静态值。
 	value = 0
-	if got := s.effectiveMaxVersions(); got != 5 {
-		t.Fatalf("provider failure = %d, want fallback 5", got)
+	if got := s.effectiveMaxVersions(); got != 0 {
+		t.Fatalf("provider 0 = %d, want 0（不限，F4）", got)
 	}
-	// 提供器返回负数（哨兵）：同样回退。
+	// 提供器返回负数（读取失败哨兵）：回退静态值。
 	value = -1
 	if got := s.effectiveMaxVersions(); got != 5 {
 		t.Fatalf("provider negative = %d, want fallback 5", got)

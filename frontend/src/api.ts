@@ -1794,7 +1794,8 @@ export async function uploadFile(
 
 /**
  * 覆盖为新版本：POST /uploads 携带 file_id（name/parent_id 被服务端忽略，沿用目标
- * 文件现有名称与父目录），Complete 后成为新版本并按 MAX_VERSIONS_PER_FILE 裁剪历史。
+ * 文件现有名称与父目录），Complete 后成为新版本并按 MAX_VERSIONS_PER_FILE 裁剪历史
+ * （默认 0 = 不限——F4 全量保留，版本仅经手动删除/清理移除）。
  */
 export async function uploadFileVersion(
   file: File,

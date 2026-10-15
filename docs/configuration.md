@@ -69,7 +69,7 @@ DocFlow 采用**两级配置模型**：
 | `MAX_FILE_SIZE` | `2147483648`（2GiB） | 单文件上传大小上限（字节，启动回退值） | 运行时优先读 `upload.max_file_size`（默认 1GiB，热生效） |
 | `PATCH_MAX_BYTES` | `67108864`（64MiB） | 单次上传 PATCH 请求体上限 | 约束单请求存储写入量与连接占用时长 |
 | `UPLOAD_SESSION_TTL` | `24h` | 上传会话有效期 | |
-| `MAX_VERSIONS_PER_FILE` | `5` | 每文件版本数上限（启动回退值） | 运行时优先读 `upload.max_versions_per_file`（热生效） |
+| `MAX_VERSIONS_PER_FILE` | `0` | 每文件版本数上限（0 = 不限，启动回退值；F4——版本全量保留，仅经手动删除/清理移除） | 运行时优先读 `upload.max_versions_per_file`（热生效） |
 | `WEBPKG_ENABLED` | `true` | 网页包（zip）上传后自动解包预览 | 关闭后仍可经 `POST /api/v1/files/:id/webpkg/extract` 手动解包 |
 | `WEBPKG_MAX_ENTRIES` | `500` | 解包条目数上限 | |
 | `WEBPKG_MAX_FILE_SIZE` | `33554432`（32MiB） | 解包单文件展开大小上限 | |
@@ -236,7 +236,7 @@ DocFlow 采用**两级配置模型**：
 
 | 键 | 默认值 | 范围 | 生效 | 说明 |
 | --- | --- | --- | --- | --- |
-| `upload.max_versions_per_file` | `5` | 1–1000 | 即时 | 每文件保留版本数上限（覆盖上传后按版本号裁剪；与时间窗组合生效） |
+| `upload.max_versions_per_file` | `0` | 0–1000 | 即时 | 每文件保留版本数上限：0 = 不限（默认，F4——全量保留，版本仅经手动删除/清理移除）；正数 = 覆盖上传后按版本号裁剪（与时间窗组合生效） |
 | `upload.version_retention_days` | `0` | 0–3650 | 即时 | 版本保留时间窗（天）：窗口内的版本不因数量裁剪删除；0 = 不启用（仅按数量） |
 | `upload.blocked_extensions` | 空 | — | 即时 | 上传扩展名黑名单（逗号分隔，如 `exe,bat,sh`；不含点、大小写不敏感），建会话与完成时双侧拒绝（400） |
 | `upload.max_file_size` | `1073741824`（1GiB） | 1B–1TiB | 即时 | 单文件上传大小上限（字节） |

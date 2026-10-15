@@ -66,8 +66,8 @@ func TestStoreGetReturnsDefaultThenSetValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.(int64) != 5 {
-		t.Fatalf("default = %v, want 5", v)
+	if v.(int64) != 0 {
+		t.Fatalf("default = %v, want 0（F4：0 = 不限，全量保留）", v)
 	}
 	if _, err := s.Set(KeyUploadMaxVersionsPerFile, 9, uuid.New()); err != nil {
 		t.Fatal(err)
@@ -113,8 +113,11 @@ func TestStoreSetTypeValidation(t *testing.T) {
 			t.Fatalf("set %T(%v) must fail", v, v)
 		}
 	}
-	// 范围校验：min=1 / max=1000。
-	if _, err := s.Set(KeyUploadMaxVersionsPerFile, 0, actor); !errors.Is(err, ErrInvalidValue) {
+	// 范围校验：min=0（F4：0 = 不限，合法）/ max=1000 / 负数拒绝。
+	if got, err := s.Set(KeyUploadMaxVersionsPerFile, 0, actor); err != nil || got.(int64) != 0 {
+		t.Fatalf("set 0 (unlimited, F4 default) = %v, %v; want 0, nil", got, err)
+	}
+	if _, err := s.Set(KeyUploadMaxVersionsPerFile, -1, actor); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("below min err = %v, want ErrInvalidValue", err)
 	}
 	if _, err := s.Set(KeyUploadMaxVersionsPerFile, 1001, actor); !errors.Is(err, ErrInvalidValue) {
@@ -188,8 +191,8 @@ func TestStoreHotReadFallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.(int64) != 5 {
-		t.Fatalf("corrupt row fallback = %v, want default 5", v)
+	if v.(int64) != 0 {
+		t.Fatalf("corrupt row fallback = %v, want default 0（F4：不限）", v)
 	}
 	if _, err := s.GetInt("no.such.key"); !errors.Is(err, ErrUnknownKey) {
 		t.Fatalf("GetInt unknown key err = %v, want ErrUnknownKey", err)
@@ -277,6 +280,9 @@ func TestDefinitionsEffectMetadata(t *testing.T) {
 	}
 	if v := byKey[KeyUploadVersionRetentionDays]; v.Value.(int64) != 0 {
 		t.Fatalf("retention default = %v, want 0（默认不启用时间窗）", v.Value)
+	}
+	if v := byKey[KeyUploadMaxVersionsPerFile]; v.Value.(int64) != 0 {
+		t.Fatalf("max versions default = %v, want 0（F4：不限，全量保留）", v.Value)
 	}
 	if v := byKey[KeyUploadBlockedExtensions]; v.Value.(string) != "" {
 		t.Fatalf("blocked extensions default = %q, want empty", v.Value)

@@ -1017,7 +1017,7 @@ var Definitions = []Definition{
 	{Key: KeyAISearchProvider, Type: TypeString, Default: "", Effect: EffectImmediate, Description: "AI web search provider: empty (disabled), searxng or tavily"},
 	{Key: KeyAISearchSearxngURL, Type: TypeString, Default: "", Effect: EffectImmediate, Description: "SearXNG base URL (JSON API enabled), used when ai.search.provider=searxng"},
 	{Key: KeyAISearchMaxResults, Type: TypeInt, Default: int64(AISearchMaxResultsDefault), Min: intPtr(1), Max: intPtr(AISearchMaxResultsLimit), Effect: EffectImmediate, Description: "AI web search max results per query"},
-	{Key: KeyUploadMaxVersionsPerFile, Type: TypeInt, Default: int64(5), Min: intPtr(1), Max: intPtr(1000), Effect: EffectImmediate, Description: "每文件保留的版本数上限（覆盖上传后按版本号裁剪历史版本；与 upload.version_retention_days 组合生效）"},
+	{Key: KeyUploadMaxVersionsPerFile, Type: TypeInt, Default: int64(0), Min: intPtr(0), Max: intPtr(1000), Effect: EffectImmediate, Description: "每文件保留的版本数上限：0 = 不限（默认，F4——全量保留，版本仅经手动删除/清理移除）；正数 = 覆盖上传后按版本号裁剪历史版本（与 upload.version_retention_days 组合生效）"},
 	{Key: KeyUploadVersionRetentionDays, Type: TypeInt, Default: int64(0), Min: intPtr(0), Max: intPtr(3650), Effect: EffectImmediate, Description: "版本保留时间窗（天）：创建时间在窗口内的版本不因数量裁剪删除；0 = 不启用时间窗（默认，仅按数量上限裁剪）"},
 	{Key: KeyUploadBlockedExtensions, Type: TypeString, Default: "", Effect: EffectImmediate, Description: "上传扩展名黑名单（逗号分隔，如 exe,bat,sh；不含点、大小写不敏感）：命中的文件名在建会话与完成时拒绝（400）；默认空 = 不拦截"},
 	{Key: KeyUploadMaxFileSize, Type: TypeInt, Default: int64(1 << 30), Min: intPtr(1), Max: intPtr(1 << 40), Effect: EffectImmediate, Description: "单文件上传大小上限（字节）"},
