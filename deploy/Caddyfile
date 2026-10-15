@@ -50,8 +50,12 @@
 	}
 
 	# REST API → Go 后端（backend 仅 compose 内网，无宿主端口映射）。
+	# flush_interval -1：SSE（/ai/chat 流式）立即下发——Caddy 默认缓冲
+	# 整个反代响应再发，导致 AI 对话"生成中…"卡几十秒才一次性出结果。
 	handle /api/* {
-		reverse_proxy backend:8080
+		reverse_proxy backend:8080 {
+			flush_interval -1
+		}
 	}
 
 	# 路径兼容：内容 origin 的安全策略和 Cookie 隔离由此代理保证。
