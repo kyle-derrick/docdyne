@@ -217,7 +217,9 @@ func (h *Handler) aiRequireService(c *gin.Context) *ai.Service {
 //   - enabled：总开关（ai.enabled + 存在启用中的 Provider）；
 //   - web_search：联网搜索（管理端配置 ai.search.provider 非空）；
 //   - mcp：外部 MCP 工具（ai.mcp 存在启用中的服务；读取失败容错 false）；
-//   - rag：知识库问答（引用文件基于关键词检索，AI 开即可用 = enabled）。
+//   - rag：知识库问答（引用文件基于关键词检索，AI 开即可用 = enabled）；
+//   - context_budget：chat 场景默认模型的上下文预算（token；v7.15 L5——
+//     前端编辑 Agent 据此做本地压缩视图的预算基准；未配置/解析失败为 0）。
 func (h *Handler) aiStatus(c *gin.Context) {
 	enabled := h.aiSvc != nil && h.aiSvc.EnabledNow()
 	webSearch := false
@@ -235,11 +237,16 @@ func (h *Handler) aiStatus(c *gin.Context) {
 			}
 		}
 	}
+	contextBudget := 0
+	if h.aiSvc != nil {
+		contextBudget = h.aiSvc.EffectiveContextBudget()
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"enabled":    enabled,
-		"web_search": webSearch,
-		"mcp":        mcpEnabled,
-		"rag":        enabled,
+		"enabled":        enabled,
+		"web_search":     webSearch,
+		"mcp":            mcpEnabled,
+		"rag":            enabled,
+		"context_budget": contextBudget,
 	})
 }
 

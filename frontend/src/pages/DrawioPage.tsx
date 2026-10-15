@@ -36,6 +36,40 @@ import { useColorMode } from '../theme'
 import { closeEditorWithFallback, safeReturnTo } from '../editorNavigation'
 
 /**
+ * v7.15 L1：drawio 常用形状映射表（对标官方 drawio-mcp 的 search_shapes——
+ * 按关键词查形状库返回精确 style 串，模型不再手编 style）。shape= 值为
+ * mxgraph 内置/stencil 形状名（与 vendored 27.x 通用图形库一致）；
+ * keywords 中英双语子串双向匹配（query 含关键词或关键词含 query 均命中）。
+ */
+const DRAWIO_SHAPE_LIBRARY: Array<{ name: string; keywords: string[]; style: string; size: string; use: string }> = [
+  { name: '圆角矩形', keywords: ['流程', '步骤', '处理', '矩形', '方框', 'process', 'step', 'rect'], style: 'rounded=1;whiteSpace=wrap;html=1', size: '160x60', use: '默认流程节点/处理步骤' },
+  { name: '直角矩形', keywords: ['直角', '状态', '数据块', 'rectangle', 'box'], style: 'rounded=0;whiteSpace=wrap;html=1', size: '160x60', use: '状态/普通数据块' },
+  { name: '椭圆', keywords: ['椭圆', '圆形', '开始', '结束', '起止', 'ellipse', 'oval', 'start', 'end'], style: 'ellipse;whiteSpace=wrap;html=1', size: '120x60', use: '流程起点/终点' },
+  { name: '菱形', keywords: ['菱形', '判断', '决策', '分支', 'diamond', 'rhombus', 'decision'], style: 'rhombus;whiteSpace=wrap;html=1', size: '140x80', use: '条件分支（边标 Yes/No）' },
+  { name: '圆柱', keywords: ['圆柱', '数据库', '存储', 'db', 'database', 'storage', 'cylinder'], style: 'shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15', size: '120x100', use: '数据库/持久存储' },
+  { name: '云', keywords: ['云', '云端', '外部服务', 'cloud'], style: 'ellipse;shape=cloud;whiteSpace=wrap;html=1', size: '160x100', use: '云服务/外部系统' },
+  { name: '演员', keywords: ['用户', '角色', '人', '演员', 'actor', 'user', 'person'], style: 'shape=actor;whiteSpace=wrap;html=1', size: '60x80', use: '参与角色/用户' },
+  { name: '文档形', keywords: ['文档', '文件', '报表', 'document', 'file', 'report'], style: 'shape=document;whiteSpace=wrap;html=1;boundedLbl=1', size: '160x80', use: '文档/输出报表' },
+  { name: '便签', keywords: ['便签', '注释', '备注', '说明', 'note', 'comment'], style: 'shape=note;whiteSpace=wrap;html=1;backgroundOutline=1', size: '120x80', use: '旁注/说明' },
+  { name: '平行四边形', keywords: ['平行四边形', '输入', '输出', 'io', 'input', 'output', 'parallelogram'], style: 'shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1', size: '160x60', use: '数据输入/输出' },
+  { name: '六边形', keywords: ['六边形', '协议', '准备', 'hexagon'], style: 'shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1', size: '160x70', use: '协议/准备阶段' },
+  { name: '三角', keywords: ['三角', '警告', '方向', 'triangle'], style: 'triangle;whiteSpace=wrap;html=1', size: '80x70', use: '警示/方向指示' },
+  { name: '箭头块', keywords: ['箭头形状', '单箭头', 'arrow'], style: 'shape=singleArrow;whiteSpace=wrap;html=1', size: '120x60', use: '页面级流向强调（连线仍用边）' },
+  { name: '卡片', keywords: ['卡片', 'card'], style: 'shape=card;whiteSpace=wrap;html=1', size: '160x90', use: '分组信息卡' },
+  { name: '立方体', keywords: ['立方体', '服务器', '主机', 'server', 'host', 'cube'], style: 'shape=cube;whiteSpace=wrap;html=1;boundedLbl=1', size: '120x100', use: '服务器/系统组件' },
+  { name: '泳道容器', keywords: ['泳道', 'swimlane', '分角色'], style: 'swimlane;html=5;horizontal=1;startSize=24;fontSize=12', size: '600x400', use: '按角色/阶段分行的容器泳道' },
+  { name: '虚线分组框', keywords: ['容器', '分组', '虚线框', 'container', 'group'], style: 'rounded=1;whiteSpace=wrap;html=1;dashed=1;verticalAlign=top;align=left;spacingLeft=4;fontSize=12', size: '400x300', use: '语义分组容器（仅分组有意义时用）' },
+  { name: '纯文本', keywords: ['文本', '标签', '文字', 'text', 'label'], style: 'text;html=1;align=center;verticalAlign=middle', size: '不设尺寸（随文字自适应）', use: '自由标注/标题' },
+]
+
+/** 常用 style 修饰键（search_shapes 结果随附——模型按需 styleSet 叠加）。 */
+const DRAWIO_STYLE_MODIFIERS = [
+  '语义配色：fillColor=#dae8fc;strokeColor=#6c8ebf（蓝）/ #d5e8d4;#82b366（绿）/ #ffe6cc;#d79b00（橙）/ #f8cecc;#b85450（红粉）',
+  'fontStyle=1 加粗 / fontSize=20 大标题；dashed=1 虚线；strokeWidth=2 强调边框',
+  '边默认 edgeStyle=orthogonalEdgeStyle;rounded=0；曲线 rounded=1',
+]
+
+/**
  * draw.io embed 编辑器/查看器 iframe URL（proto=json postMessage 协议）。
  * lang 跟随界面语言（drawio 资源名 zh/en）；ui 跟随站点明暗（浅色 min /
  * 深色 dark，编辑器界面主题与站点一致，避免深色站点里白闪编辑器）；
@@ -353,6 +387,9 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   // docker/drawio/plugins/docflow-selection.js）；get_selection 工具与
   // aiGetTarget 据此感知用户选区。
   const selectedCellIdsRef = useRef<Set<string>>(new Set())
+  // v7.15 L2：图表指南是否已在本编辑器会话中读取过（get_reference 置位；
+  // 未读而直接插入时结果附提示轻推一次——规范不常驻 system，省每轮 token）。
+  const guideFetchedRef = useRef(false)
   // 自动保存 debounce（autosave 事件静置 10s 落版本；v2.7 自动保存间隔）。
   const autosaveTimerRef = useRef(0)
   // 「保存并退出」之外的退出流程抑制 beforeunload（返回确认走 antd 弹窗，
@@ -606,6 +643,33 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
     const apply = (doc: Document): Promise<string | void> => applyDiagramXML(new XMLSerializer().serializeToString(doc))
     return [
       {
+        name: 'get_reference',
+        desc: '{} → 读取完整图表规范（设计方法论 + XML 格式 + 形状语义 + 布局/硬性规则）。首次创建或修改图表前必读一次；已读过不必重复读取。',
+        label: () => '读取图表指南',
+        exec: async () => {
+          guideFetchedRef.current = true
+          return { ok: true, guide: DRAWIO_XML_GUIDE }
+        },
+      },
+      {
+        name: 'search_shapes',
+        desc: '{query} → 按关键词查形状库（如 数据库/判断/用户/云），返回精确 style 串与建议尺寸/用途 + 常用修饰键——画图前先查，不要手编 style。',
+        label: (a: Record<string, unknown>) => `查形状 ${String(a.query ?? '').slice(0, 12)}`,
+        exec: async (a: Record<string, unknown>) => {
+          const q = String(a.query ?? '').trim().toLowerCase()
+          if (!q) return { ok: false, error: 'query 必填：形状关键词（如 数据库/判断/用户/箭头）' }
+          const hits = DRAWIO_SHAPE_LIBRARY.filter((s) =>
+            s.name.toLowerCase().includes(q) || s.keywords.some((k) => k.toLowerCase().includes(q) || q.includes(k.toLowerCase())))
+          return {
+            ok: true,
+            count: hits.length,
+            shapes: hits.slice(0, 8),
+            modifiers: DRAWIO_STYLE_MODIFIERS,
+            ...(hits.length === 0 ? { note: '无匹配——可用基础形状（rounded=1/ellipse/rhombus）+ styleSet 修饰组合' } : {}),
+          }
+        },
+      },
+      {
         name: 'get_selection',
         desc: '{} → 读当前选中的单元格（id/类型/文本/坐标），未选中返回空。用户选中了要修改的元素时优先用本工具获取精确信息。',
         label: () => '读取选中元素',
@@ -721,7 +785,13 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
           root.appendChild(adopted)
           const err = await apply(doc)
           if (err) return { ok: false, error: err }
-          return { ok: true, inserted: incoming.length, ids: incoming.map((c) => c.getAttribute('id') ?? '') }
+          return {
+            ok: true,
+            inserted: incoming.length,
+            ids: incoming.map((c) => c.getAttribute('id') ?? ''),
+            // v7.15 L2：未读指南先插入时轻推一次（不阻断——直接改图的简单场景不强制）
+            ...(guideFetchedRef.current ? {} : { note: '提示：本会话尚未读取图表规范，建议 get_reference 后再继续大批量插入（布局/样式质量更好）' }),
+          }
         },
       },
       {
@@ -954,8 +1024,9 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
               '- 改既有元素（文本/颜色/位置/尺寸）：先 list_cells 或 read_diagram 拿 id，再 update_cells 局部更新（styleSet 键值合并改样式）——不要重画整图。',
               '- 删除元素连带引用它的边自动清理（delete_cells）；整图重排才用 replace_diagram。',
               '- 【自检循环】每批改动后 list_cells 验证：无重叠、无悬空边、标签完整、间距均匀；发现问题先修复再继续，全部通过才 FINAL 总结。',
-              '- insert_cells/replace_diagram 的 XML 规范（忽略其中「输出单个代码块」的表述）：',
-              DRAWIO_XML_GUIDE,
+              // v7.15 L2（官方 drawio-mcp get_drawio_reference 模式）：完整规范
+              // 不再常驻 system（原 45 行每轮重发），改为按需工具读取。
+              '- 【必读】首次创建/修改图表前必须调用 get_reference 读取完整图表规范（设计方法论/XML 格式/硬性规则）；按关键词找形状精确 style 用 search_shapes {query}。',
             ].join('\n')}
           />
         </div>

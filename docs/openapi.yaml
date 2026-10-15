@@ -5560,6 +5560,14 @@ paths:
                 required: [enabled, web_search, mcp, rag]
                 properties:
                   enabled: { type: boolean }
+                  web_search: { type: boolean }
+                  mcp: { type: boolean }
+                  rag: { type: boolean }
+                  context_budget:
+                    type: integer
+                    description: chat 场景默认模型的上下文预算（token；模型
+                      context_window 设置，未配置为 256K 默认；解析失败 0——
+                      前端编辑 Agent 据此做本地压缩视图预算，v7.15 L5）。
                   '401': { $ref: '#/components/responses/Unauthorized' }
 
   /ai/summarize:

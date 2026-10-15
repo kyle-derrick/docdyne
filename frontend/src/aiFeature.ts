@@ -14,6 +14,8 @@ export interface AIFeatureStatus {
   web_search: boolean
   mcp: boolean
   rag: boolean
+  /** chat 场景默认模型上下文预算（token；0=未知——前端回落默认，v7.15 L5）。 */
+  context_budget?: number
 }
 
 const allOff: AIFeatureStatus = { enabled: false, web_search: false, mcp: false, rag: false }
@@ -27,7 +29,7 @@ function notify() {
 }
 
 function sameStatus(a: AIFeatureStatus, b: AIFeatureStatus): boolean {
-  return a.enabled === b.enabled && a.web_search === b.web_search && a.mcp === b.mcp && a.rag === b.rag
+  return a.enabled === b.enabled && a.web_search === b.web_search && a.mcp === b.mcp && a.rag === b.rag && a.context_budget === b.context_budget
 }
 
 /** 解析 /ai/status 响应（能力对象；兼容旧版裸 bool）。enabled=false 时
@@ -40,11 +42,13 @@ function parseStatus(data: unknown): AIFeatureStatus {
   if (!obj.enabled) {
     return allOff
   }
+  const budget = Number(obj.context_budget)
   return {
     enabled: true,
     web_search: obj.web_search === true,
     mcp: obj.mcp === true,
     rag: obj.rag === true,
+    ...(Number.isFinite(budget) && budget > 0 ? { context_budget: Math.floor(budget) } : {}),
   }
 }
 

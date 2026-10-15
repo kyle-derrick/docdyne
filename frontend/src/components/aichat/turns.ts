@@ -29,9 +29,11 @@ export interface AIToolCallEntry {
 export function toolEntryFrom(call: AIToolCall): AIToolCallEntry {
   const raw = call.label || [call.server, call.tool].filter(Boolean).join(' / ')
   // v7.12d：df_* 平台工具的原始标签（server/tool 拼接或空）替换为动词化
-  // 中文友好标签（含参数中的文件名/关键词）。
+  // 中文友好标签（含参数中的文件名/关键词）。v7.15 A4：系统级事件
+  // （server=system，如 context_compress/df_search_history）按工具名直查
+  // 同表——不属于 DF_SERVER。
   let label = raw
-  if (call.server === DF_SERVER && call.tool) {
+  if (call.tool && (call.server === DF_SERVER || DF_TOOL_LABELS[call.tool])) {
     const mapped = DF_TOOL_LABELS[call.tool]
     if (mapped && (!call.label || call.label.includes(call.tool))) {
       label = mapped.zh  // 助手为中文场景；ChatThread 展示时再经 dfToolLabel 补充参数
@@ -81,6 +83,9 @@ const DF_TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   df_write_version: { zh: '保存为新版本', en: 'Save as new version' },
   df_mkdir: { zh: '新建目录', en: 'Create folder' },
   df_search: { zh: '搜索文件', en: 'Search files' },
+  // v7.15 A4 收尾：系统级工具事件（上下文压缩/历史检索）此前显示英文原名。
+  df_search_history: { zh: '检索会话历史', en: 'Search conversation history' },
+  context_compress: { zh: '上下文自动压缩', en: 'Context auto-compaction' },
 }
 
 /** df_* 工具参数中的 path/query 提取（供标签展示文件名/关键词）。 */
@@ -100,9 +105,10 @@ function dfToolSubject(tool: string | undefined, input: string | undefined): str
 export const DF_SERVER = 'docflow'
 
 /** 工具条目展示文本：server=docflow 的 df_* 工具映射为「平台 / 列目录」式
- *  双语；其余透传后端 label（「服务名 / 工具名」）。 */
+ *  双语；系统级事件（server=system 的 context_compress 等，v7.15 A4）按
+ *  工具名直查同表；其余透传后端 label（「服务名 / 工具名」）。 */
 export function dfToolLabel(tc: AIToolCallEntry, zh: boolean): string {
-  if (tc.server === DF_SERVER && tc.tool) {
+  if (tc.tool && (tc.server === DF_SERVER || DF_TOOL_LABELS[tc.tool])) {
     const mapped = DF_TOOL_LABELS[tc.tool]
     if (mapped) {
       const subject = dfToolSubject(tc.tool, tc.input)

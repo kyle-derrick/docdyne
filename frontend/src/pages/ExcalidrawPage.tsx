@@ -477,6 +477,9 @@ export default function ExcalidrawPage({
 
   // v7.15 D1：选区跟踪（handleChange 同步 appState.selectedElementIds → ref）。
   const selectedIdsRef = useRef<Set<string>>(new Set())
+  // v7.15 L2：白板元素规范是否已在本编辑器会话读取（get_reference 置位；
+  // 未读而直接插入时结果附提示轻推一次——规范不常驻 system，省每轮 token）。
+  const guideFetchedRef = useRef(false)
   /** AI 上下文目标：有选中元素时返回选中摘要（id/type/文字/坐标），经
    *  sendAgent 注入 system 提示（D4），AI 可针对性修改选区而非整图；
    *  无选区=全文摘要（仅对话模式上下文）。 */
@@ -628,6 +631,15 @@ export default function ExcalidrawPage({
     const apiOr = () => excalidrawAPIRef.current
     return [
       {
+        name: 'get_reference',
+        desc: '{} → 读取完整白板元素骨架规范（设计方法论 + 骨架字段定义 + 连线绑定 + 布局/硬性规则）。首次创建或修改白板前必读一次；已读过不必重复读取。',
+        label: () => '读取白板指南',
+        exec: async () => {
+          guideFetchedRef.current = true
+          return { ok: true, guide: EXCALIDRAW_JSON_GUIDE }
+        },
+      },
+      {
         name: 'get_selection',
         desc: '{} → 读当前选中的元素（id/type/文字/坐标/尺寸），未选中返回空。用户选中了要修改的元素时优先用本工具获取精确信息。',
         label: () => '读取选中元素',
@@ -682,7 +694,13 @@ export default function ExcalidrawPage({
             : undefined
           const r = await insertSkeletons(JSON.stringify(els), at)
           if (!r.ok) return r
-          return { ok: true, inserted: r.elements.length, ids: r.elements.map((el) => el.id) }
+          return {
+            ok: true,
+            inserted: r.elements.length,
+            ids: r.elements.map((el) => el.id),
+            // v7.15 L2：未读规范先插入时轻推一次（不阻断）
+            ...(guideFetchedRef.current ? {} : { note: '提示：本会话尚未读取白板元素规范，建议 get_reference 后再继续大批量插入（骨架字段/布局质量更好）' }),
+          }
         },
       },
       {
@@ -1006,8 +1024,9 @@ export default function ExcalidrawPage({
               '- 改既有内容（颜色/文字/位置/尺寸）：先 read_scene 拿 id，再 update_elements 局部更新——不要重画整图。',
               '- 删除元素连带其标签与绑定箭头自动清理（delete_elements）。',
               '- 【自检循环】每批改动后 read_scene 验证：无重叠、无悬空连线、标签完整、间距均匀；发现问题先修复再继续，全部通过才 FINAL 总结。',
-              '- insert_elements 的元素骨架字段规范（忽略其中关于围栏输出/整体布局区间的表述，坐标系以画布现状为准）：',
-              EXCALIDRAW_JSON_GUIDE,
+              // v7.15 L2（官方 drawio-mcp get_drawio_reference 模式）：完整
+              // 元素规范不再常驻 system（原 50 行每轮重发），按需工具读取。
+              '- 【必读】首次创建/修改白板前必须调用 get_reference 读取完整元素骨架规范（字段定义/连线绑定/布局规则）。',
             ].join('\n')}
           />
         </div>

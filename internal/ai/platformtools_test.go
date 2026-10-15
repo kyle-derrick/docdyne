@@ -1,5 +1,5 @@
 // Package ai —— platformtools_test.go：内置平台文件工具声明完整性单测
-// （5 工具、schema 必填参数、白名单判定、名称集合）。
+// （6 工具、schema 必填参数、白名单判定、名称集合）。
 package ai
 
 import (
@@ -34,11 +34,11 @@ func requiredOf(t *testing.T, params map[string]any) []string {
 	return list
 }
 
-// TestPlatformToolsDeclarations 验证 5 个内置工具声明齐全、名称/描述/
+// TestPlatformToolsDeclarations 验证 6 个内置工具声明齐全、名称/描述/
 // schema 结构合法且必填参数正确。
 func TestPlatformToolsDeclarations(t *testing.T) {
 	tools := PlatformTools()
-	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search"}
+	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history"}
 	if len(tools) != len(want) {
 		t.Fatalf("工具数 = %d, want %d（%v）", len(tools), len(want), tools)
 	}
@@ -61,16 +61,17 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 			t.Fatalf("工具 %s 缺少 properties 对象", name)
 		}
 	}
-	// 必填参数：path（read/write/mkdir）、content（write）、query（search）；
-	// df_list_dir 的 path 可选。
+	// 必填参数：path（read/write/mkdir）、content（write）、query（search/
+	// search_history）；df_list_dir 的 path 可选。
 	if got := requiredOf(t, byName["df_list_dir"].Params); got != nil {
 		t.Fatalf("df_list_dir required = %v, want 无（path 可选）", got)
 	}
 	for name, wantReq := range map[string][]string{
-		"df_read_file":  {"path"},
-		"df_write_file": {"path", "content"},
-		"df_mkdir":      {"path"},
-		"df_search":     {"query"},
+		"df_read_file":       {"path"},
+		"df_write_file":      {"path", "content"},
+		"df_mkdir":           {"path"},
+		"df_search":          {"query"},
+		"df_search_history":  {"query"},
 	} {
 		got := requiredOf(t, byName[name].Params)
 		if len(got) != len(wantReq) {
@@ -93,7 +94,7 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 // TestPlatformToolNames 名称集合与声明一致。
 func TestPlatformToolNames(t *testing.T) {
 	names := PlatformToolNames()
-	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search"}
+	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history"}
 	if len(names) != len(want) {
 		t.Fatalf("名称集合大小 = %d, want %d", len(names), len(want))
 	}
@@ -210,5 +211,29 @@ func TestChatPlatformToolsLoop(t *testing.T) {
 	}
 	if !fedTool {
 		t.Fatalf("第二轮未回喂工具结果: %s", rawMsgs)
+	}
+}
+
+// TestEffectiveContextBudget /ai/status 下发的上下文预算解析：默认 256K，
+// 模型 context_window 配置生效（v7.15 L5）。
+func TestEffectiveContextBudget(t *testing.T) {
+	svc := NewService(mockConfig())
+	if got := svc.EffectiveContextBudget(); got != 256*1024 {
+		t.Fatalf("默认预算 = %d, want %d", got, 256*1024)
+	}
+	windowed := func() (settings.AIConfig, error) {
+		cfg, err := mockConfig()()
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Providers[0].Models = []settings.AIModel{{
+			ID: "mock-echo", Capabilities: settings.AIModelCapabilities{Kind: settings.AIModelKindChat},
+			ContextWindow: 32768,
+		}}
+		return cfg, nil
+	}
+	svc2 := NewService(windowed)
+	if got := svc2.EffectiveContextBudget(); got != 32768 {
+		t.Fatalf("模型窗口预算 = %d, want 32768", got)
 	}
 }

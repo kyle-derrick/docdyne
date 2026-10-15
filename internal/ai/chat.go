@@ -1634,6 +1634,18 @@ func compressConvo(msgs []map[string]any, budgetTokens int) ([]map[string]any, i
 	return compressed, dropped
 }
 
+// EffectiveContextBudget 返回 chat 场景默认模型的上下文预算（token；
+// v7.15 L5：/ai/status 下发给前端编辑 Agent 做本地压缩视图的预算基准，
+// 与 resolveContextBudget 同一优先级——模型 context_window > 256K 默认）。
+// 无法解析（未配置 Provider 等）返回 0（前端回落自身默认）。
+func (s *Service) EffectiveContextBudget() int {
+	target, err := s.ResolveChatTargetFor("", "", "chat")
+	if err != nil {
+		return 0
+	}
+	return s.resolveContextBudget(target.Provider, target.Model, ChatRequest{})
+}
+
 // resolveContextBudget 解析模型上下文预算（优先级：ChatRequest.ContextBudget >
 // 模型 context_window 设置 > 0=不压缩）。
 func (s *Service) resolveContextBudget(p settings.AIProvider, model string, req ChatRequest) int {

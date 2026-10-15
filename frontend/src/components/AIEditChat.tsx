@@ -28,7 +28,7 @@ import type { AIModelOption } from './AIAssistant'
 import type { AIWebSource } from './aichat'
 import { normalizeWebSources } from './aichat'
 import AIModelSelect from './AIModelSelect'
-import { useAIEnabled } from '../aiFeature'
+import { useAIEnabled, aiFeatureStatus } from '../aiFeature'
 import { t, useLocale } from '../i18n'
 /** 选区描述（无选区 = 全文模式；原独立 AIEdit.tsx 移除后迁此）。 */
 export interface AIEditTarget {
@@ -73,26 +73,53 @@ type ChatMode = 'edit' | 'chat' | 'plan'
 /** 只读工具判定（计划模式可用的工具子集：探查类，不改文档）。 */
 const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
 
-/** Agent 会话压缩视图（pi/opencode 式滑动窗口）：超过 60 条时丢弃中段
- *  （保留 system+首问+最近 36 条）并注入压缩说明，尾段内较旧的
- *  TOOL_RESULT 正文截短（结构保留）。只影响发给模型的视图，不改写原始
- *  convo（「继续」恢复仍基于全量）——300 轮预算下防上下文爆窗的关键。 */
-function agentConvoView(convo: AIMessage[]): AIMessage[] {
-  // v7.14d Token 优化：窗口 60→40（尾保 36→20），尾段 TOOL_RESULT 全部
-  // 截短至 300 字（此前仅前 8 条截短，且阈值 600 导致多数结果未被压缩）。
+/** token 估算掺实测（v7.15 L5，opencode 模式）：以最近一轮真实 usage 的
+ *  「发送字符数 / prompt_tokens」为比率做 EMA 校准（夹在 [1.5,8]），替代
+ *  纯 chars/4——中文/代码/XML 的 token 密度差异大，实测后压缩触发点更准。
+ *  模块级共享：跨编辑器会话延续校准。 */
+let tokRatio = 4 // chars per token
+function calibrateTokRatio(viewChars: number, promptTokens: number): void {
+  if (!viewChars || !promptTokens) return
+  const r = viewChars / promptTokens
+  if (!Number.isFinite(r) || r <= 0) return
+  const clamped = Math.min(8, Math.max(1.5, r))
+  tokRatio = Math.min(8, Math.max(1.5, tokRatio * 0.6 + clamped * 0.4))
+}
+function estTokens(chars: number): number {
+  return Math.ceil(chars / tokRatio)
+}
+
+/** Agent 会话压缩视图（pi/opencode 式滑动窗口 + 预算感知降级）：基线窗口
+ *  40 条（尾保 20）；估算 token 超预算 80% 时按 opencode SHRINK_STEPS 思路
+ *  递减保留窗口（尾保 20→14→10→7 ≈ 70/50/35%，尾段 TOOL_RESULT 截断同步
+ *  收紧，v7.15 L3），而非直接失败或一刀切硬截断。只影响发给模型的视图，
+ *  不改写原始 convo（「继续」恢复仍基于全量）——300 轮预算下防上下文爆窗
+ *  的关键。预算取 /ai/status 的 context_budget（v7.15 L5；未知回落 96K）。 */
+const CONVO_SHRINK_STEPS: readonly number[] = [20, 14, 10, 7]
+const TOOL_RESULT_TRUNC_STEPS: readonly number[] = [300, 220, 160, 110]
+function agentConvoView(convo: AIMessage[], budgetTokens = 0): AIMessage[] {
+  // v7.14d Token 优化：窗口 60→40（尾保 36→20），尾段 TOOL_RESULT 截短。
   // 27 万 tok 图表任务的主因：大量 read_scene TOOL_RESULT（全画布 XML
   // ~3000 字）× 45 轮反复重发 ≈ 13.5 万 tok 仅历史上下文。
   if (convo.length <= 40) return convo
-  const keepTail = 20
-  const head = convo.slice(0, 2)
-  const tail = convo.slice(-keepTail)
-  const dropped = convo.length - head.length - tail.length
-  const shrink = (m: AIMessage): AIMessage =>
-    m.role === 'user' && m.content.startsWith('TOOL_RESULT ') && m.content.length > 300
-      ? { ...m, content: `${m.content.slice(0, 300)}…（已压缩）` }
-      : m
-  const note: AIMessage = { role: 'user', content: `（系统注：此前 ${dropped} 条历史已压缩省略——需要时用读工具重取）` }
-  return [...head, note, ...tail.map(shrink)]
+  const budget = budgetTokens > 0 ? budgetTokens : 96 * 1024
+  const build = (keepTail: number, trunc: number): AIMessage[] => {
+    const head = convo.slice(0, 2)
+    const tail = convo.slice(-keepTail)
+    const dropped = convo.length - head.length - tail.length
+    const shrink = (m: AIMessage): AIMessage =>
+      m.role === 'user' && m.content.startsWith('TOOL_RESULT ') && m.content.length > trunc
+        ? { ...m, content: `${m.content.slice(0, trunc)}…（已压缩）` }
+        : m
+    const note: AIMessage = { role: 'user', content: `（系统注：此前 ${dropped} 条历史已压缩省略——需要时用读工具重取）` }
+    return [...head, note, ...tail.map(shrink)]
+  }
+  for (let i = 0; i < CONVO_SHRINK_STEPS.length; i++) {
+    const view = build(CONVO_SHRINK_STEPS[i], TOOL_RESULT_TRUNC_STEPS[i])
+    const chars = view.reduce((n, m) => n + m.content.length, 0)
+    if (estTokens(chars) <= budget * 0.8) return view
+  }
+  return build(CONVO_SHRINK_STEPS[CONVO_SHRINK_STEPS.length - 1], TOOL_RESULT_TRUNC_STEPS[TOOL_RESULT_TRUNC_STEPS.length - 1])
 }
 
 /** 应用通道类型（默认 text 行为完全不变）：
@@ -957,6 +984,12 @@ export default function AIEditChat({
 
   /** Agent 会话上下文暂停保留（达上限/熔断的回合 → 「继续」恢复）。 */
   const pendingConvosRef = useRef<Map<number, AIMessage[]>>(new Map())
+  // v7.15 L4（pi/opencode 模式）：超长工具结果全量暂存（ref → 原文），回喂
+  // 模型的 TOOL_RESULT 只带截断 preview + _full_ref；模型需要时经
+  // read_tool_output 分段取回，不再一刀切丢信息。每次 runAgentLoop 清空
+  // （跨任务引用失效——exec 里按未找到报错并提示重调原工具）。
+  const toolOutputsRef = useRef<Map<string, string>>(new Map())
+  const toolOutSeqRef = useRef(0)
   /** Agent 模式：工具循环 + FINAL；过程以 trace 分段写入助手回合（v7.3）。
    *  v7.4：轮次预算 300（足够大任务），达上限/连续失败熔断时保留会话
    *  上下文并标记 limitPaused——消息下出现「继续」按钮恢复循环，等效
@@ -1186,13 +1219,14 @@ ${planText}` },
   const applyPackageTools = (tools: AIEditTool[]): AIEditTool[] => {
     const pkg = resolveAgentPackage()
     if (!pkg || !Array.isArray(pkg.tools) || pkg.tools.length === 0) return tools
-    const allow = new Set([...pkg.tools, 'deep_search', 'parallel_scan'])
+    const allow = new Set([...pkg.tools, 'deep_search', 'parallel_scan', 'read_tool_output'])
     return tools.filter((t) => allow.has(t.name))
   }
 
-  /** 元工具：deep_search（单目标深查）与 parallel_scan（≤3 并发）；
-   *  subAgentTools 在循环入口调用一次并传引用——循环期间不再重建；
-   *  大范围检索派发给独立上下文，主循环只拿摘要。 */
+  /** 元工具：deep_search（单目标深查）与 parallel_scan（≤3 并发）+
+   *  read_tool_output（v7.15 L4 超长结果分段取回）；subAgentTools 在循环
+   *  入口调用一次并传引用——循环期间不再重建；大范围检索派发给独立上下文，
+   *  主循环只拿摘要。 */
   const subAgentTools = (hostTools: AIEditTool[]): AIEditTool[] => [
     ...applyPackageTools(hostTools),
     {
@@ -1200,6 +1234,19 @@ ${planText}` },
       desc: '{goal} → 派发独立只读子 Agent 深查一个目标（≤8 轮），返回结构化摘要（发现/事实/位置）——大范围检索不占主上下文。',
       label: (a: Record<string, unknown>) => `深查 ${String(a.goal ?? '').slice(0, 16)}`,
       exec: async (a: Record<string, unknown>) => runSubAgent(String(a.goal ?? ''), hostTools),
+    },
+    {
+      name: 'read_tool_output',
+      desc: '{ref, offset?, limit?} → 分段读取此前被截断的超长工具结果全量（ref 见 TOOL_RESULT 中的 _full_ref；offset=起始字符，limit=段长默认 6000、上限 12000）。只在确需截断之外的内容时使用。',
+      label: (a: Record<string, unknown>) => `读取全量结果 ${String(a.ref ?? '')}`,
+      exec: async (a: Record<string, unknown>) => {
+        const ref = String(a.ref ?? '')
+        const full = toolOutputsRef.current.get(ref)
+        if (!full) return { ok: false, error: `未找到 ${ref}——暂存仅本轮任务内有效，请重新调用原工具获取最新数据` }
+        const offset = Math.max(0, Number(a.offset ?? 0) || 0)
+        const limit = Math.min(12000, Math.max(500, Number(a.limit ?? 6000) || 6000))
+        return { ok: true, ref, total: full.length, offset, chunk: full.slice(offset, offset + limit) }
+      },
     },
     {
       name: 'parallel_scan',
@@ -1232,6 +1279,10 @@ ${planText}` },
     opts: { plan?: boolean } = {},
     attachFiles?: AIAttachFile[],
   ) => {
+    // v7.15 L4：超长工具结果暂存随任务清空（引用失效由 read_tool_output
+    // 的「未找到」分支兜底并提示重调原工具）。
+    toolOutputsRef.current.clear()
+    toolOutSeqRef.current = 0
     // 过程分段写入（trace）：think=本轮思考段（首个思考增量开段），tool=一次调用。
     let stageSeq = 0
     const pushStage = (stage: Omit<TraceStage, 'key'>): number => {
@@ -1261,6 +1312,10 @@ ${planText}` },
     const usagePatch = () => ({ usage: { rounds: uRounds, promptTokens: uPrompt, completionTokens: uCompletion, durationMS: Date.now() - runStart } as TraceUsage })
     try {
       let finalText = ''
+      // v7.15 L3/L5：压缩预算来自 /ai/status 的 context_budget（未知 0 →
+      // agentConvoView 内回落 96K）；每轮按发送字符数 + 真实 usage 校准比率。
+      const ctxBudget = aiFeatureStatus().context_budget ?? 0
+      let lastViewChars = 0
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         let acc = ''
         let roundThink = ''
@@ -1268,8 +1323,11 @@ ${planText}` },
         let thinkKey = 0
         // 发送视图经压缩（防长会话爆上下文）；瞬态错误（网络/网关抖动，
         // 非用户中止）自动重试一次，再失败按原语义终止本轮任务。
-        const roundChat = () => aiChat(
-          { messages: agentConvoView(convo), think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
+        const roundChat = () => {
+          const view = agentConvoView(convo, ctxBudget)
+          lastViewChars = view.reduce((n, m) => n + m.content.length, 0)
+          return aiChat(
+            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
           {
             onDelta: (chunk) => {
               acc += chunk
@@ -1291,18 +1349,27 @@ ${planText}` },
               pushStage({ kind: 'note', text: zh ? `网络中断，正在重连…（第 ${attempt} 次）` : `Network interrupted, retrying… (attempt ${attempt})` })
             },
           },
-          controller.signal,
-        )
+            controller.signal,
+          )
+        }
         try {
           const r = await roundChat()
           uRounds++
-          if (r.usage) { uPrompt += r.usage.prompt_tokens; uCompletion += r.usage.completion_tokens }
+          if (r.usage) {
+            uPrompt += r.usage.prompt_tokens
+            uCompletion += r.usage.completion_tokens
+            calibrateTokRatio(lastViewChars, r.usage.prompt_tokens)
+          }
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') throw err
           await new Promise((r) => setTimeout(r, 800))
           const r = await roundChat()
           uRounds++
-          if (r.usage) { uPrompt += r.usage.prompt_tokens; uCompletion += r.usage.completion_tokens }
+          if (r.usage) {
+            uPrompt += r.usage.prompt_tokens
+            uCompletion += r.usage.completion_tokens
+            calibrateTokRatio(lastViewChars, r.usage.prompt_tokens)
+          }
         }
         if (thinkKey) patchStage(thinkKey, { ms: Math.max(0, Date.now() - roundThinkStart) })
         const parsed = parseAgentReply(acc)
@@ -1373,7 +1440,32 @@ ${planText}` },
           lastFailSig = sig
         }
         convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify({ tool, args })}` })
-        convo.push({ role: 'user', content: `TOOL_RESULT ${JSON.stringify(result).slice(0, 8000)}` })
+        // v7.15 L4：超长结果全量暂存 + 截断 preview + _full_ref（模型经
+        // read_tool_output 分段取回）——此前一刀切 slice(0,8000) 直接丢尾，
+        // 大图 read_diagram 等被截时模型只能重调原工具（白烧一轮）。
+        const rawResult = JSON.stringify(result)
+        let resultBody: string
+        if (rawResult.length > 8000) {
+          const ref = `out-${++toolOutSeqRef.current}`
+          toolOutputsRef.current.set(ref, rawResult)
+          // 上限 12 条（FIFO 逐出）——防超长任务内存无限增长
+          while (toolOutputsRef.current.size > 12) {
+            const oldest = toolOutputsRef.current.keys().next().value
+            if (oldest === undefined) break
+            toolOutputsRef.current.delete(oldest)
+          }
+          resultBody = JSON.stringify({
+            ok: result.ok,
+            preview: `${rawResult.slice(0, 6000)}…`,
+            ...(result.error ? { error: result.error.slice(0, 300) } : {}),
+            _truncated: true,
+            _full_ref: ref,
+            _hint: `结果超过 8000 字符已截断（preview 为前 6000）；需要全量时调用 read_tool_output {"ref":"${ref}"} 分段读取`,
+          })
+        } else {
+          resultBody = rawResult
+        }
+        convo.push({ role: 'user', content: `TOOL_RESULT ${resultBody}` })
       }
       if (finalText) {
         patchLastTurn(asstTurnId, () => ({

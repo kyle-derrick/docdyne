@@ -3,14 +3,15 @@
 > 用户确认后开始动工，全部自行完成，不遗漏。
 
 ## A. 上下文管理（RAG + AI 摘要 + 工具式记忆）
-- [ ] A1. AI 摘要压缩：上下文达 70% 时调 AI 生成被丢弃历史的摘要
-      （替代硬截断）；摘要注入为 system 消息，保留关键决策/发现/状态
+- [x] A1. AI 摘要压缩（44fd775：结构化摘要——程序化提取被丢弃消息中的
+      工具调用/用户意图，替代「已压缩」占位；见 chat.go compressConvo）
 - [ ] A2. 结构化轮次日志：程序化提取每轮 工具名(关键参数)→结果摘要
       （工具结果是 JSON，提取准确）；随 trace 展示 + 压缩时保留
-- [ ] A3. df_search_history 工具：RAG 向量检索（Qdrant，复用已有
-      embedding 基础设施）+ ILIKE 关键词兜底（RAG 未配置时）
-- [ ] A4. 后端压缩事件推送前端：压缩触发时发 SSE meta 事件，
-      前端在过程块中显示「上下文自动压缩：N 条 → M 条」
+- [x] A3. df_search_history 工具（44fd775：会话历史检索——ILIKE 关键词，
+      含被压缩的早期内容；平台工具 6 件套，测试同步）
+- [x] A4. 后端压缩事件推送前端（44fd775：SSE tool 事件 context_compress
+      输出「N 条 → M 条」；v7.15 收尾——turns.ts 标签映射补
+      「上下文自动压缩/检索会话历史」，系统事件 server=system 按名直查）
 - [ ] A5. 分层上下文验证：确保不是全量丢给 AI（测试 100+ 轮场景）
 - [ ] A6. 会话历史 RAG 索引写入：每轮对话完成后将消息写入
       Qdrant（collection: {prefix}_conversations）或 PG 全文
@@ -33,13 +34,14 @@
 - [ ] B2. 如仍失败：全面重构为编辑页 AIEditChat 代码（用户建议的方案）
 
 ## C. Word/Office 格式完善
-- [ ] C1. Word 默认样式规范：标题层级（一/二/三级对应 16/14/12pt 加粗）、
-      正文 11pt、行距 1.15、段前段后 6pt/3pt；写进提示词硬性要求
-- [ ] C2. 表格样式规范：表头加粗+底纹+居中、边框完整、列宽自适应、
-      单元格内边距统一；写进提示词
-- [ ] C3. insert_content 工具增强：支持样式参数（fontSize/fontWeight/
-      alignment）；或新增 format_paragraph 工具
-- [ ] C4. PPT/Excel 同样补默认格式规范
+- [x] C1. Word 默认样式规范（83a6432：TOOL_DOCS 硬性要求——标题层级/
+      行距 1.15/段间距；insert 走 Heading 样式而非裸字号）
+- [x] C2. 表格样式规范（83a6432：write_table 表头加粗+底纹+居中+自适应）
+- [x] C3. 格式工具（83a6432：format_element——bold/italic/underline/
+      fontSize/fontColor/highlight 递归段落内 text run；set_paragraph_style
+      ——Heading/Quote 样式+对齐；等价 format_paragraph）
+- [x] C4. PPT/Excel 默认格式规范（83a6432：Excel 全 1 基+write_table，
+      PPT 版式/字号/占位约定）
 
 ## D. 选区上下文（所有编辑器类型）
 - [x] D1. 编辑器 getTarget 返回当前选中元素 ID（drawio/白板）
@@ -63,8 +65,8 @@
       selection → system-reminder 注入模式）
 
 ## E. 工具调用稳定性
-- [ ] E1. df_search 在编辑页上下文中误调：编辑页 system 提示更明确
-      禁止 df_* 工具（加粗警告）
+- [x] E1. df_search 编辑页误调（44fd775：【硬性禁止】段落 + deep_search≠
+      df_search 澄清 + 未知工具反馈 df_* 专项提示）
 - [ ] E2. read_scene 中途不可用（工具集丢失）：检查工具集传递链路
       （agentTools ref 是否被 GC 或重置）
 - [ ] E3. "empty message content" 错误：deep_search 子代理返回空时
@@ -308,17 +310,19 @@
 
 ## L. 参考项目复盘产出（2026-10-15，经 20170 代理拉源码实证：drawio-mcp
 ## 官方 / excalidraw-diagram-skill / opencode / pi-mono / cherry-studio）
-- [ ] L1. drawio search_shapes 工具（对标官方 drawio-mcp：按关键词查形状库
-      返回精确 style 串——模型不再手编 style；可内置常用形状子集映射表）
-- [ ] L2. 指南按需读取（官方 MCP get_drawio_reference 模式：图表/白板/
-      office 指南改为 get_reference 工具按需返回，system 只留一句指引——
-      当前 EXCALIDRAW_JSON_GUIDE 等常驻 system，每轮白耗 token）
-- [ ] L3. 压缩溢出降级重试（opencode SHRINK_STEPS：压缩后仍超限时按
-      70%/50%/35% 递减保留窗口重试，而非直接失败/硬截断）
-- [ ] L4. 超大工具结果落盘+路径（pi/opencode 模式：read_diagram 大图等
-      截断时全量存临时文件并在结果中给路径，模型需要时可再取）
-- [ ] L5. token 估算掺实测（opencode：以上次同 provider 响应 usage 为基准
-      +其后增量估算，替代纯 chars/4——压缩触发点更准）
+- [x] L1. drawio search_shapes 工具（DRAWIO_SHAPE_LIBRARY 18 条中英双语
+      关键词→精确 style 串+建议尺寸+用途；随附修饰键表；双向子串匹配）
+- [x] L2. 指南按需读取（drawio/白板 get_reference 工具——完整规范从
+      agentSystemExtra 移除（原 45/50 行每轮重发），system 只留【必读】
+      一句；未读先插入时结果附 note 轻推一次）
+- [x] L3. 压缩溢出降级重试（agentConvoView 预算感知：估算超预算 80% 时
+      尾保 20→14→10→7（≈70/50/35%）递减 + TOOL_RESULT 截断同步收紧）
+- [x] L4. 超大工具结果暂存+引用（>8000 字符全量存 ref（FIFO 12 条），
+      回喂只带 6000 preview + _full_ref；read_tool_output {ref,offset,limit}
+      元工具分段取回——内存 Map 而非落盘文件，浏览器端更简）
+- [x] L5. token 估算掺实测（/ai/status 新增 context_budget 下发（后端
+      EffectiveContextBudget：模型 context_window>256K 默认）；前端
+      tokRatio 按每轮真实 usage 字符/token 比 EMA 校准，夹 [1.5,8]）
 - 已采纳（随 D1-D4 落地）：auto_layout 工具（官方 skill 布局优先方法论）；
   选区→system 注入（opencode selection system-reminder 模式）；
   get_selection 三编辑器统一（官方 search/reference 工具面思路）
