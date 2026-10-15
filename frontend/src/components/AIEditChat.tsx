@@ -73,6 +73,36 @@ type ChatMode = 'edit' | 'chat' | 'plan'
 /** 只读工具判定（计划模式可用的工具子集：探查类，不改文档）。 */
 const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
 
+/** 未知工具时的近名建议（E2）：相等/子串/公共前缀启发，取前 3——模型
+ *  拼错工具名（如 read_scene→read_scence、update_cells→update_cell）时
+ *  能在下一轮自纠，不再靠反复试错烧轮次。 */
+function suggestTools(name: string, candidates: string[]): string {
+  if (!name || candidates.length === 0) return ''
+  const n = name.toLowerCase()
+  const scored = candidates
+    .map((c) => {
+      const t = c.toLowerCase()
+      let score = 0
+      if (t === n) score = 100
+      else if (t.includes(n) || n.includes(t)) score = 70
+      else {
+        let common = 0
+        while (common < n.length && common < t.length && n[common] === t[common]) common++
+        score = common * 2
+        let i = 0
+        for (const ch of n) {
+          if (ch === t[i]) i++
+        }
+        if (i >= Math.min(t.length, 3)) score += 10
+      }
+      return { c, score }
+    })
+    .filter((x) => x.score >= 6)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+  return scored.length ? `（你是不是想用：${scored.map((x) => x.c).join(' / ')}？）` : ''
+}
+
 /** token 估算掺实测（v7.15 L5，opencode 模式）：以最近一轮真实 usage 的
  *  「发送字符数 / prompt_tokens」为比率做 EMA 校准（夹在 [1.5,8]），替代
  *  纯 chars/4——中文/代码/XML 的 token 密度差异大，实测后压缩触发点更准。
@@ -1166,15 +1196,19 @@ ${planText}` },
   ): Promise<{ ok: boolean; data?: unknown; error?: string }> => {
     const readonlyTools = tools.filter((t) => READONLY_TOOL_RE.test(t.name))
     if (readonlyTools.length === 0) return { ok: false, error: '宿主未注册只读工具，无法派发子任务' }
+    // E3：goal 为空会让 user 消息空内容 → 后端 400 "empty message content"，
+    // 子代理整体报错——入口直接拦截，主循环可自行换路径。
+    const goalText = goal.trim()
+    if (!goalText) return { ok: false, error: 'goal 必填：要深查的具体目标（一句话）' }
     const sys = [
-      `你是 DocFlow 只读检索子 Agent。目标：${goal}`,
+      `你是 DocFlow 只读检索子 Agent。目标：${goalText}`,
       '用只读工具探查，FINAL 输出结构化摘要（发现清单 + 关键事实 + 相关位置/数值），不修改任何内容。',
       '可用工具：',
       ...readonlyTools.map((t) => `- ${t.name}：${t.desc}`),
       '只能调用上方列出的工具；df_*（df_list_dir/df_read_file 等）是全局助手的平台文件工具，此处不可用，不要尝试。',
       '输出格式（硬性）：每轮恰好一行 TOOL_CALL {...}；探查完成（或无更多可查）时必须以 FINAL 开头输出摘要，不要以 TOOL_CALL 行收尾。',
     ].join(String.fromCharCode(10))
-    const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: goal }]
+    const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: goalText }]
     let failStreak = 0
     let lastFailSig = ''
     try {
@@ -1185,11 +1219,16 @@ ${planText}` },
           onMeta: () => {}, onThinking: () => {}, onTool: () => {}, onToolResult: () => {}, onSources: () => {},
         })
         const parsed = parseAgentReply(acc)
-        if (parsed.type === 'final') return { ok: true, data: { summary: parsed.text } }
+        // E3：FINAL 空文本不再当成功（主循环拿到空摘要会误判「查过了没东西」）。
+        if (parsed.type === 'final') {
+          const text = parsed.text.trim()
+          if (!text) return { ok: false, error: '子代理未产出摘要（FINAL 为空）——请换更具体的目标重试，或改用主循环只读工具直接探查' }
+          return { ok: true, data: { summary: text } }
+        }
         const def = readonlyTools.find((t) => t.name === parsed.call.tool)
         if (!def) {
           convo.push({ role: 'assistant', content: `TOOL_CALL ${JSON.stringify(parsed.call)}` })
-          convo.push({ role: 'user', content: 'TOOL_RESULT {"ok":false,"error":"未知工具"}' })
+          convo.push({ role: 'user', content: `TOOL_RESULT {"ok":false,"error":"未知工具 ${parsed.call.tool}${suggestTools(parsed.call.tool, readonlyTools.map((t) => t.name))}"}` })
           continue
         }
         const r = await def.exec(parsed.call.args).catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
@@ -1405,7 +1444,8 @@ ${planText}` },
           const allNames = tools.map((t) => t.name).join(', ')
           console.debug('[AgentLoop] 未知工具:', tool, '| 循环工具集:', allNames, '| agentTools:', (agentToolsRef.current ?? []).length, '个', '| pkgId:', pkgIdRef.current, '| round:', round)
           const dfHint = tool.startsWith('df_') ? '；df_* 是全局 AI 助手的平台文件工具，本面板不可用，不要再尝试' : ''
-          result = { ok: false, error: `未知工具 ${tool}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个${dfHint}）` }
+          const suggest = suggestTools(tool, tools.map((t) => t.name))
+          result = { ok: false, error: `未知工具 ${tool}${suggest}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个${dfHint}）` }
         } else if (def.destructive && cautiousRef.current) {
           // 谨慎模式（v7.7 对话内确认卡）：破坏性工具执行前在气泡内确认；
           // 跳过=结果回喂（模型自适应换路径），不再弹系统 Modal。
