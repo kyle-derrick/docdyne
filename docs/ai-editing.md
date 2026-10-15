@@ -48,8 +48,10 @@ word 元素序号从 1 起；slide 页码从 1 起）。
 ## 统一 AI 对话架构（v7.4）
 
 三处对话 UI（助手抽屉 / 编辑页面板 / 查看页悬浮卡）共用
-`frontend/src/components/aichat/` 组件族，宿主只保留业务逻辑、渲染全部经
-props 注入：
+`frontend/packages/chat/`（npm workspace 包 `@docflow/chat`，源码分发）组件族，
+宿主只保留业务逻辑、渲染全部经 props 注入；文件浏览/上传/弹窗外壳经
+`registerChatFileApi` 在组合根（`main.tsx`）注入（K2 依赖倒置，包零反向依赖
+宿主；边界与样式契约见 `packages/chat/README.md`）：
 
 | 组件 | 职责 |
 |---|---|

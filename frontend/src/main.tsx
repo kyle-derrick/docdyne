@@ -7,6 +7,20 @@ import App from './App'
 import { THEME_ACCENTS, initTheme, useColorMode } from './theme'
 import './styles.css'
 import { LocaleContext, loadLocale, Locale } from './i18n'
+import { registerChatFileApi } from '@docflow/chat'
+import { listFiles, listSpaceFiles, listSpaces, uploadFile } from './api'
+import { Modal } from './components/FileBrowser'
+
+// K2 组合根：向 @docflow/chat 注入宿主文件能力与弹窗外壳（依赖倒置，包零
+// 反向依赖）。uploadFile 的 UploadPhase 回调差异以 lambda 适配（免断言）；
+// ModalShell 复用 FileBrowser.Modal 保持「保存为文件」弹窗与全站视觉一致。
+registerChatFileApi({
+  listFiles,
+  listSpaces,
+  listSpaceFiles,
+  uploadFile: (file, parentId, onProgress) => uploadFile(file, parentId, (p) => onProgress(p)),
+  ModalShell: Modal,
+})
 
 /** antd 字体与 body 字体栈保持一致（styles.css body font-family；中文字形
  * 依次回退 PingFang SC → 微软雅黑 → Noto Sans SC）。 */

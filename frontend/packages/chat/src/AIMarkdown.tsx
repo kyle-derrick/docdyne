@@ -14,7 +14,7 @@
 //   错误分支保持各自原样式）；memo 降低流式期间重渲染开销。
 import { createContext, memo, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { App as AntdApp, Button, Input, Select, Tooltip, Tree } from 'antd'
+import { App as AntdApp, Button, Input, Modal as AntdModal, Select, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
 import { Check, ChevronDown, ChevronRight, Copy, Save } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -24,9 +24,8 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import 'katex/dist/katex.min.css'
-import { listSpaceFiles, listSpaces, uploadFile } from '../api'
-import type { Space } from '../api'
-import { Modal } from './FileBrowser'
+import { getChatFileApi, peekChatFileApi } from './fileapi'
+import type { ChatModalShell, ChatSpaceRef } from './fileapi'
 
 /** 语言 → 默认文件名（「保存为文件」初始值，可改；其余 → snippet.txt）。 */
 const LANG_DEFAULT_FILENAME: Record<string, string> = {
@@ -78,14 +77,23 @@ function findTitlePath(nodes: DataNode[], key: React.Key): string[] | null {
   return null
 }
 
+/** 宿主弹窗外壳回落（未注入 ModalShell 时）：antd Modal 裸壳（title + 关闭）。 */
+const FallbackModalShell: ChatModalShell = ({ title, onClose, children }) => (
+  <AntdModal open title={title} onCancel={onClose} footer={null} width={480}>
+    {children}
+  </AntdModal>
+)
+
 /**
  * 「保存为文件」弹窗：空间 Select + 目录懒加载树（antd Tree，根目录合成
- * 节点）+ 文件名 Input；确认经 uploadFile 落盘到所选目录（根目录 =
- * parentId null）。成功 message 带「新窗口打开」链接后关闭。
+ * 节点）+ 文件名 Input；确认经宿主注入的 uploadFile 落盘到所选目录（根
+ * 目录 = parentId null）。成功 message 带「新窗口打开」链接后关闭。
+ * 文件能力与弹窗外壳经 registerChatFileApi 注入（K2 依赖倒置）。
  */
 function SaveCodeModal({ code, lang, zh, onClose }: { code: string; lang: string; zh: boolean; onClose: () => void }) {
   const { message } = AntdApp.useApp()
-  const [spaces, setSpaces] = useState<Space[]>([])
+  const Modal = peekChatFileApi()?.ModalShell ?? FallbackModalShell
+  const [spaces, setSpaces] = useState<ChatSpaceRef[]>([])
   const [spaceId, setSpaceId] = useState('')
   const [treeData, setTreeData] = useState<DataNode[]>([])
   const [folderKey, setFolderKey] = useState<string>(TREE_ROOT_KEY)
@@ -96,7 +104,7 @@ function SaveCodeModal({ code, lang, zh, onClose }: { code: string; lang: string
   // 打开时拉空间列表：默认空间优先，其次第一个；重置目录选择。
   useEffect(() => {
     let alive = true
-    listSpaces()
+    getChatFileApi().listSpaces()
       .then((list) => {
         if (!alive) return
         setSpaces(list)
@@ -123,7 +131,7 @@ function SaveCodeModal({ code, lang, zh, onClose }: { code: string; lang: string
     if (!spaceId) return
     try {
       const parentId = key === TREE_ROOT_KEY ? null : String(key)
-      const { files } = await listSpaceFiles(spaceId, parentId)
+      const { files } = await getChatFileApi().listSpaceFiles(spaceId, parentId)
       const children: DataNode[] = files
         .filter((f) => f.type === 'folder')
         .map((f) => ({ key: f.id, title: f.name }))
@@ -140,7 +148,7 @@ function SaveCodeModal({ code, lang, zh, onClose }: { code: string; lang: string
     setSaving(true)
     setErr('')
     try {
-      const session = await uploadFile(new File([code], fname, { type: 'text/plain' }), folderKey === TREE_ROOT_KEY ? null : folderKey, () => {})
+      const session = await getChatFileApi().uploadFile(new File([code], fname, { type: 'text/plain' }), folderKey === TREE_ROOT_KEY ? null : folderKey, () => {})
       const space = spaces.find((s) => s.id === spaceId)
       const dirPath = folderKey === TREE_ROOT_KEY ? [] : (findTitlePath(treeData, folderKey) ?? [])
       const path = [space?.name ?? '', ...dirPath].filter(Boolean).join('/')

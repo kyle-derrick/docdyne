@@ -20,16 +20,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { App as AntdApp, Button, Popconfirm, Segmented, Tooltip } from 'antd'
 import { Check, ChevronDown, Copy, Globe, Brain, RotateCcw, Save, Sparkles, Trash2 } from 'lucide-react'
-import AIMarkdown from './AIMarkdown'
 import AIModelSelect from './AIModelSelect'
 import { AIModelOption, AI_MODEL_STORAGE_KEY, AI_THINK_STORAGE_KEY, AI_WEB_STORAGE_KEY, defaultAIModelKey, getAIModels, readAIFlag, writeAIFlag } from './AIAssistant'
-import { AIChatThinking, applyToolResult, toolEntryFrom } from './aichat'
-import ChatThread from './aichat/ChatThread'
-import type { ChatMessage } from './aichat/ChatThread'
-import ChatInput from './aichat/ChatInput'
-import { useStickyScroll } from './aichat/useStickyScroll'
-import { aiFriendlyError } from './aichat/errors'
-import type { AIToolCallEntry } from './aichat'
+import { AIChatThinking, aiFriendlyError, AIMarkdown, applyToolResult, ChatInput, ChatThread, toolEntryFrom, useStickyScroll } from '@docflow/chat'
+import type { AIToolCallEntry, ChatMessage } from '@docflow/chat'
 import {
   AIMessage,
   aiChat,

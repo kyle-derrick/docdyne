@@ -3,6 +3,11 @@
 // - 统一处理 JSON 错误与 401 自动刷新重放；refresh 失败广播 SESSION_EXPIRED_EVENT 通知路由回登录页。
 
 import type { EditMethod, ViewMethod } from './openers'
+// K2：对话领域类型自本文件迁入 @docflow/chat（包内自治），此处 re-export
+// 保持应用侧 `from './api'` 导入兼容；仅类型依赖（app → package 方向）。
+import type { AISource, AIToolCall, AIToolResult, AIUsage } from '@docflow/chat'
+
+export type { AISource, AIToolCall, AIToolResult, AIUsage } from '@docflow/chat'
 
 let accessToken: string | null = null
 
@@ -2798,13 +2803,6 @@ export interface AIMessage {
   content: string
 }
 
-/** AI 回答引用的来源文件（RAG-lite / 文件上下文）。 */
-export interface AISource {
-  file_id: string
-  name: string
-  url: string
-}
-
 /** AI 能力可用性（GET /ai/status）：false 时全站 AI 入口隐藏。 */
 export async function fetchAIStatus(): Promise<boolean> {
   try {
@@ -2813,13 +2811,6 @@ export async function fetchAIStatus(): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-/** AI 对话补全用量。 */
-export interface AIUsage {
-  prompt_tokens: number
-  completion_tokens: number
-  duration_ms: number
 }
 
 /** AI 对话请求（/ai/chat）。 */
@@ -2859,25 +2850,6 @@ export interface AIChatOptions {
   /** Agent 技能包 id（可选）：编辑页 Agent 循环携带；进 ai.chat 审计
    *  metadata.package 供管理端统计各技能包使用次数。 */
   agent_package?: string
-}
-
-/** SSE tool 事件条目：工具执行前下发（label=「服务名 / 工具名」，input=参数摘要）。 */
-export interface AIToolCall {
-  type: 'tool'
-  label: string
-  server?: string
-  tool?: string
-  input?: string
-}
-
-/** SSE tool_result 事件条目：工具执行后下发（ok/duration_ms/output|error 摘要）。 */
-export interface AIToolResult {
-  server?: string
-  tool?: string
-  ok: boolean
-  duration_ms?: number
-  output?: string
-  error?: string
 }
 
 /** AI 对话流式回调集合。 */

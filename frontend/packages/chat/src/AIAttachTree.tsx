@@ -2,8 +2,8 @@
 // 过滤文件名与路径），替代目录树——更紧凑、搜索直达。
 import { useEffect, useState } from 'react'
 import { Check, FileText, FolderOpen } from 'lucide-react'
-import { listFiles } from '../../api'
-import type { FileItem } from '../../api'
+import { getChatFileApi } from './fileapi'
+import type { ChatFileRef } from './fileapi'
 import type { AIAttachFile } from './index'
 
 export default function AIAttachTree({ zh, spaceId, rootFolderId, selected, onToggle }: {
@@ -13,18 +13,18 @@ export default function AIAttachTree({ zh, spaceId, rootFolderId, selected, onTo
   selected: AIAttachFile[]
   onToggle: (f: { fileId: string; fileName: string }) => void
 }) {
-  const [items, setItems] = useState<Array<{ file: FileItem; path: string }>>([])
+  const [items, setItems] = useState<Array<{ file: ChatFileRef; path: string }>>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let alive = true
-    const collect = async (): Promise<Array<{ file: FileItem; path: string }>> => {
-      const out: Array<{ file: FileItem; path: string }> = []
+    const collect = async (): Promise<Array<{ file: ChatFileRef; path: string }>> => {
+      const out: Array<{ file: ChatFileRef; path: string }> = []
       const seen = new Set<string>()
       const walk = async (parentId: string | null, depth: number, prefix: string) => {
         if (depth > 3 || out.length > 300) return
         try {
-          const res = await listFiles(parentId, { spaceId, limit: 200 })
+          const res = await getChatFileApi().listFiles(parentId, { spaceId, limit: 200 })
           for (const f of res) {
             if (!alive) return
             if (seen.has(f.id)) continue

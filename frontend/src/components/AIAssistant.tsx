@@ -74,9 +74,9 @@ interface AIContextFile {
   fileName: string
 }
 
-/** 引用文件（随对话发送 fileIds；用户气泡 📎 chips 展示；定义在 aichat
- *  共享，此处保留导出兼容既有引用）。 */
-export type { AIAttachFile } from './aichat'
+/** 引用文件（随对话发送 fileIds；用户气泡 📎 chips 展示；定义在
+ *  @docflow/chat 共享，此处保留导出兼容既有引用）。 */
+export type { AIAttachFile } from '@docflow/chat'
 
 // ---------- 可选模型列表（GET /api/v1/ai/models 由并行任务添加） ----------
 // api.ts 暂无封装（getAIModels 可能由并行任务加入），为解耦在此本地实现：
@@ -692,17 +692,12 @@ export function AIChatToggleBar({
 // ---------- 联网搜索来源（SSE meta.sources 宽松读取） ----------
 
 /** 联网搜索来源条目（后端字段名宽松归一化）。 */
-// ---------- 网络来源 / 工具调用展示（共享 aichat 实现，此处保留兼容导出） ----------
+// ---------- 网络来源 / 工具调用展示（@docflow/chat 共享实现，此处保留兼容导出） ----------
 
-// 网络来源归一化与渲染、工具调用链迁至 components/aichat（三处对话共用），
+// 网络来源归一化与渲染、工具调用链迁至 @docflow/chat（三处对话共用），
 // 保留原导出名以兼容 AIEditChat 等既有引用。
-import { applyToolResult, normalizeWebSources, toolEntryFrom } from './aichat'
-import AIChatShell from './aichat/AIChatShell'
-import type { ChatMessage } from './aichat/ChatThread'
-import { aiFriendlyError } from './aichat/errors'
-import type { AIChatTurnData, AIAttachFile } from './aichat'
-import AIAttachTree from './aichat/AIAttachTree'
-import { useStickyScroll } from './aichat/useStickyScroll'
+import { AIAttachTree, AIChatShell, aiFriendlyError, applyToolResult, normalizeWebSources, toolEntryFrom, useStickyScroll } from '@docflow/chat'
+import type { AIAttachFile, AIChatTurnData, ChatMessage } from '@docflow/chat'
 
 // ---------- 工作目录选择（df_* 平台文件工具的相对路径基准） ----------
 
@@ -1028,7 +1023,7 @@ interface ChatTurn extends AIChatTurnData {
   prologue?: string[]
   /** 完整过程 trace（v7.13：与编辑宿主同构——思考/叙述/工具按时间序
    *  交织的 TraceStage[]；ChatThread 直接渲染）。 */
-  trace?: import('./aichat/TraceView').TraceStage[]
+  trace?: import('@docflow/chat').TraceStage[]
 }
 
 // ---------- 多会话（历史会话；服务端 ai_conversations 持久化） ----------
@@ -1043,7 +1038,7 @@ export interface AIConvoMessage {
   ts: number
   files?: AIAttachFile[]
   /** assistant 回合的完整过程 trace（v7.14b 持久化）。 */
-  trace?: import('./aichat/TraceView').TraceStage[]
+  trace?: import('@docflow/chat').TraceStage[]
 }
 
 /** 历史会话条目（≤30 个，超出服务端裁最旧；单会话消息 ≤50 条）。 */

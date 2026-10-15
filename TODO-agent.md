@@ -383,12 +383,35 @@
       附 memory_id；谁=user_id、何时=created_at 既有）
 
 ## K. 库封装与复用（所有功能完成并稳定后）
+> 2026-10-15 K 批次审计结论（K2 已落地；K1/K3/K5-K10 暂缓——前置为域模型
+> 分层重构）：逐包 grep 非测试依赖图，Go 侧候选（K1 agent / K3 tools /
+> K5 upload / K6 mcp / K7 search / K8 webpkg / K9 office / K10 versioning）
+> **无一干净**——全部依赖 `internal/files` 域模型（FileItem/Store/路径解析
+> 与 ACL 联动），机械搬目录到 pkg/ 只会造出反向 import internal/ 的伪独立
+> module。前置路径：先把 files 域模型（实体+存储接口）下沉为 internal/
+> core（或 domain）层、业务模块依赖倒置到接口，此后逐包提取才是真独立
+> module——属多会话架构工程，非本批次可收口；审计依赖图已存档于本节各条
+> 附注，供后续开工直接使用。
 - [ ] K1. Go Agent 库（pkg/agent）：工具循环+上下文压缩+子代理+
       熔断器+重试 → 独立 Go module（docflow.ai/agent）
-- [ ] K2. React Chat UI 库（@docflow/chat）：AIChatShell/ChatThread/
-      TraceView/ChatInput 等 → npm 包（独立 CSS 主题变量）
+      【暂缓：internal/ai 的 agent 循环依赖 internal/files（写工具落盘）
+      与 internal/acl；前置=域模型分层（见批次审计结论）】
+- [x] K2. React Chat UI 库（@docflow/chat）：npm workspace 真提取
+      （2026-10-15）——`frontend/packages/chat/`（源码分发：exports →
+      src/index.ts，Vite/tsc bundler 解析直消 TS 源；peerDeps=react/antd/
+      lucide/@ant-design/x/react-markdown 系/katex 随宿主版本）。依赖
+      倒置：AIAttachTree/AIMarkdown 的 listFiles/listSpaces/listSpaceFiles/
+      uploadFile/FileBrowser.Modal 经 registerChatFileApi 注册表注入
+      （组合根 main.tsx，UploadPhase 回调差异 lambda 适配）；errors.ts 去
+      ApiError instanceof/i18n 依赖（.code 鸭子判定+同文回落文案）；
+      AISource/AIUsage/AIToolCall/AIToolResult 迁包内 types.ts、api.ts
+      re-export 保持兼容。应用侧 5 文件导入改 '@docflow/chat'，tsc+build
+      全绿。CSS 暂留宿主 styles.css（~340 行 ai-* 规则含复合选择器非干净
+      可切割，随包导入链全局生效）；独立 CSS 主题变量=发布前置，连同
+      token 化与产物构建记于 packages/chat/README.md「样式契约」
 - [ ] K3. 平台工具 SDK（@docflow/tools）：df_* 工具定义/执行框架 →
       允许第三方注册自定义工具（插件化）
+      【暂缓：df_* 工具执行体直接调 internal/files Store；前置同上】
 - [x] K4. 技能包格式规范：JSON Schema + 版本化 + 可分享格式（v7.15：
       版本化=version/changelog（I1）、可分享格式=JSON/YAML 导入导出（I2，
       键名 snake_case 契约经 roundtrip 钉死）；JSON Schema 落地
@@ -397,19 +420,26 @@
       前缀拒收与 applyKind 枚举在 schema 层可校验，正反样例验证通过）
 - [ ] K5. Go Upload 库（pkg/upload）：断点续传+分片+病毒扫描+
       多存储(local/S3/MinIO) → 独立库（docflow.ai/upload，
-      4123 行，接口已抽象良好）
+      4123 行，接口已抽象良好）【暂缓：上传落盘路径依赖 internal/files
+      建文件行/配额扣减；前置同上】
 - [ ] K6. Go MCP 框架（pkg/mcp）：MCP Server 构建框架——工具注册/
       资源暴露/PAT 鉴权/作用域 → docflow.ai/mcp（2293 行，
-      通用 MCP 服务端构建）
+      通用 MCP 服务端构建）【暂缓：df_* 工具处理器依赖 internal/files
+      与 internal/acl；前置同上】
 - [ ] K7. Go Search 抽象（pkg/search）：多后端搜索——Meilisearch/
       PostgreSQL tsvector/Qdrant 向量 → 统一接口
-      docflow.ai/search（1537 行）
+      docflow.ai/search（1537 行）【暂缓：索引管道读 internal/files
+      模型触发增量；前置同上】
 - [ ] K8. Go WebPKG 库（pkg/webpkg）：静态网站 zip 上传+解包+
       HMAC 鉴权访问 → docflow.ai/webpkg（1939 行，独特功能）
+      【暂缓：解包产物以 internal/files 文件行落库；前置同上】
 - [ ] K9. Go OnlyOffice 集成库（pkg/office）：OO 配置生成/回调处理/
-      JWT/版本管理 → docflow.ai/office（2580 行）
+      JWT/版本管理 → docflow.ai/office（2580 行）【暂缓：回调落
+      internal/files 版本链；前置同上】
 - [ ] K10. Go 文件版本库（pkg/versioning）：版本链+自动保留策略+
-      回滚 → docflow.ai/versioning（从 files/ 提取）
+      回滚 → docflow.ai/versioning（从 files/ 提取）【暂缓：版本链
+      与 files 域模型同表同事务；F4 已定全量保留默认（keep<=0 跳过
+      裁剪），独立化收益待域模型分层后再评估】
 
 ## L. 参考项目复盘产出（2026-10-15，经 20170 代理拉源码实证：drawio-mcp
 ## 官方 / excalidraw-diagram-skill / opencode / pi-mono / cherry-studio）

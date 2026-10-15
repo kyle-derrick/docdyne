@@ -3,7 +3,7 @@
 //   success|error，按 server+tool 顺序配对合并）；
 // - 推理思考（thinking）增量随 turn 聚合，附起止时间供折叠标题展示用时；
 // - 网络来源宽松归一化（原 AIAssistant 内实现迁出，双向复用）。
-import type { AIToolCall, AIToolResult } from '../../api'
+import type { AIToolCall, AIToolResult } from './types'
 
 /** 工具调用条目状态：running=执行中 / success=成功 / error=失败。 */
 export type AIToolStatus = 'running' | 'success' | 'error'
@@ -152,7 +152,7 @@ export function normalizeWebSources(raw: unknown): AIWebSource[] {
 
 // ---------- 对话消息（turn）统一展示模型 ----------
 
-import type { AISource } from '../../api'
+import type { AISource } from './types'
 
 /** 引用文件（随对话发送 fileIds；用户气泡 📎 chips 展示）。
  *  upload=true 为对话内直接上传的附件（隐藏「AI 对话附件」空间，随会话删除）。 */
