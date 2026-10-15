@@ -980,7 +980,7 @@ export default function AIEditChat({
       `禁止输出 "I'll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。`,
       '工作方式：先读（read_*/search_*）再改；局部修改用精确工具、不要整篇重写；一次一个工具，根据结果决定下一步；失败读错误换路径（同样的参数重试同一工具通常不会成功）；关键修改后可用读工具校验；完成后 FINAL + 简明中文总结（改了什么、在哪）。',
       zh ? '语言：始终使用中文——思考、过程说明与最终答复全部中文（代码/标识符除外）。' : 'Language: always reply in English (thinking, process notes and final answer).',
-      '只能调用上方列出的工具；df_*（df_list_dir/df_read_file/df_write_file 等）是全局 AI 助手的平台文件工具，本面板不可用——出现「未知工具」说明你调了列表外的名字，回到列表内选。',
+      '【硬性禁止】你只能调用上方列出的工具。禁止调用任何 df_* 开头的工具（df_list_dir/df_read_file/df_write_file/df_search 等）——它们属于全局 AI 助手，本面板一律不可用。注意 deep_search ≠ df_search：deep_search 是本面板的合法子代理工具，df_search 不是。如果出现「未知工具」错误，检查你调用的工具名是否在上方列表中。',
       '破坏性操作（删除/清空/整篇替换）可能触发用户确认：被跳过≠失去写入能力，请改用非破坏性方式（逐块替换/插入）继续，不要重复请求同一操作。',
       'TOOL_CALL 示例：TOOL_CALL {"tool":"read_document","args":{}}',
     ]

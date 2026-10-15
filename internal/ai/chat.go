@@ -1035,10 +1035,18 @@ func consumeAnthropicSSE(r io.Reader, onDelta, onThinking func(string)) (ChatRes
 }
 
 func truncateBytes(b []byte, n int) string {
-	if len(b) > n {
-		return string(b[:n]) + "..."
+	if len(b) <= n {
+		return string(b)
 	}
-	return string(b)
+	return string(b[:n]) + "…"
+}
+
+// truncateStr 截断字符串到指定长度（超长加省略号）。
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // ---------- MCP 工具循环（use_mcp） ----------
@@ -1483,18 +1491,20 @@ func estimateTokens(msgs []map[string]any) int {
 	return total / 3
 }
 
-// compressConvo 上下文自动压缩（v7.14h）：超过预算 80% 时触发。
-// 策略：保留 system + 首 2 条 + 最近 30% 消息，中间旧消息的 tool result
-// 截短至 200 字 + 注入压缩说明。确保总 token 降到预算 60% 以下。
-// budgetTokens ≤ 0 时不压缩（未配置 context_window）。
-func compressConvo(msgs []map[string]any, budgetTokens int) []map[string]any {
+// compressConvo 上下文自动压缩（v7.15）：达到预算 70% 时触发。
+// v7.15 改进：结构化摘要替代「已压缩」占位——程序化提取被丢弃消息中的
+// 工具调用（名称+关键参数+结果摘要）与用户意图，形成有信息量的摘要
+// 供 AI 理解此前做了什么，无需额外调工具即可继续任务。
+// 策略：保留 system + 首 2 条 + 最近 40%（最少 8 条），中间旧消息
+// 的 tool result 截短至 200 字。
+func compressConvo(msgs []map[string]any, budgetTokens int) ([]map[string]any, int) {
 	if budgetTokens <= 0 || len(msgs) < 10 {
-		return msgs
+		return msgs, 0
 	}
 	est := estimateTokens(msgs)
 	threshold := budgetTokens * 70 / 100
 	if est < threshold {
-		return msgs // 未超 70% 预算
+		return msgs, 0 // 未超 70% 预算
 	}
 
 	// 计算保留尾部数量（约 40%，最少 8 条——参考 Claude Code 保留更多
@@ -1504,7 +1514,7 @@ func compressConvo(msgs []map[string]any, budgetTokens int) []map[string]any {
 		tailKeep = 8
 	}
 	if tailKeep > len(msgs)-4 {
-		return msgs // 太少不值得压缩
+		return msgs, 0 // 太少不值得压缩
 	}
 	headKeep := 2 // system + 首条 user
 	if len(msgs) > 0 && msgs[0]["role"] == "system" {
@@ -1512,13 +1522,92 @@ func compressConvo(msgs []map[string]any, budgetTokens int) []map[string]any {
 	}
 
 	dropped := len(msgs) - headKeep - tailKeep
+
+	// ---- v7.15 结构化摘要：提取被丢弃消息中的关键信息 ----
+	var toolLog []string
+	var userIntents []string
+	for _, m := range msgs[headKeep : len(msgs)-tailKeep] {
+		role, _ := m["role"].(string)
+		content, _ := m["content"].(string)
+		switch role {
+		case "assistant":
+			// OpenAI 格式 tool_calls
+			if tc, ok := m["tool_calls"].([]any); ok {
+				for _, call := range tc {
+					if c, ok := call.(map[string]any); ok {
+						fn, _ := c["function"].(map[string]any)
+						if name, _ := fn["name"].(string); name != "" {
+							args, _ := fn["arguments"].(string)
+							if len(args) > 80 {
+								args = args[:80] + "…"
+							}
+							toolLog = append(toolLog, fmt.Sprintf("- 调用 %s(%s)", name, args))
+						}
+					}
+				}
+			}
+			// Anthropic 格式 tool_use 块
+			if parts, ok := m["content"].([]any); ok {
+				for _, p := range parts {
+					if part, ok := p.(map[string]any); ok {
+						if t, _ := part["type"].(string); t == "tool_use" {
+							name, _ := part["name"].(string)
+							input, _ := json.Marshal(part["input"])
+							in := string(input)
+							if len(in) > 80 {
+								in = in[:80] + "…"
+							}
+							toolLog = append(toolLog, fmt.Sprintf("- 调用 %s(%s)", name, in))
+						}
+					}
+				}
+			}
+			// Agent 协议 TOOL_CALL 行
+			if len(content) > 10 && content[:9] == "TOOL_CALL" {
+				toolLog = append(toolLog, "- "+truncateStr(content, 100))
+			}
+		case "tool":
+			// 工具结果摘要
+			result := truncateStr(content, 120)
+			if result != "" {
+				toolLog = append(toolLog, "  → "+result)
+			}
+		case "user":
+			// 用户意图（非 TOOL_RESULT 的 user 消息）
+			if len(content) > 5 && content[:11] != "TOOL_RESULT" && content[:6] != "（系统注" {
+				userIntents = append(userIntents, truncateStr(content, 80))
+			}
+		}
+	}
+
+	// 构建摘要文本（结构化，信息密度高）
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("【历史压缩摘要】此前 %d 条消息已自动压缩（估 %d token → 压缩后释放上下文空间）。\n", dropped, est))
+	if len(userIntents) > 0 {
+		sb.WriteString("用户意图：\n")
+		for _, u := range userIntents {
+			sb.WriteString("- " + u + "\n")
+		}
+	}
+	if len(toolLog) > 0 {
+		sb.WriteString("关键操作：\n")
+		// 最多保留 30 条工具日志（防摘要本身太长）
+		logLines := toolLog
+		if len(logLines) > 30 {
+			logLines = logLines[:30]
+			logLines = append(logLines, fmt.Sprintf("- …另有 %d 条操作省略", len(toolLog)-30))
+		}
+		for _, l := range logLines {
+			sb.WriteString(l + "\n")
+		}
+	}
+	sb.WriteString("如需被压缩内容的更多细节，可重新调用对应的读工具获取。")
+
 	compressed := make([]map[string]any, 0, headKeep+tailKeep+1)
 	compressed = append(compressed, msgs[:headKeep]...)
-
-	// 注入压缩说明
 	compressed = append(compressed, map[string]any{
 		"role":    "user",
-		"content": fmt.Sprintf("（系统注：此前 %d 条历史消息已自动压缩以适应上下文窗口——如需早期工具结果详情请重新调用对应读工具获取）", dropped),
+		"content": sb.String(),
 	})
 
 	// 尾部消息：tool result 内容截短
@@ -1542,7 +1631,7 @@ func compressConvo(msgs []map[string]any, budgetTokens int) []map[string]any {
 
 	log.Printf("[ai] 上下文自动压缩：%d 条 → %d 条（估 token %d → %d，预算 %d）",
 		len(msgs), len(compressed), est, estimateTokens(compressed), budgetTokens)
-	return compressed
+	return compressed, dropped
 }
 
 // resolveContextBudget 解析模型上下文预算（优先级：ChatRequest.ContextBudget >
@@ -1585,8 +1674,13 @@ func (s *Service) chatOpenAITools(ctx context.Context, p settings.AIProvider, mo
 	failStreak := 0
 	var lastFailKey string
 	ctxBudget := s.resolveContextBudget(p, model, req)
+	var compressedN int
 	for execs := 0; ; {
-		msgs = compressConvo(msgs, ctxBudget)
+		msgs, compressedN = compressConvo(msgs, ctxBudget)
+		if compressedN > 0 && req.OnTool != nil {
+			req.OnTool(ToolCallEvent{ServerID: "system", ServerName: "系统", Tool: "context_compress", Status: ToolStatusSuccess,
+				Output: fmt.Sprintf("上下文自动压缩：%d 条 → %d 条", compressedN, len(msgs))})
+		}
 		round, err := s.openAIToolRound(ctx, p, model, req, temperature, maxTokens, msgs, tools, emit)
 		if err != nil {
 			res.Content = strings.TrimSpace(content.String())
@@ -1853,8 +1947,13 @@ func (s *Service) chatAnthropicTools(ctx context.Context, p settings.AIProvider,
 	failStreak := 0
 	var lastFailKey string
 	ctxBudget2 := s.resolveContextBudget(p, model, req)
+	var compressedN2 int
 	for execs := 0; ; {
-		msgs = compressConvo(msgs, ctxBudget2)
+		msgs, compressedN2 = compressConvo(msgs, ctxBudget2)
+		if compressedN2 > 0 && req.OnTool != nil {
+			req.OnTool(ToolCallEvent{ServerID: "system", ServerName: "系统", Tool: "context_compress", Status: ToolStatusSuccess,
+				Output: fmt.Sprintf("上下文自动压缩：%d 条 → %d 条", compressedN2, len(msgs))})
+		}
 		round, err := s.anthropicToolRound(ctx, p, model, req, temperature, maxTokens, msgs, tools, emit)
 		if err != nil {
 			res.Content = strings.TrimSpace(content.String())

@@ -86,6 +86,9 @@ type PlatformTool struct {
 
 // platformToolsAll 内置工具声明全集（声明即文档：描述面向模型，说明
 // 相对路径基于工作目录、返回形态与截断边界）。
+// PlatformToolSearchHistory 搜索当前会话历史（含被压缩的早期内容）。
+const PlatformToolSearchHistory = "df_search_history"
+
 var platformToolsAll = []PlatformTool{
 	{
 		Name:        PlatformToolListDir,
@@ -156,6 +159,21 @@ var platformToolsAll = []PlatformTool{
 				"query": map[string]any{
 					"type":        "string",
 					"description": "检索关键词（必填）",
+				},
+			},
+		},
+	},
+	// v7.15 A3：会话历史搜索（AI 主动查询被压缩掉的早期内容）。
+	{
+		Name:        PlatformToolSearchHistory,
+		Description: "搜索当前会话的历史消息（包括因上下文窗口限制被压缩掉的早期内容）。query 为搜索关键词，返回最相关的消息片段。用于需要回看此前某个操作的具体结果、某个决策的依据等场景。",
+		Params: map[string]any{
+			"type":     "object",
+			"required": []string{"query"},
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "搜索关键词或短语",
 				},
 			},
 		},

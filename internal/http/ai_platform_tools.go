@@ -168,6 +168,93 @@ func segmentsOf(path string) ([]string, error) {
 	return segments, nil
 }
 
+// toolSearchHistory df_search_history：搜索当前用户最近的会话历史消息
+// （v7.15 A3）。ILIKE 子串匹配（tsvector 对中文无效），最多返回 10 条。
+func (p *platformToolCtx) toolSearchHistory(query string) (any, error) {
+	if p.h == nil || p.h.aiConversations == nil {
+		return gin.H{"results": []any{}, "total": 0, "note": "无活跃会话可搜索"}, nil
+	}
+	convs, err := p.h.aiConversations.ListAIConversations(p.user, nil, "assistant", 10)
+	if err != nil {
+		return nil, err
+	}
+	type historyHit struct {
+		ConversationTitle string `json:"conversation_title"`
+		Role              string `json:"role"`
+		Fragment          string `json:"fragment"`
+	}
+	var hits []historyHit
+	for _, c := range convs {
+		row, found, err2 := p.h.aiConversations.GetAIConversation(p.user, c.ID)
+		if err2 != nil || !found {
+			continue
+		}
+		var msgs []map[string]any
+		if err3 := json.Unmarshal(row.Messages, &msgs); err3 != nil {
+			continue
+		}
+		for _, msg := range msgs {
+			role, _ := msg["role"].(string)
+			content, _ := msg["content"].(string)
+			if role == "" || content == "" {
+				continue
+			}
+			if containsFold(content, query) {
+				hits = append(hits, historyHit{
+					ConversationTitle: c.Title,
+					Role:              role,
+					Fragment:          extractFragment(content, query, 150),
+				})
+				if len(hits) >= 10 {
+					break
+				}
+			}
+		}
+		if len(hits) >= 10 {
+			break
+		}
+	}
+	if hits == nil {
+		hits = []historyHit{}
+	}
+	return gin.H{"results": hits, "total": len(hits), "query": query}, nil
+}
+
+// containsFold 子串匹配（大小写不敏感）。
+func containsFold(s, substr string) bool {
+	if substr == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// extractFragment 截取匹配位置附近的片段（宽度约 width 字符）。
+func extractFragment(content, query string, width int) string {
+	idx := strings.Index(strings.ToLower(content), strings.ToLower(query))
+	if idx < 0 {
+		if len(content) > width {
+			return content[:width] + "…"
+		}
+		return content
+	}
+	start := idx - width/3
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(query) + width*2/3
+	if end > len(content) {
+		end = len(content)
+	}
+	frag := content[start:end]
+	if start > 0 {
+		frag = "…" + frag
+	}
+	if end < len(content) {
+		frag += "…"
+	}
+	return frag
+}
+
 // toolListDir df_list_dir：列目录（名称/类型/大小/updated_at，目录 size=0），
 // 上限 ai.PlatformToolListLimit 条，超出标注 truncated。
 func (p *platformToolCtx) toolListDir(path string) (any, error) {
@@ -418,6 +505,14 @@ func (p *platformToolCtx) executePlatformTool(name string, argsJSON json.RawMess
 	var result any
 	var err error
 	switch name {
+	case ai.PlatformToolSearchHistory:
+		query := str("query")
+		summary = "query=" + query
+		if query == "" {
+			err = fmt.Errorf("query 为必填参数")
+		} else {
+			result, err = p.toolSearchHistory(query)
+		}
 	case ai.PlatformToolListDir:
 		path := str("path")
 		summary = "path=" + path
