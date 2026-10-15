@@ -85,3 +85,9 @@ snapshot 快照，migration 054）；助手与编辑页共用，查看页按产�
 | excalidraw 骨架载荷规范 | `AIEditChat.tsx` EXCALIDRAW_JSON_GUIDE（白板页 agentSystemExtra 复用） |
 | 富文本宿主约束（find 片段/占位行保护） | `DfdocEditorPage.tsx`（agentSystemExtra） |
 | 摘要 / RAG 引用 / OCR / 记忆提取 / 文件上下文块 | `internal/ai/*.go`、`internal/http/ai*.go` |
+
+检索片段 / 附件全文 / 网络搜索摘要 / 记忆标题等不可信数据注入 system 上下文时，
+一律经 `ai.UntrustedBlock`（`internal/ai/untrusted.go`）包进带固定告示的
+⟦⟧ 围栏（内容中围栏字符中和，边界不可伪造——J2 提示注入防护）。
+Agent 技能包（`ai.agent_packages`）的 system_extra 在 sendAgent 阶段追加，
+执行期间锁定 package（`runAgentLoop` 工具集为调用时快照，中途切包不影响当轮）。

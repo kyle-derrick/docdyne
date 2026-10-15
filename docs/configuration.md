@@ -224,6 +224,7 @@ DocFlow 采用**两级配置模型**：
 | `ai.personas` | `[]` | 即时 | 平台人设模板（≤50 条）：`id/name/system_prompt`（≤4000 字符），全员对话可选 |
 | `ai.skills` | `[]` | 即时 | 平台技能/快捷指令模板（≤50 条）：`id/name/description(≤200)/prompt(≤4000)`，prompt 支持 `{selection}`（编辑器选区）/ `{file}`（当前文件名）占位符 |
 | `ai.mcp` | `[]` | 即时 | 外部 MCP 服务器（≤8 条，Streamable HTTP）：`id/name/url/auth_header/enabled`；auth_header 只写不读；对话开启「MCP 工具」后聚合调用（单次对话 ≤5 轮） |
+| `ai.agent_packages` | `[]` | 即时 | Agent 技能包（≤50 条）：`id/name/description/system_extra(≤4000)/tools/kinds/version/changelog`——限定编辑页 Agent 的附加指令与 df_* 工具白名单、applyKind 适用范围；`builtin-` 前缀 id 为编译期内置包不可覆盖。管理端支持 JSON/YAML 导入导出（交换格式见 `docs/schema/agent-packages.schema.json`），调用统计见管理端「AI 设置 → 使用统计」 |
 
 另见 [docs/mcp.md](mcp.md)（DocFlow 自身作为 MCP Server 对外暴露文档工具）。
 
