@@ -163,6 +163,23 @@ function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
+/** 文本 API 请求（导出下载等）：返回响应正文文本，非 2xx 转 ApiError 抛出。 */
+async function apiText(path: string, init: RequestInit = {}): Promise<string> {
+  const res = await authFetch(path, init)
+  const text = await res.text()
+  if (!res.ok) {
+    let msg = `请求失败（${res.status}）`
+    let code: string | undefined
+    try {
+      const obj = JSON.parse(text) as { error?: string; code?: string }
+      if (obj.error) msg = obj.error
+      code = obj.code
+    } catch { /* 非 JSON 错误体，保留状态码文案 */ }
+    throw new ApiError(res.status, msg, code)
+  }
+  return text
+}
+
 // ---------- 类型 ----------
 
 export interface FileItem {
@@ -2838,6 +2855,9 @@ export interface AIChatOptions {
   /** 服务端会话 id（可选）：携带时本次请求的用量行关联该会话
    *  （管理端按会话聚合 token；非 UUID/他人会话服务端静默忽略关联）。 */
   conversation_id?: string
+  /** Agent 技能包 id（可选）：编辑页 Agent 循环携带；进 ai.chat 审计
+   *  metadata.package 供管理端统计各技能包使用次数。 */
+  agent_package?: string
 }
 
 /** SSE tool 事件条目：工具执行前下发（label=「服务名 / 工具名」，input=参数摘要）。 */
@@ -2896,6 +2916,7 @@ export async function aiChat(opts: AIChatOptions, handlers: AIChatStreamHandlers
   if (opts.use_files !== undefined) body.use_files = opts.use_files
   if (opts.work_root) body.work_root = opts.work_root
   if (opts.conversation_id) body.conversation_id = opts.conversation_id
+  if (opts.agent_package) body.agent_package = opts.agent_package
   if (opts.reasoning_effort) body.reasoning_effort = opts.reasoning_effort
   if (opts.context_budget) body.context_budget = opts.context_budget
   if (opts.ragQuery !== undefined || opts.fileIds !== undefined) {
@@ -3740,6 +3761,85 @@ export async function putAISkills(skills: AISkillDef[]): Promise<AISkillDef[]> {
 export async function listPlatformSkills(): Promise<AISkillDef[]> {
   const data = await api<{ skills: AISkillDef[] }>('/api/v1/ai/skills')
   return data.skills ?? []
+}
+
+// ---------- Agent 技能包（管理端 CRUD + 导入导出 + 使用统计，I 批次） ----------
+
+/** 技能包变更日志条目（version 递增；date YYYY-MM-DD 可空）。 */
+export interface AIPackageChangelogEntry {
+  version: number
+  date?: string
+  note: string
+}
+
+/** Agent 技能包定义（编辑页 Agent 循环消费；id ≤64 唯一、builtin- 前缀
+ *  为编译期内置包——管理端只读不可改）。 */
+export interface AIAgentPackageDef {
+  id: string
+  name: string
+  description?: string
+  /** 追加到系统提示之后的包级增强（≤4000 字符）。 */
+  system_extra?: string
+  /** 注入的 df_* 平台工具名（非法名由后端校验拒收）。 */
+  tools?: string[]
+  /** 适用文档类型（doc/docx/xlsx/...）；空=全部。 */
+  kinds?: string[]
+  /** 版本号（≥0，缺省 0）。 */
+  version?: number
+  /** 变更日志（≤50 条；note ≤500 字符）。 */
+  changelog?: AIPackageChangelogEntry[]
+}
+
+/** 管理端技能包列表（GET /admin/settings/ai/agent-packages）。 */
+export async function getAIAgentPackages(): Promise<AIAgentPackageDef[]> {
+  const data = await api<{ packages: AIAgentPackageDef[] }>('/api/v1/admin/settings/ai/agent-packages')
+  return data.packages ?? []
+}
+
+/** 整块保存技能包（PUT {packages}；校验失败 400 INVALID_AI_PACKAGES）。 */
+export async function putAIAgentPackages(packages: AIAgentPackageDef[]): Promise<AIAgentPackageDef[]> {
+  const data = await api<{ packages: AIAgentPackageDef[] }>('/api/v1/admin/settings/ai/agent-packages', jsonInit('PUT', { packages }))
+  return data.packages
+}
+
+/** 技能包导出（GET export?format&scope）：返回文件正文（JSON 机器交换
+ *  权威格式；YAML 供人读分享，两侧都可导入）。 */
+export async function exportAIAgentPackages(format: 'json' | 'yaml', scope: 'platform' | 'builtin' | 'all'): Promise<string> {
+  return apiText(`/api/v1/admin/settings/ai/agent-packages/export?format=${format}&scope=${scope}`)
+}
+
+/** 技能包导入结果（skipped 含拒收原因；packages 为导入后全量列表）。 */
+export interface AIAgentPackageImportResult {
+  imported: number
+  updated: number
+  skipped: Array<{ id: string; reason: string }>
+  total: number
+  packages: AIAgentPackageDef[]
+}
+
+/** 技能包导入（POST import {format, content, mode}：upsert 按 id 合并 /
+ *  replace 整块替换；builtin- 前缀拒收）。 */
+export async function importAIAgentPackages(format: 'json' | 'yaml', content: string, mode: 'upsert' | 'replace'): Promise<AIAgentPackageImportResult> {
+  return api<AIAgentPackageImportResult>('/api/v1/admin/settings/ai/agent-packages/import', jsonInit('POST', { format, content, mode }))
+}
+
+/** 技能包使用统计行（I3：ai.chat 审计 metadata.package 分组）。 */
+export interface AIPackageStatsRow {
+  package: string
+  calls: number
+  ok: number
+  failed: number
+  users: number
+  last_used_at: string
+}
+
+/** 技能包使用统计（GET /admin/ai/package-stats?from&to）。 */
+export async function getAIPackageStats(from?: string, to?: string): Promise<{ rows: AIPackageStatsRow[] }> {
+  const q = new URLSearchParams()
+  if (from) q.set('from', from)
+  if (to) q.set('to', to)
+  const qs = q.toString()
+  return api<{ rows: AIPackageStatsRow[] }>(`/api/v1/admin/ai/package-stats${qs ? `?${qs}` : ''}`)
 }
 
 /** 编辑本人一条记忆（PUT /ai/memory/:id {content}；原地更新，时间戳不变语义由后端定）。 */

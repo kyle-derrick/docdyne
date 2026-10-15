@@ -4528,6 +4528,13 @@ paths:
                     服务端会话 id（可选，v7.15 G2）：携带时本次请求的
                     ai_usage 用量行关联该会话（管理端按会话聚合 token）；
                     非 UUID/他人会话静默忽略关联。
+                agent_package:
+                  type: string
+                  description: >-
+                    Agent 技能包 id（可选，v7.15 I3）：编辑页 Agent 循环
+                    携带；trim 后写入 ai.chat 审计行 metadata.package，供
+                    GET /admin/ai/package-stats 按包聚合使用统计。未知包 id
+                    仅作统计键落库，不影响对话本身。
                 messages:
                   type: array
                   items:
@@ -6048,6 +6055,146 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /admin/settings/ai/agent-packages:
+    get:
+      tags: [admin, AI]
+      operationId: adminGetAIAgentPackages
+      summary: 平台 Agent 技能包列表（管理端）
+      description: >-
+        读取平台技能包（ai.agent_packages 键，v7.15 I 批次）；内置包
+        （builtin- 前缀）编译期固化，不在此列表（导出端点 scope=builtin 可取）。
+      responses:
+        '200':
+          description: 平台技能包数组
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  packages:
+                    type: array
+                    items: { $ref: '#/components/schemas/AIAgentPackage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [admin, AI]
+      operationId: adminPutAIAgentPackages
+      summary: 整块替换平台 Agent 技能包
+      description: >-
+        整块替换 ai.agent_packages 键：≤50 条、id 去空白后 1..64 且唯一
+        （builtin- 前缀拒收）、name 1..64、system_extra ≤4000、version ≥0、
+        changelog ≤50 条（note 1..500、date YYYY-MM-DD 可空）；校验失败
+        400 INVALID_AI_PACKAGES。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [packages]
+              properties:
+                packages:
+                  type: array
+                  items: { $ref: '#/components/schemas/AIAgentPackage' }
+      responses:
+        '200':
+          description: 归一化后的平台技能包
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  packages:
+                    type: array
+                    items: { $ref: '#/components/schemas/AIAgentPackage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/settings/ai/agent-packages/export:
+    get:
+      tags: [admin, AI]
+      operationId: adminExportAIAgentPackages
+      summary: 导出 Agent 技能包（可分享/导入）
+      description: >-
+        技能包导出（v7.15 I2）：format=json（机器交换权威格式）| yaml
+        （人读分享，键名与 JSON 一致，两侧都可导入）；scope=platform
+        （缺省）| builtin（编译期内置包）| all（两者合并）。响应体为
+        {packages, exported_at, scope} envelope（yaml 同构），
+        附 Content-Disposition 下载头。
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, yaml], default: json }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [platform, builtin, all], default: platform }
+      responses:
+        '200':
+          description: 导出文件正文（JSON 或 YAML）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  packages:
+                    type: array
+                    items: { $ref: '#/components/schemas/AIAgentPackage' }
+                  exported_at: { type: string, format: date-time }
+                  scope: { type: string }
+            text/yaml:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/settings/ai/agent-packages/import:
+    post:
+      tags: [admin, AI]
+      operationId: adminImportAIAgentPackages
+      summary: 导入 Agent 技能包
+      description: >-
+        技能包导入（v7.15 I2）：format=json|yaml，content 为导出文件全文
+        （envelope {packages} 或裸数组均可，≤256KB）；mode=upsert（缺省，
+        按 id 合并——incoming 覆盖同 id 平台包）| replace（整块替换平台包）。
+        builtin- 前缀 id 一律拒收（内置包编译期内置不可覆盖）。返回
+        {imported, updated, skipped:[{id,reason}], total, packages}。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                format: { type: string, enum: [json, yaml], default: json }
+                content: { type: string, description: 导出文件全文（≤256KB） }
+                mode: { type: string, enum: [upsert, replace], default: upsert }
+      responses:
+        '200':
+          description: 导入结果（packages 为导入后的全量平台包列表）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: { type: integer, description: 新增条数 }
+                  updated: { type: integer, description: 覆盖更新条数 }
+                  skipped:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        reason: { type: string }
+                  total: { type: integer, description: 导入后平台包总数 }
+                  packages:
+                    type: array
+                    items: { $ref: '#/components/schemas/AIAgentPackage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /admin/settings/ai/mcp:
     get:
       tags: [admin, AI]
@@ -6363,6 +6510,54 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '503':
           description: 工具统计未装配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/ai/package-stats:
+    get:
+      tags: [admin, AI]
+      operationId: adminAIPackageStats
+      summary: Agent 技能包使用统计（按包 id 聚合）
+      description: >-
+        ai.chat 审计行按 metadata.package（请求携带 agent_package 时落键）
+        分组聚合（v7.15 I3）：对话量/成功与失败数/去重用户数/最近使用。
+        日期过滤 from/to（YYYY-MM-DD，含 to 当天），limit 缺省 100。统计窗
+        受审计保留期约束。
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: 聚合结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        package: { type: string }
+                        calls: { type: integer }
+                        ok: { type: integer }
+                        failed: { type: integer }
+                        users: { type: integer }
+                        last_used_at: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503':
+          description: 使用统计未装配
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -7738,6 +7933,28 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    AIAgentPackage:
+      type: object
+      description: Agent 技能包定义（v7.15 I 批次；builtin- 前缀 id 为编译期内置包，管理端只读）
+      required: [id, name]
+      properties:
+        id: { type: string, description: 1..64 字符，唯一；builtin- 前缀保留给内置包 }
+        name: { type: string, description: 1..64 字符 }
+        description: { type: string, description: ≤200 字符 }
+        system_extra: { type: string, description: 追加到 Agent system 提示（≤4000 字符） }
+        tools: { type: array, items: { type: string }, description: 工具白名单（空=不限制；df_* 平台工具名） }
+        kinds: { type: array, items: { type: string }, description: 适用 applyKind（text/excalidraw-json/drawio-xml/richtext-patch/office-*；空=全部） }
+        version: { type: integer, minimum: 0, description: 版本号（0=未版本化；实质修改时递增） }
+        changelog:
+          type: array
+          description: 变更日志（≤50 条，与 version 配套）
+          items:
+            type: object
+            required: [version, note]
+            properties:
+              version: { type: integer, minimum: 0 }
+              date: { type: string, description: YYYY-MM-DD（可空） }
+              note: { type: string, description: 1..500 字符 }
     AIConversation:
       type: object
       description: AI 会话记录（ai_conversations 行；messages 为前端回合结构数组，服务端不逐条解释）

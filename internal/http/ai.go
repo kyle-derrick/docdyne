@@ -183,6 +183,11 @@ type aiChatRequest struct {
 	// 该会话（管理端按会话聚合 token）。非 UUID/他人会话静默忽略关联
 	//（聚合 JOIN 按属主校验，不泄露他人标题）。
 	ConversationID *string `json:"conversation_id"`
+	// AgentPackage Agent 技能包 id（可选，v7.15 I3）：编辑页 Agent 循环
+	// 携带；trim 后写入 ai.chat 审计行 metadata.package，供管理端按包
+	// 聚合使用次数（GET /admin/ai/package-stats）。非法/未知包 id 仅
+	// 作为统计键落库，不影响对话本身。
+	AgentPackage string `json:"agent_package"`
 	// Context 为可选上下文：query 触发检索增强（RAG-lite）；fileIds 把
 	// 指定文件抽取文本拼入上下文（两者可并存，RAG 优先拼装）。
 	Context *struct {
@@ -437,15 +442,20 @@ func (h *Handler) aiChat(c *gin.Context) {
 
 	// ai.chat 审计：每次请求完成记一条（成功/失败均记；SSE 逐 delta 不记；
 	// 命中个人池附 personal:true——个人 Key 用户自担，豁免平台限流）。
+	pkgKey := strings.TrimSpace(req.AgentPackage)
 	auditDone := func(status, providerID, usedModel string) {
-		meta, _ := json.Marshal(map[string]any{
+		meta := map[string]any{
 			"provider_id": providerID, "model": usedModel, "stream": stream, "rag": ragQuery,
 			"think": think, "web_search": webSearchOn, "memory": memoryOn, "personal": target.Personal,
 			"mcp": useMCP, "files": filesToolsOn, "docs": req.IncludeDocs != nil && *req.IncludeDocs && !ragQuery,
-		})
+		}
+		if pkgKey != "" {
+			meta["package"] = pkgKey
+		}
+		metaJSON, _ := json.Marshal(meta)
 		h.recordAudit(c, audit.Entry{
 			UserID: &user, Action: audit.ActionAIChat, ResourceType: audit.ResourceAI,
-			Status: status, Metadata: string(meta),
+			Status: status, Metadata: string(metaJSON),
 		})
 	}
 
@@ -1291,6 +1301,60 @@ func (h *Handler) adminAIToolStats(c *gin.Context) {
 	rows, err := src.ToolStats(aiToolAuditAction, from, to, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to aggregate tool stats"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows})
+}
+
+// aiPackageStatsSource 为 I3 技能包使用统计聚合源（*audit.Store 实现
+// 的窄接口；h.auditQuery 类型断言取得，旧 fake 不实现时端点 503）。
+type aiPackageStatsSource interface {
+	PackageStats(action string, from, to time.Time, limit int) ([]audit.PackageStatsRow, error)
+}
+
+// adminAIPackageStats GET /admin/ai/package-stats?from&to&limit：按 Agent
+// 技能包聚合 ai.chat 审计行（请求携带 agent_package 时落
+// metadata.package）——对话量/成功与失败数/去重用户数/最近使用（I3）。
+// 统计窗受审计保留期约束（保留期外的行已被 janitor 清理）。
+func (h *Handler) adminAIPackageStats(c *gin.Context) {
+	src, ok := h.auditQuery.(aiPackageStatsSource)
+	if !ok || src == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "package statistics are not configured"})
+		return
+	}
+	parseDay := func(raw string) (time.Time, bool) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return time.Time{}, true
+		}
+		t, err := time.ParseInLocation("2006-01-02", raw, time.UTC)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return t, true
+	}
+	from, ok := parseDay(c.Query("from"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from (YYYY-MM-DD)"})
+		return
+	}
+	to, ok := parseDay(c.Query("to"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to (YYYY-MM-DD)"})
+		return
+	}
+	if !to.IsZero() {
+		to = to.AddDate(0, 0, 1) // 含 to 当天
+	}
+	limit := 100
+	if raw := c.Query("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	rows, err := src.PackageStats(audit.ActionAIChat, from, to, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to aggregate package stats"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"rows": rows})

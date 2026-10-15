@@ -768,8 +768,9 @@ export default function AIEditChat({
   //（所选模型从 docflow.ai.model 读取，无记忆时回落 default_models.chat；
   //  模型列表仅用于评估思考能力）。
   const [models, setModels] = useState<AIModelOption[]>([])
-  // 技能包（C2）：/ai/models.agent_packages（内置 + 平台定义）。
-  const [agentPackages, setAgentPackages] = useState<Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[] }>>([])
+  // 技能包（C2）：/ai/models.agent_packages（内置 + 平台定义；I1 增
+  // version/changelog 供下拉展示版本号）。
+  const [agentPackages, setAgentPackages] = useState<Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[]; version?: number; changelog?: Array<{ version: number; date?: string; note: string }> }>>([])
   const [pkgId, setPkgId] = useState('auto')
   const pkgIdRef = useRef('')
   pkgIdRef.current = pkgId
@@ -832,7 +833,7 @@ export default function AIEditChat({
     void getAIModels().then((list) => {
       setModels(list)
       getAIModelsRaw().then((raw) => {
-        const packs = (raw as { agent_packages?: Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[] }> }).agent_packages
+        const packs = (raw as { agent_packages?: Array<{ id: string; name: string; description?: string; system_extra?: string; tools?: string[]; kinds?: string[]; version?: number; changelog?: Array<{ version: number; date?: string; note: string }> }> }).agent_packages
         if (Array.isArray(packs)) setAgentPackages(packs.filter((x) => x && x.id))
       }).catch(() => { /* ignore */ })
       setModelKey((cur) => {
@@ -1314,7 +1315,7 @@ ${planText}` },
           const view = agentConvoView(convo, ctxBudget)
           lastViewChars = view.reduce((n, m) => n + m.content.length, 0)
           return aiChat(
-            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, conversation_id: activeSessIdRef.current || undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
+            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, conversation_id: activeSessIdRef.current || undefined, agent_package: pkgIdRef.current || undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
           {
             onDelta: (chunk) => {
               acc += chunk

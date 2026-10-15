@@ -53,6 +53,10 @@ type settingsService interface {
 	SetAIPersonas(list []settings.AIPersonaDef, actor uuid.UUID) ([]settings.AIPersonaDef, error)
 	AISkills() ([]settings.AISkillDef, error)
 	SetAISkills(list []settings.AISkillDef, actor uuid.UUID) ([]settings.AISkillDef, error)
+	// AIAgentPackages / SetAIAgentPackages 为编辑器 Agent 技能包
+	//（ai.agent_packages 键；管理端专用端点与导入导出消费，I 批次）。
+	AIAgentPackages() ([]settings.AIAgentPackageDef, error)
+	SetAIAgentPackages(list []settings.AIAgentPackageDef, actor uuid.UUID) ([]settings.AIAgentPackageDef, error)
 }
 type statsSource interface{ Stats() (AdminStats, error) }
 type AdminStats struct {

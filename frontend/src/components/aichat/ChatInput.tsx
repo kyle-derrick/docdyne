@@ -11,6 +11,9 @@ export interface SkillPackage {
   system_extra?: string
   tools?: string[]
   kinds?: string[]
+  /** 版本号（I1）：>0 时下拉 label 追加 vN。 */
+  version?: number
+  changelog?: Array<{ version: number; date?: string; note: string }>
 }
 
 export interface ChatInputProps {
@@ -94,7 +97,7 @@ export default function ChatInput({
                   { type: 'divider' as const },
                   ...packages
                     .filter((x) => !x.kinds?.length || x.kinds.includes(applyKind))
-                    .map((x) => ({ key: x.id, label: x.name })),
+                    .map((x) => ({ key: x.id, label: x.version && x.version > 0 ? `${x.name} v${x.version}` : x.name })),
                 ],
                 onClick: ({ key }) => onPkgChange(key === 'none' ? '' : key),
               }}

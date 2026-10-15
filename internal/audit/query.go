@@ -144,3 +144,37 @@ func (s *Store) ToolStats(action string, from, to time.Time, limit int) ([]ToolS
 	}
 	return rows, nil
 }
+
+// PackageStatsRow 为按 Agent 技能包聚合的对话统计（I3：ai.chat 审计行
+// metadata->>'package' 分组）。
+type PackageStatsRow struct {
+	Package    string    `json:"package"`
+	Calls      int64     `json:"calls"`
+	OK         int64     `json:"ok"`
+	Failed     int64     `json:"failed"`
+	Users      int64     `json:"users"`
+	LastUsedAt time.Time `json:"last_used_at"`
+}
+
+// PackageStats 按 Agent 技能包聚合 ai.chat 审计行：对话量/成功/失败/
+// 去重用户数/最近使用。技能包使用与否不影响对话本身——仅当请求携带
+// agent_package 时落 metadata.package 键；from/to 零值 = 不限。
+func (s *Store) PackageStats(action string, from, to time.Time, limit int) ([]PackageStatsRow, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	q := s.db.Model(&Entry{}).
+		Select("metadata->>'package' AS package, COUNT(*) AS calls, COUNT(*) FILTER (WHERE status = ?) AS ok, COUNT(*) FILTER (WHERE status <> ?) AS failed, COUNT(DISTINCT user_id) AS users, MAX(created_at) AS last_used_at", StatusSuccess, StatusSuccess).
+		Where("action = ? AND metadata->>'package' <> ''", action)
+	if !from.IsZero() {
+		q = q.Where("created_at >= ?", from)
+	}
+	if !to.IsZero() {
+		q = q.Where("created_at < ?", to)
+	}
+	var rows []PackageStatsRow
+	if err := q.Group("metadata->>'package'").Order("calls DESC").Limit(limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}

@@ -330,9 +330,21 @@
       超时错误文本回喂模型循环继续；MCP 工具本有 8s RequestTimeout 不变）
 
 ## I. 技能包生态
-- [ ] I1. 技能包版本号与变更日志
-- [ ] I2. 技能包导出为 YAML/JSON（可分享/导入）
-- [ ] I3. 内置技能包定期优化（基于实际使用数据反馈）
+- [x] I1. 技能包版本号与变更日志（v7.15 I1：AIAgentPackageDef 增
+      version/changelog 字段（≤50 条、note ≤500、date YYYY-MM-DD 真实
+      日历校验）；管理端编辑弹窗版本号+变更日志行编辑；编辑页下拉
+      label 显示 vN）
+- [x] I2. 技能包导出为 YAML/JSON（可分享/导入）（v7.15 I2：管理端
+      GET export?format=json|yaml&scope=platform|builtin|all（yaml 经
+      JSON roundtrip 保持 snake_case 键名——直接 yaml.Marshal 会漂移成
+      小写字段名）+ POST import {format,content,mode=upsert|replace}
+      （builtin- 拒收、按 id 合并/整替、≤256KB）；AISettingsPanel 导出
+      下拉/导入弹窗；契约 /admin/settings/ai/agent-packages* 四端点）
+- [x] I3. 内置技能包定期优化（基于实际使用数据反馈）（v7.15 I3：/ai/chat
+      增 agent_package 请求字段→ai.chat 审计 metadata.package；audit
+      PackageStats（按包分组：对话量/成败/去重用户/最近使用）+
+      GET /admin/ai/package-stats；技能包列表卡片展示使用次数/人数/最近
+      使用——管理端据此决定优化哪个内置包）
 
 ## J. 安全加固
 - [ ] J1. 工具沙箱：限制文件访问路径（仅工作目录内）；写操作大小限制

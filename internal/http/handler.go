@@ -808,6 +808,13 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// 管理端列表不过滤停用项（aiSkillsList 仅返回启用项给登录侧）。
 	admin.GET("/settings/ai/skills", h.adminAISkillsList)
 	admin.PUT("/settings/ai/skills", h.adminPutAISkills)
+	// 编辑器 Agent 技能包（system_settings 的 ai.agent_packages 键，I 批次）：
+	// 管理端整块读替 + 导出（json/yaml，可含内置包供分享）+ 导入
+	//（upsert/replace，builtin- 前缀拒绝——内置包编译期内置）。
+	admin.GET("/settings/ai/agent-packages", h.adminAIAgentPackagesList)
+	admin.PUT("/settings/ai/agent-packages", h.adminPutAIAgentPackages)
+	admin.GET("/settings/ai/agent-packages/export", h.adminExportAIAgentPackages)
+	admin.POST("/settings/ai/agent-packages/import", h.adminImportAIAgentPackages)
 	// 外部 MCP 服务器（system_settings 的 ai.mcp 键）：登录侧 GET /ai/mcp
 	// 读启用项；管理端整块读替（auth_header 只写不读、留空继承，回显
 	// configured 布尔；校验见 settings 包：≤8 条、id 唯一、url http(s)）。
@@ -817,6 +824,8 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	admin.GET("/ai/usage", h.adminAIUsage)
 	// G3：ai.tool 审计按工具名聚合（调用量/成功率/平均耗时/最近使用）。
 	admin.GET("/ai/tool-stats", h.adminAIToolStats)
+	// I3：ai.chat 审计按 Agent 技能包聚合（对话量/成功失败/去重用户/最近使用）。
+	admin.GET("/ai/package-stats", h.adminAIPackageStats)
 	// HTTPS 运行时切换（热下发 Caddy admin API）：GET 恒注册（未托管时
 	// managed=false 供页面降级展示）；PUT 未托管时 503；POST /tls/cert
 	// 上传自定义证书（custom 模式，multipart cert+key）。

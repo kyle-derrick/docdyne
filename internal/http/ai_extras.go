@@ -22,13 +22,17 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	"github.com/docflow/docflow/internal/auth"
 	"github.com/docflow/docflow/internal/mcpclient"
@@ -144,6 +148,260 @@ func (h *Handler) adminPutAISkills(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"skills": list})
+}
+
+// ---------- 编辑器 Agent 技能包（管理端 CRUD + 导入导出，I 批次） ----------
+
+// aiPackageImportMaxBytes 导入载荷上限（文本；50 条 ×4KB system 提示的
+// 充分冗余）。
+const aiPackageImportMaxBytes = 256 << 10
+
+// adminAIAgentPackagesList GET /api/v1/admin/settings/ai/agent-packages：
+// 平台包全量（内置包编译期内置，不在此列表——导出端点 scope=builtin 可取）。
+func (h *Handler) adminAIAgentPackagesList(c *gin.Context) {
+	if h.settings == nil {
+		c.JSON(http.StatusOK, gin.H{"packages": []settings.AIAgentPackageDef{}})
+		return
+	}
+	list, err := h.settings.AIAgentPackages()
+	if err != nil || list == nil {
+		c.JSON(http.StatusOK, gin.H{"packages": []settings.AIAgentPackageDef{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"packages": list})
+}
+
+// adminPutAIAgentPackages PUT /api/v1/admin/settings/ai/agent-packages：
+// 整块替换平台包（校验失败 400 INVALID_AI_PACKAGES，error 含字段定位）。
+func (h *Handler) adminPutAIAgentPackages(c *gin.Context) {
+	if h.settings == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "settings service is not configured"})
+		return
+	}
+	var req struct {
+		Packages []settings.AIAgentPackageDef `json:"packages"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	list, err := h.settings.SetAIAgentPackages(req.Packages, userID(c))
+	if err != nil {
+		if errors.Is(err, settings.ErrInvalidValue) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_AI_PACKAGES"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to save ai agent packages"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"packages": list})
+}
+
+// aiPackageExportFile 导出文件名前缀（format 决定扩展名）。
+const aiPackageExportFile = "docflow-agent-packages"
+
+// adminExportAIAgentPackages GET /api/v1/admin/settings/ai/agent-packages/
+// export?format=json|yaml&scope=platform|builtin|all：技能包导出（I2，可
+// 分享/导入）。JSON 为机器交换权威格式；YAML 供人读分享（键名与 JSON
+// 一致，导入两侧通吃）。scope 默认 platform（builtin=编译期内置包，all=
+// 两者合并）。
+func (h *Handler) adminExportAIAgentPackages(c *gin.Context) {
+	format := strings.TrimSpace(c.DefaultQuery("format", "json"))
+	if format != "json" && format != "yaml" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "format must be json or yaml"})
+		return
+	}
+	scope := strings.TrimSpace(c.DefaultQuery("scope", "platform"))
+	var packs []settings.AIAgentPackageDef
+	switch scope {
+	case "platform":
+		list, err := h.settings.AIAgentPackages()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load ai agent packages"})
+			return
+		}
+		packs = list
+	case "builtin", "all":
+		for _, p := range h.agentPackagesForKind("") {
+			if scope == "builtin" && !strings.HasPrefix(p.ID, "builtin-") {
+				continue
+			}
+			packs = append(packs, p)
+		}
+		if scope == "all" {
+			list, err := h.settings.AIAgentPackages()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load ai agent packages"})
+				return
+			}
+			packs = append(packs, list...)
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scope must be platform, builtin or all"})
+		return
+	}
+	if packs == nil {
+		packs = []settings.AIAgentPackageDef{}
+	}
+	ext, mime := "json", "application/json"
+	if format == "yaml" {
+		ext, mime = "yaml", "text/yaml"
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", aiPackageExportFile, ext))
+	c.Header("Content-Type", mime+"; charset=utf-8")
+	envelope := map[string]any{"packages": packs, "exported_at": time.Now().UTC().Format(time.RFC3339), "scope": scope}
+	if format == "yaml" {
+		// 结构体无 yaml tag——直接 yaml.Marshal 会用小写字段名（systemextra）
+		// 漂移 snake_case 契约；经 JSON roundtrip（map 键名来自 json tag）
+		// 保持导出键名与 JSON 完全一致。
+		raw, err := json.Marshal(envelope)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to marshal yaml"})
+			return
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to marshal yaml"})
+			return
+		}
+		out, err := yaml.Marshal(m)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to marshal yaml"})
+			return
+		}
+		c.String(http.StatusOK, string(out))
+		return
+	}
+	c.JSON(http.StatusOK, envelope)
+}
+
+// adminImportAIAgentPackages POST /api/v1/admin/settings/ai/agent-packages/
+// import {format:'json'|'yaml', content, mode:'upsert'|'replace'}：技能包
+// 导入（I2）。upsert（缺省）按 id 合并（incoming 覆盖同 id 平台包）；
+// replace 整块替换。builtin- 前缀 id 拒收（内置包编译期内置不可覆盖）。
+// 返回 {imported, updated, skipped:[{id,reason}], total}。
+func (h *Handler) adminImportAIAgentPackages(c *gin.Context) {
+	if h.settings == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "settings service is not configured"})
+		return
+	}
+	var req struct {
+		Format  string `json:"format"`
+		Content string `json:"content"`
+		Mode    string `json:"mode"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+		return
+	}
+	if len(req.Content) > aiPackageImportMaxBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content too large (max 256KB)"})
+		return
+	}
+	format := strings.TrimSpace(req.Format)
+	if format == "" {
+		format = "json"
+	}
+	if format != "json" && format != "yaml" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "format must be json or yaml"})
+		return
+	}
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		mode = "upsert"
+	}
+	if mode != "upsert" && mode != "replace" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be upsert or replace"})
+		return
+	}
+
+	// 解析为通用结构（envelope 或裸数组均接受；YAML 走 map 中转保持键名）。
+	var raw any
+	if format == "yaml" {
+		if err := yaml.Unmarshal([]byte(req.Content), &raw); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid yaml: " + err.Error()})
+			return
+		}
+	} else {
+		if err := json.Unmarshal([]byte(req.Content), &raw); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json: " + err.Error()})
+			return
+		}
+	}
+	listRaw := raw
+	if m, ok := raw.(map[string]any); ok {
+		v, _ := m["packages"]
+		listRaw = v
+	}
+	roundtrip, err := json.Marshal(listRaw)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unable to normalize packages"})
+		return
+	}
+	var incoming []settings.AIAgentPackageDef
+	if err := json.Unmarshal(roundtrip, &incoming); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "packages shape mismatch (expect array of package objects)"})
+		return
+	}
+
+	existing, err := h.settings.AIAgentPackages()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load ai agent packages"})
+		return
+	}
+	// upsert 从现有列表合并出发；replace 整块替换（现有列表仅用于计数
+	// updated——被覆盖的同 id 计入 updated 而非 imported）。
+	byID := make(map[string]settings.AIAgentPackageDef, len(existing))
+	for _, p := range existing {
+		if mode == "replace" {
+			continue
+		}
+		byID[p.ID] = p
+	}
+	existingIDs := make(map[string]bool, len(existing))
+	for _, p := range existing {
+		existingIDs[p.ID] = true
+	}
+	type skip struct {
+		ID     string `json:"id"`
+		Reason string `json:"reason"`
+	}
+	skipped := make([]skip, 0)
+	imported, updated := 0, 0
+	for _, p := range incoming {
+		id := strings.TrimSpace(p.ID)
+		if id == "" {
+			skipped = append(skipped, skip{ID: p.ID, Reason: "id 为空"})
+			continue
+		}
+		if strings.HasPrefix(id, "builtin-") {
+			skipped = append(skipped, skip{ID: id, Reason: "内置包不可导入覆盖（id 保留 builtin- 前缀）"})
+			continue
+		}
+		p.ID = id
+		if existingIDs[id] {
+			updated++
+		} else {
+			imported++
+		}
+		byID[id] = p
+	}
+	merged := make([]settings.AIAgentPackageDef, 0, len(byID))
+	for _, p := range byID {
+		merged = append(merged, p)
+	}
+	// 排序稳定（按 id），避免 map 迭代顺序导致的无谓 diff。
+	sort.Slice(merged, func(i, j int) bool { return merged[i].ID < merged[j].ID })
+	saved, err := h.settings.SetAIAgentPackages(merged, userID(c))
+	if err != nil {
+		if errors.Is(err, settings.ErrInvalidValue) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_AI_PACKAGES"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to save ai agent packages"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"imported": imported, "updated": updated, "skipped": skipped, "total": len(saved), "packages": saved})
 }
 
 // ---------- 用户记忆（ai_memory，本人维度） ----------

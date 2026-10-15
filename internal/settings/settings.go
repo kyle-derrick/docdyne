@@ -1956,6 +1956,27 @@ func (s *Store) AIAgentPackages() ([]AIAgentPackageDef, error) {
 	return list, nil
 }
 
+// SetAIAgentPackages 校验并整块写入编辑器 Agent 技能包（trim 规整
+// id/name），成功后写 settings.update 审计；返回归一化后的列表。
+// 管理端技能包卡片与导入端点（I2）的专用写路径。
+func (s *Store) SetAIAgentPackages(in []AIAgentPackageDef, actor uuid.UUID) ([]AIAgentPackageDef, error) {
+	normalized := make([]AIAgentPackageDef, 0, len(in))
+	for _, p := range in {
+		item := p
+		item.ID = strings.TrimSpace(p.ID)
+		item.Name = strings.TrimSpace(p.Name)
+		item.Description = strings.TrimSpace(p.Description)
+		normalized = append(normalized, item)
+	}
+	if err := ValidateAIAgentPackages(normalized); err != nil {
+		return nil, err
+	}
+	if err := s.writeAIListRow(KeyAIAgentPackages, normalized, actor); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
 // SetAIPersonas 校验并整块写入平台人设（trim 规整 id/name），成功后写
 // settings.update 审计；返回归一化后的列表。
 func (s *Store) SetAIPersonas(in []AIPersonaDef, actor uuid.UUID) ([]AIPersonaDef, error) {

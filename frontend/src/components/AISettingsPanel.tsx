@@ -15,9 +15,9 @@
 //   读替，列表 + Modal 编辑（快捷指令 prompt 支持 {selection}/{file} 占位符）；
 // - 用量统计表（ai_usage 按用户聚合，日期过滤）。
 import { useEffect, useState } from 'react'
-import { App as AntdApp, Button, Card, Checkbox, Input, InputNumber, Radio, Select, Switch, Table, Tag, Tooltip } from 'antd'
+import { App as AntdApp, Button, Card, Checkbox, Dropdown, Input, InputNumber, Radio, Select, Switch, Table, Tag, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
-import { Copy, GripVertical, Image, MessageSquare, Network, Pencil, Plus, Sparkles, Trash2, Zap } from 'lucide-react'
+import { Copy, Download, GripVertical, Image, MessageSquare, Network, Pencil, Plus, Sparkles, Trash2, Upload, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   AIMCPAdminView,
@@ -26,6 +26,8 @@ import {
   AIOCRSettings,
   AISearchSettings,
   AIPersonaDef,
+  AIAgentPackageDef,
+  AIPackageStatsRow,
   AIModelCapabilities,
   AIModelItem,
   AIModelKind,
@@ -36,16 +38,21 @@ import {
   AISettingsData,
   AISkillDef,
   AIUsageRow,
+  exportAIAgentPackages,
   getAIMCPAdmin,
+  getAIAgentPackages,
+  getAIPackageStats,
   getAIPersonas,
   getAISettings,
   getAISkills,
   getAIUsage,
   getAIUsageByConversation,
   getAIToolStats,
+  importAIAgentPackages,
   type AIConvoUsageRow,
   type AIToolStatsRow,
   lookupAIModel,
+  putAIAgentPackages,
   putAIMCPAdmin,
   putAIPersonas,
   putAISettings,
@@ -178,6 +185,44 @@ interface MCPForm {
   isNew: boolean
 }
 
+/** 编辑中的技能包变更日志条目（date 为 YYYY-MM-DD 草稿，可空）。 */
+interface PackageChangelogFormEntry {
+  version: number
+  date: string
+  note: string
+}
+
+/** 编辑中的 Agent 技能包表单态（I 批次）。 */
+interface PackageForm {
+  id: string
+  name: string
+  description: string
+  system_extra: string
+  tools: string[]
+  kinds: string[]
+  version: number
+  changelog: PackageChangelogFormEntry[]
+  isNew: boolean
+}
+
+/** 技能包适用文档类型（applyKind 同枚举；空 = 全部）。 */
+const PACKAGE_KIND_OPTIONS: { value: string; label: string }[] = [
+  { value: 'text', label: 'text（Markdown/纯文本）' },
+  { value: 'excalidraw-json', label: 'excalidraw-json（白板）' },
+  { value: 'drawio-xml', label: 'drawio-xml（流程图）' },
+  { value: 'richtext-patch', label: 'richtext-patch（富文本）' },
+  { value: 'office-word', label: 'office-word' },
+  { value: 'office-excel', label: 'office-excel' },
+  { value: 'office-ppt', label: 'office-ppt' },
+  { value: 'office-pdf', label: 'office-pdf' },
+]
+
+/** 技能包工具白名单候选（df_* 平台工具；空 = 不限制）。 */
+const PACKAGE_TOOL_OPTIONS = [
+  'df_list_dir', 'df_read_file', 'df_write_file', 'df_mkdir', 'df_search',
+  'df_read_memory', 'df_write_memory', 'df_search_history',
+]
+
 /** 测试连接结果（按 provider id 记录）。 */
 type TestState = { running: boolean; ok?: boolean; message: string }
 
@@ -271,6 +316,13 @@ export default function AISettingsPanel({
   const [personaEditing, setPersonaEditing] = useState<PersonaForm | null>(null)
   const [skills, setSkills] = useState<AISkillDef[]>([])
   const [skillEditing, setSkillEditing] = useState<SkillForm | null>(null)
+  // Agent 技能包（I 批次）：列表 + 编辑弹窗 + 使用统计（ai.chat 审计按包聚合）+ 导入弹窗。
+  const [agentPackages, setAgentPackages] = useState<AIAgentPackageDef[]>([])
+  const [pkgEditing, setPkgEditing] = useState<PackageForm | null>(null)
+  const [pkgStats, setPkgStats] = useState<Record<string, AIPackageStatsRow>>({})
+  const [pkgImport, setPkgImport] = useState<{ format: 'json' | 'yaml'; content: string; mode: 'upsert' | 'replace' } | null>(null)
+  const [pkgImporting, setPkgImporting] = useState(false)
+  const [pkgExporting, setPkgExporting] = useState(false)
   // MCP 工具服务（独立端点 /admin/settings/ai/mcp 整块读替，≤8 条）。
   const [mcpServices, setMcpServices] = useState<AIMCPAdminView[]>([])
   const [mcpEditing, setMcpEditing] = useState<MCPForm | null>(null)
@@ -360,7 +412,8 @@ export default function AISettingsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 平台人设 / 技能模板 / MCP 工具服务：独立端点整块读替（初始拉取；失败提示）。
+  // 平台人设 / 技能模板 / Agent 技能包 / MCP 工具服务：独立端点整块读替
+  //（初始拉取；失败提示。技能包使用统计失败静默——不阻塞列表展示）。
   useEffect(() => {
     getAIPersonas()
       .then(setPersonas)
@@ -368,6 +421,16 @@ export default function AISettingsPanel({
     getAISkills()
       .then(setSkills)
       .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
+    getAIAgentPackages()
+      .then(setAgentPackages)
+      .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
+    getAIPackageStats()
+      .then((r) => {
+        const map: Record<string, AIPackageStatsRow> = {}
+        for (const row of r.rows ?? []) map[row.package] = row
+        setPkgStats(map)
+      })
+      .catch(() => { /* 统计不可用不影响管理 */ })
     getAIMCPAdmin()
       .then(setMcpServices)
       .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
@@ -619,6 +682,108 @@ export default function AISettingsPanel({
       setSkills(await putAISkills(skills.map((s) => (s.id === id ? { ...s, enabled } : s))))
     } catch (err) {
       onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    }
+  }
+
+  // ---- Agent 技能包（I 批次：独立 PUT /admin/settings/ai/agent-packages 整块读替）----
+
+  /** 保存技能包编辑（整块 PUT；新建时前端校验 id 唯一、拒收 builtin- 前缀）。 */
+  const applyPackageEdit = async () => {
+    if (!pkgEditing) return
+    const id = pkgEditing.id.trim()
+    if (!id || !pkgEditing.name.trim()) {
+      onError(zh ? 'ID 与名称必填' : 'ID and name are required')
+      return
+    }
+    if (id.startsWith('builtin-')) {
+      onError(zh ? 'builtin- 前缀保留给编译期内置包，平台包不可使用' : 'The builtin- prefix is reserved for compiled-in packages')
+      return
+    }
+    if (pkgEditing.isNew && agentPackages.some((p) => p.id === id)) {
+      onError(zh ? 'ID 已存在，请换一个' : 'ID already exists; pick another')
+      return
+    }
+    if (pkgEditing.version < 0) {
+      onError(zh ? '版本号须 ≥0' : 'Version must be ≥ 0')
+      return
+    }
+    const changelog = pkgEditing.changelog
+      .filter((e) => e.note.trim())
+      .map((e) => {
+        const entry: { version: number; date?: string; note: string } = { version: e.version, note: e.note.trim() }
+        if (e.date.trim()) entry.date = e.date.trim()
+        return entry
+      })
+    const entry: AIAgentPackageDef = {
+      id,
+      name: pkgEditing.name.trim(),
+      description: pkgEditing.description.trim() || undefined,
+      system_extra: pkgEditing.system_extra,
+      tools: pkgEditing.tools.length > 0 ? pkgEditing.tools : undefined,
+      kinds: pkgEditing.kinds.length > 0 ? pkgEditing.kinds : undefined,
+      version: pkgEditing.version || undefined,
+      changelog: changelog.length > 0 ? changelog : undefined,
+    }
+    try {
+      const saved = await putAIAgentPackages([...agentPackages.filter((p) => p.id !== id), entry])
+      setAgentPackages(saved)
+      setPkgEditing(null)
+      onNotice(zh ? 'Agent 技能包已保存' : 'Agent packages saved')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    }
+  }
+
+  /** 删除技能包（过滤后整块 PUT）。 */
+  const removePackage = async (id: string) => {
+    try {
+      setAgentPackages(await putAIAgentPackages(agentPackages.filter((p) => p.id !== id)))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    }
+  }
+
+  /** 导出技能包（触发浏览器下载 docflow-agent-packages.{json|yaml}）。 */
+  const exportPackages = async (format: 'json' | 'yaml', scope: 'platform' | 'builtin' | 'all') => {
+    if (pkgExporting) return
+    setPkgExporting(true)
+    try {
+      const text = await exportAIAgentPackages(format, scope)
+      const blob = new Blob([text], { type: format === 'yaml' ? 'text/yaml' : 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `docflow-agent-packages.${format}`
+      a.click()
+      URL.revokeObjectURL(url)
+      onNotice(zh ? '已导出技能包文件' : 'Agent packages exported')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'loadFailed'))
+    } finally {
+      setPkgExporting(false)
+    }
+  }
+
+  /** 导入技能包（upsert 按 id 合并 / replace 整块替换；结果含拒收明细）。 */
+  const applyPackageImport = async () => {
+    if (!pkgImport || pkgImporting) return
+    if (!pkgImport.content.trim()) {
+      onError(zh ? '请粘贴导出的 JSON/YAML 内容' : 'Paste the exported JSON/YAML content')
+      return
+    }
+    setPkgImporting(true)
+    try {
+      const res = await importAIAgentPackages(pkgImport.format, pkgImport.content, pkgImport.mode)
+      setAgentPackages(res.packages ?? [])
+      setPkgImport(null)
+      const skipped = res.skipped?.length ?? 0
+      onNotice(zh
+        ? `导入完成：新增 ${res.imported}、更新 ${res.updated}${skipped > 0 ? `、跳过 ${skipped} 条（内置包不可覆盖）` : ''}`
+        : `Imported: ${res.imported} new, ${res.updated} updated${skipped > 0 ? `, ${skipped} skipped (builtin packages are read-only)` : ''}`)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    } finally {
+      setPkgImporting(false)
     }
   }
 
@@ -1316,6 +1481,96 @@ export default function AISettingsPanel({
         </div>
       </Card>
 
+      {/* Agent 技能包：编辑页 Agent 循环的包级增强（I 批次：版本/变更日志 + 导入导出 + 使用统计）。 */}
+      <Card size="small" title={zh ? 'Agent 技能包（编辑页 Agent 循环）' : 'Agent packages (editor agent loop)'} style={{ marginTop: 12 }} extra={!readOnly && (
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'platform-json', label: zh ? '平台包 · JSON' : 'Platform · JSON' },
+                { key: 'platform-yaml', label: zh ? '平台包 · YAML' : 'Platform · YAML' },
+                { type: 'divider' as const },
+                { key: 'builtin-json', label: zh ? '内置包 · JSON' : 'Builtin · JSON' },
+                { key: 'all-json', label: zh ? '全部（平台 + 内置）· JSON' : 'All (platform + builtin) · JSON' },
+              ],
+              onClick: ({ key }) => {
+                const [scope, format] = key.split('-')
+                void exportPackages(format as 'json' | 'yaml', scope as 'platform' | 'builtin' | 'all')
+              },
+            }}
+          >
+            <Button size="small" loading={pkgExporting}>
+              <Download size={13} strokeWidth={2} aria-hidden="true" />
+              <span>{zh ? '导出' : 'Export'}</span>
+            </Button>
+          </Dropdown>
+          <Button size="small" onClick={() => setPkgImport({ format: 'json', content: '', mode: 'upsert' })}>
+            <Upload size={13} strokeWidth={2} aria-hidden="true" />
+            <span>{zh ? '导入' : 'Import'}</span>
+          </Button>
+          <Button size="small" type="primary" disabled={agentPackages.length >= 50} onClick={() => setPkgEditing({ id: '', name: '', description: '', system_extra: '', tools: [], kinds: [], version: 1, changelog: [], isNew: true })}>
+            <Plus size={13} strokeWidth={2} aria-hidden="true" />
+            <span>{t(locale, 'adminAINew')}</span>
+          </Button>
+        </span>
+      )}>
+        <p className="hint">
+          {zh
+            ? '编辑页 AI 面板「技能包」下拉的数据源（内置包编译期固化，不在此列）。包 = system 附加段 + 工具白名单 + 适用文档类型；选中后注入 Agent 提示。使用次数来自 ai.chat 审计（携带包的对话），受审计保留期约束。'
+            : 'Source of the "package" dropdown in the editor AI panel (builtin packages are compiled in and not listed). A package = system add-on + tool allowlist + applicable doc kinds; it is injected into the agent prompt once selected. Usage counts come from ai.chat audit rows (chats carrying a package) within the audit retention window.'}
+        </p>
+        <div className="ai-provider-list">
+          {agentPackages.length === 0 && <div className="empty">{zh ? '尚无平台技能包，点击右上角新建或导入。' : 'No platform packages yet; create or import one.'}</div>}
+          {agentPackages.map((p) => {
+            const stat = pkgStats[p.id]
+            return (
+              <div className="ai-provider-card" key={p.id}>
+                <div className="ai-provider-main">
+                  <div className="ai-provider-name">
+                    {p.name}
+                    {p.version && p.version > 0 && <Tag color="blue">v{p.version}</Tag>}
+                    {p.kinds && p.kinds.length > 0
+                      ? <Tag>{zh ? `限 ${p.kinds.length} 类文档` : `${p.kinds.length} kinds`}</Tag>
+                      : <Tag>{zh ? '全部文档' : 'All docs'}</Tag>}
+                    {p.tools && p.tools.length > 0 && <Tag color="geekblue">{p.tools.length} {zh ? '工具' : 'tools'}</Tag>}
+                  </div>
+                  {p.description && <div className="muted">{p.description}</div>}
+                  <div className="muted" title={p.system_extra ?? ''}>
+                    {(p.system_extra ?? '').length > 120 ? `${(p.system_extra ?? '').slice(0, 120)}…` : (p.system_extra || (zh ? '（无 system 附加段）' : '(no system add-on)'))}
+                  </div>
+                  <div className="muted">
+                    {stat
+                      ? (zh ? `已用 ${stat.calls} 次 · ${stat.users} 人 · 最近 ${stat.last_used_at.slice(0, 10)}` : `${stat.calls} calls · ${stat.users} users · last ${stat.last_used_at.slice(0, 10)}`)
+                      : (zh ? '暂无使用记录' : 'No usage yet')}
+                  </div>
+                </div>
+                {!readOnly && (
+                  <div className="ai-provider-actions">
+                    <Tooltip title={zh ? '编辑' : 'Edit'}>
+                      <Button size="small" onClick={() => setPkgEditing({
+                        id: p.id, name: p.name, description: p.description ?? '', system_extra: p.system_extra ?? '',
+                        tools: p.tools ? [...p.tools] : [], kinds: p.kinds ? [...p.kinds] : [],
+                        version: p.version ?? 0,
+                        changelog: (p.changelog ?? []).map((e) => ({ version: e.version, date: e.date ?? '', note: e.note })),
+                        isNew: false,
+                      })}>
+                        <Pencil size={13} strokeWidth={2} aria-hidden="true" />
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title={t(locale, 'adminAIDelete')}>
+                      <Button size="small" danger onClick={() => void removePackage(p.id)}>
+                        <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
       {/* MCP 工具服务：外部 MCP 服务器（Streamable HTTP）；对话开启「MCP 工具」后可被调用。 */}
       <Card size="small" title={zh ? 'MCP 工具服务' : 'MCP tool services'} style={{ marginTop: 12 }} extra={!readOnly && (
         <Button size="small" type="primary" disabled={mcpServices.length >= 8} onClick={() => setMcpEditing({ id: '', name: '', url: '', auth_header: '', enabled: true, isNew: true })}>
@@ -1650,6 +1905,137 @@ export default function AISettingsPanel({
           <div className="modal-actions">
             <Button type="primary" onClick={() => void applySkillEdit()}>{t(locale, 'adminAISave')}</Button>
             <Button onClick={() => setSkillEditing(null)}>{t(locale, 'cancel')}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 新建/编辑 Agent 技能包弹窗（I 批次：版本 + 变更日志）。 */}
+      {pkgEditing && (
+        <Modal
+          title={pkgEditing.isNew
+            ? (zh ? '新建 Agent 技能包' : 'New agent package')
+            : `${zh ? '编辑 Agent 技能包' : 'Edit agent package'}：${pkgEditing.name}`}
+          onClose={() => setPkgEditing(null)}
+        >
+          <div className="ai-provider-form">
+            <label className="field">
+              <span>ID{zh ? '（唯一标识，≤64，保存后不可改；builtin- 前缀保留给内置包）' : ' (unique key, ≤64; builtin- prefix reserved)'}</span>
+              <Input value={pkgEditing.id} maxLength={64} disabled={!pkgEditing.isNew} onChange={(e) => setPkgEditing({ ...pkgEditing, id: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '名称（≤64）' : 'Name (≤64)'}</span>
+              <Input value={pkgEditing.name} maxLength={64} onChange={(e) => setPkgEditing({ ...pkgEditing, name: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '描述（可选，≤200）' : 'Description (optional, ≤200)'}</span>
+              <Input value={pkgEditing.description} maxLength={200} onChange={(e) => setPkgEditing({ ...pkgEditing, description: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? 'System 附加段（≤4000；追加到 Agent 系统提示之后）' : 'System add-on (≤4000; appended to the agent system prompt)'}</span>
+              <Input.TextArea rows={6} maxLength={4000} value={pkgEditing.system_extra} onChange={(e) => setPkgEditing({ ...pkgEditing, system_extra: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '工具白名单（空 = 不限制；df_* 平台工具）' : 'Tool allowlist (empty = unrestricted; df_* platform tools)'}</span>
+              <Select
+                mode="tags" size="small" allowClear
+                value={pkgEditing.tools}
+                options={PACKAGE_TOOL_OPTIONS.map((x) => ({ value: x, label: x }))}
+                onChange={(v) => setPkgEditing({ ...pkgEditing, tools: v })}
+              />
+            </label>
+            <label className="field">
+              <span>{zh ? '适用文档类型（空 = 全部）' : 'Applicable doc kinds (empty = all)'}</span>
+              <Select
+                mode="multiple" size="small" allowClear
+                value={pkgEditing.kinds}
+                options={PACKAGE_KIND_OPTIONS}
+                onChange={(v) => setPkgEditing({ ...pkgEditing, kinds: v })}
+              />
+            </label>
+            <label className="field">
+              <span>{zh ? '版本号（≥0；实质修改时递增，用户侧下拉显示 vN）' : 'Version (≥0; bump on meaningful changes, shown as vN)'}</span>
+              <InputNumber min={0} value={pkgEditing.version} onChange={(v) => setPkgEditing({ ...pkgEditing, version: v ?? 0 })} />
+            </label>
+            <div className="field">
+              <span>{zh ? `变更日志（≤50 条；说明每版改了什么）` : 'Changelog (≤50 entries; what changed per version)'}</span>
+              {pkgEditing.changelog.map((e, i) => (
+                <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center' }}>
+                  <InputNumber
+                    size="small" min={0} style={{ width: 76 }}
+                    value={e.version}
+                    onChange={(v) => setPkgEditing({ ...pkgEditing, changelog: pkgEditing.changelog.map((x, j) => (j === i ? { ...x, version: v ?? 0 } : x)) })}
+                  />
+                  <Input
+                    size="small" placeholder="YYYY-MM-DD" style={{ width: 128 }}
+                    value={e.date}
+                    onChange={(ev) => setPkgEditing({ ...pkgEditing, changelog: pkgEditing.changelog.map((x, j) => (j === i ? { ...x, date: ev.target.value } : x)) })}
+                  />
+                  <Input
+                    size="small" placeholder={zh ? '变更说明（≤500）' : 'What changed (≤500)'}
+                    value={e.note}
+                    maxLength={500}
+                    onChange={(ev) => setPkgEditing({ ...pkgEditing, changelog: pkgEditing.changelog.map((x, j) => (j === i ? { ...x, note: ev.target.value } : x)) })}
+                  />
+                  <Button size="small" type="text" danger onClick={() => setPkgEditing({ ...pkgEditing, changelog: pkgEditing.changelog.filter((_, j) => j !== i) })}>
+                    <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+                  </Button>
+                </div>
+              ))}
+              <Button size="small" disabled={pkgEditing.changelog.length >= 50} onClick={() => setPkgEditing({
+                ...pkgEditing,
+                changelog: [{ version: pkgEditing.version || 1, date: new Date().toISOString().slice(0, 10), note: '' }, ...pkgEditing.changelog],
+              })}>
+                <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                <span>{zh ? '添加变更记录' : 'Add entry'}</span>
+              </Button>
+            </div>
+          </div>
+          <div className="modal-actions">
+            <Button type="primary" onClick={() => void applyPackageEdit()}>{t(locale, 'adminAISave')}</Button>
+            <Button onClick={() => setPkgEditing(null)}>{t(locale, 'cancel')}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 技能包导入弹窗（粘贴导出的 JSON/YAML；upsert 合并 / replace 整替）。 */}
+      {pkgImport && (
+        <Modal title={zh ? '导入 Agent 技能包' : 'Import agent packages'} onClose={() => setPkgImport(null)}>
+          <div className="ai-provider-form">
+            <label className="field">
+              <span>{zh ? '格式（与导出文件一致）' : 'Format (match the exported file)'}</span>
+              <Radio.Group
+                value={pkgImport.format}
+                onChange={(e) => setPkgImport({ ...pkgImport, format: e.target.value as 'json' | 'yaml' })}
+              >
+                <Radio value="json">JSON</Radio>
+                <Radio value="yaml">YAML</Radio>
+              </Radio.Group>
+            </label>
+            <label className="field">
+              <span>{zh ? '导入模式' : 'Import mode'}</span>
+              <Radio.Group
+                value={pkgImport.mode}
+                onChange={(e) => setPkgImport({ ...pkgImport, mode: e.target.value as 'upsert' | 'replace' })}
+              >
+                <Radio value="upsert">{zh ? '合并（按 id 覆盖同 id 平台包）' : 'Upsert (merge by id)'}</Radio>
+                <Radio value="replace">{zh ? '整块替换（清空现有平台包）' : 'Replace all'}</Radio>
+              </Radio.Group>
+            </label>
+            <label className="field">
+              <span>{zh ? '内容（粘贴导出文件全文；≤256KB；builtin- 前缀包自动拒收）' : 'Content (paste the full exported file; ≤256KB; builtin- packages are rejected)'}</span>
+              <Input.TextArea
+                rows={10}
+                value={pkgImport.content}
+                onChange={(e) => setPkgImport({ ...pkgImport, content: e.target.value })}
+                placeholder={pkgImport.format === 'json' ? '{"packages":[…]}' : 'packages:\n  - id: …'}
+              />
+            </label>
+          </div>
+          <div className="modal-actions">
+            <Button type="primary" loading={pkgImporting} onClick={() => void applyPackageImport()}>
+              {zh ? '导入' : 'Import'}
+            </Button>
+            <Button onClick={() => setPkgImport(null)}>{t(locale, 'cancel')}</Button>
           </div>
         </Modal>
       )}

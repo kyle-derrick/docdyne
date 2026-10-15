@@ -25,9 +25,11 @@ type fakeSettingsService struct {
 	// 未显式配置的键回退内置定义默认值（与 *settings.Store 行为一致）。
 	boolKeys map[string]bool
 	boolErr  map[string]error
-	// personas / skills 支撑平台人设/技能端点的测试（可配置读写内存）。
-	personas []settings.AIPersonaDef
-	skills   []settings.AISkillDef
+	// personas / skills / agentPackages 支撑平台人设/技能/技能包端点的
+	// 测试（可配置读写内存）。
+	personas      []settings.AIPersonaDef
+	skills        []settings.AISkillDef
+	agentPackages []settings.AIAgentPackageDef
 }
 
 func (f *fakeSettingsService) GetAll() ([]settings.SettingView, error) { return f.views, nil }
@@ -118,6 +120,21 @@ func (f *fakeSettingsService) SetAISkills(list []settings.AISkillDef, _ uuid.UUI
 		return nil, err
 	}
 	f.skills = list
+	return list, nil
+}
+
+func (f *fakeSettingsService) AIAgentPackages() ([]settings.AIAgentPackageDef, error) {
+	if f.agentPackages == nil {
+		return []settings.AIAgentPackageDef{}, nil
+	}
+	return f.agentPackages, nil
+}
+
+func (f *fakeSettingsService) SetAIAgentPackages(list []settings.AIAgentPackageDef, _ uuid.UUID) ([]settings.AIAgentPackageDef, error) {
+	if err := settings.ValidateAIAgentPackages(list); err != nil {
+		return nil, err
+	}
+	f.agentPackages = list
 	return list, nil
 }
 
