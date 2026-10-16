@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -485,10 +485,10 @@ func shareJSON(s share.Share) gin.H {
 
 // ---------- 公开分享密码保护（设计 6.6.2 / US-003） ----------
 
-// shareSessionCookiePrefix / cookie 常量：cookie 名为 docflow_sa_<token 前 8 字符>，
+// shareSessionCookiePrefix / cookie 常量：cookie 名为 docdyne_sa_<token 前 8 字符>，
 // HttpOnly + SameSite=Lax，Path 限定 /api/v1/public（不随认证接口发送），1 小时。
 const (
-	shareSessionCookiePrefix = "docflow_sa_"
+	shareSessionCookiePrefix = "docdyne_sa_"
 	shareSessionCookiePath   = "/api/v1/public"
 	// shareSessionCookieTTL 与服务层会话有效期（share.shareSessionTTL）一致。
 	shareSessionCookieTTL = time.Hour

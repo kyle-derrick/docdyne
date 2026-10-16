@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/collab"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/collab"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"

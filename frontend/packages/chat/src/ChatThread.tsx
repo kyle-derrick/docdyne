@@ -12,7 +12,7 @@ import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, ShieldAler
 import { useEffect, useState, type ReactNode } from 'react'
 import { AIChatThinking, AIWebSourcesView } from './AIMessageList'
 import type { AIToolCallEntry, AIWebSource } from './turns'
-import { dfToolLabel } from './turns'
+import { ddToolLabel } from './turns'
 import AIMarkdown from './AIMarkdown'
 import type { AISource, AIUsage } from './types'
 import TraceView from './TraceView'
@@ -39,7 +39,7 @@ export interface ChatMessage {
   // ---- 助手宿主字段（编辑宿主不产生；渲染端全部可选） ----
   /** 用户主动停止（保留已生成内容，不视为错误）。 */
   stopped?: boolean
-  /** 工具调用链（df_* 平台文件工具 / MCP）。 */
+  /** 工具调用链（dd_* 平台文件工具 / MCP）。 */
   toolCalls?: AIToolCallEntry[]
   /** RAG 检索来源文件链接。 */
   sources?: AISource[]
@@ -128,7 +128,7 @@ function synthStages(msg: ChatMessage, zh: boolean): TraceStage[] | undefined {
     }
     if (i < tools.length) {
       const tc = tools[i]
-      out.push({ key: key++, kind: 'tool', label: dfToolLabel(tc, zh), input: tc.input, output: tc.output ?? tc.errorText, status: tc.status })
+      out.push({ key: key++, kind: 'tool', label: ddToolLabel(tc, zh), input: tc.input, output: tc.output ?? tc.errorText, status: tc.status })
     }
   }
   return out.length > 0 ? out : undefined

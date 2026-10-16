@@ -24,7 +24,7 @@ import (
 const (
 	// TOTPIssuer 为 otpauth URL 与认证器展示的签发方（config 无 SITE_NAME，
 	// 固定常量；认证器以 issuer + 账号（用户邮箱）区分条目）。
-	TOTPIssuer = "DocFlow"
+	TOTPIssuer = "DocDyne"
 	// TOTPRecoveryCount 为 confirm 时生成的恢复码个数。
 	TOTPRecoveryCount = 10
 	// totpPeriodSeconds / totpDigits 与主流认证器（Google Authenticator 等）

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# DocFlow 备份脚本 v2（与 scripts/backup.ps1 同语义）。
+# DocDyne 备份脚本 v2（与 scripts/backup.ps1 同语义）。
 #
-# 产物：BACKUP_DIR/docflow-backup-<ts>/ 目录，内含
+# 产物：BACKUP_DIR/docdyne-backup-<ts>/ 目录，内含
 #   - postgres.sql       PostgreSQL 逻辑备份（pg_dump）
 #   - objects.tar        对象存储目录打包（仅 STORAGE_DRIVER=local；s3 时跳过，
 #                        对象桶由运维层负责备份/版本化，manifest 标注
@@ -34,8 +34,8 @@ retention_is_valid() {
 # ---------- --verify：对最近备份重算 sha256 ----------
 if [ "${1:-}" = "--verify" ]; then
   command -v python3 >/dev/null || { echo 'python3 is required for --verify' >&2; exit 1; }
-  latest=$(find "$BACKUP_DIR" -maxdepth 1 -type d -name 'docflow-backup-*' 2>/dev/null | sort | tail -n 1)
-  [ -n "$latest" ] || { echo "no docflow-backup-* directory found under $BACKUP_DIR" >&2; exit 1; }
+  latest=$(find "$BACKUP_DIR" -maxdepth 1 -type d -name 'docdyne-backup-*' 2>/dev/null | sort | tail -n 1)
+  [ -n "$latest" ] || { echo "no docdyne-backup-* directory found under $BACKUP_DIR" >&2; exit 1; }
   python3 - "$latest" <<'PY'
 import datetime, hashlib, json, os, sys
 root = sys.argv[1]
@@ -90,7 +90,7 @@ esac
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-out="$BACKUP_DIR/docflow-backup-$stamp"
+out="$BACKUP_DIR/docdyne-backup-$stamp"
 mkdir "$out"
 
 pg_dump "${DATABASE_URL:?DATABASE_URL is required}" > "$out/postgres.sql"
@@ -138,8 +138,8 @@ with open(os.path.join(root, 'manifest.json'), 'w') as f:
 PY
 
 # retention：清理超过 RETENTION 天的备份目录与旧版（v1）散落产物。
-find "$BACKUP_DIR" -maxdepth 1 -type d -name 'docflow-backup-*' -mtime +"$RETENTION" -exec rm -rf {} +
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'docflow-*' -mtime +"$RETENTION" -delete
+find "$BACKUP_DIR" -maxdepth 1 -type d -name 'docdyne-backup-*' -mtime +"$RETENTION" -exec rm -rf {} +
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'docdyne-*' -mtime +"$RETENTION" -delete
 
 printf 'backup complete: %s (object-store=%s)\n' "$out" "$object_store"
 printf 'manifest: %s\n' "$out/manifest.json"

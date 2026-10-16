@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docflow/docflow/internal/notify"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )

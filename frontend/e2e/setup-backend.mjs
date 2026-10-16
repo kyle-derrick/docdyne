@@ -24,10 +24,10 @@ if (!databaseURL) {
   console.error(
     '[e2e] 缺少 E2E_DATABASE_URL：E2E 需要真实 PostgreSQL。\n' +
       '[e2e] 本机准备一个（示例，数据可复用）:\n' +
-      '[e2e]   docker run -d --name docflow-e2e-pg -p 5432:5432 \\\n' +
-      "[e2e]     -e POSTGRES_DB=docflow -e POSTGRES_USER=docflow -e POSTGRES_PASSWORD=change-me postgres:16-alpine\n" +
-      '[e2e]   export E2E_DATABASE_URL="postgres://docflow:change-me@localhost:5432/docflow?sslmode=disable"\n' +
-      '[e2e]   # Windows PowerShell: $env:E2E_DATABASE_URL="postgres://docflow:change-me@localhost:5432/docflow?sslmode=disable"',
+      '[e2e]   docker run -d --name docdyne-e2e-pg -p 5432:5432 \\\n' +
+      "[e2e]     -e POSTGRES_DB=docdyne -e POSTGRES_USER=docdyne -e POSTGRES_PASSWORD=change-me postgres:16-alpine\n" +
+      '[e2e]   export E2E_DATABASE_URL="postgres://docdyne:change-me@localhost:5432/docdyne?sslmode=disable"\n' +
+      '[e2e]   # Windows PowerShell: $env:E2E_DATABASE_URL="postgres://docdyne:change-me@localhost:5432/docdyne?sslmode=disable"',
   )
   process.exit(1)
 }
@@ -60,7 +60,7 @@ runGo(
 // 3) 构建独立后端二进制（直接 spawn，保证 teardown 时进程可被可靠终止）。
 const binary = path.join(
   tmpdir(),
-  `docflow-e2e-server-${process.pid}${process.platform === 'win32' ? '.exe' : ''}`,
+  `docdyne-e2e-server-${process.pid}${process.platform === 'win32' ? '.exe' : ''}`,
 )
 runGo(['build', '-o', binary, './cmd/server'], {}, '构建后端')
 

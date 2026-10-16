@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/google/uuid"
 )
 
@@ -26,7 +26,7 @@ func hotConfig(provider, model string) settings.AIConfig {
 				{ID: "mc", Capabilities: settings.AIModelCapabilities{Kind: settings.AIModelKindChat}},
 			},
 		}},
-		RAG: settings.AIRAGConfig{CollectionPrefix: "docflow_", EmbeddingProvider: provider, EmbeddingModel: model},
+		RAG: settings.AIRAGConfig{CollectionPrefix: "docdyne_", EmbeddingProvider: provider, EmbeddingModel: model},
 	}
 }
 
@@ -50,7 +50,7 @@ func TestResolveEmbeddingCollection(t *testing.T) {
 		t.Fatal("cached provider instance expected for identical config")
 	}
 	hash := hex.EncodeToString(func() []byte { s := sha256.Sum256([]byte("p1::m1")); return s[:] }())
-	if c1 != "docflow_g_"+hash[:10] {
+	if c1 != "docdyne_g_"+hash[:10] {
 		t.Fatalf("collection %q != prefix+g_+sha256-10hex (%s)", c1, hash[:10])
 	}
 	// 换模型即换库。
@@ -65,7 +65,7 @@ func TestResolveEmbeddingCollection(t *testing.T) {
 	}
 	// mock 路径：内置 8 维 + 固定派生名。
 	mock, cm, err := hotService(hotConfig("mock", "")).ResolveEmbedding()
-	if err != nil || cm != "docflow_g_mock8" || mock.Dimensions() != 8 {
+	if err != nil || cm != "docdyne_g_mock8" || mock.Dimensions() != 8 {
 		t.Fatalf("mock path: %q dims=%d %v", cm, mock.Dimensions(), err)
 	}
 }

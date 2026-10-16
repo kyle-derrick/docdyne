@@ -23,7 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 const (

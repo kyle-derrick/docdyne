@@ -10,16 +10,16 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/space"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // ServerName / ServerVersion 为 serverInfo 字段取值（SDK Implementation）。
 const (
-	ServerName    = "docflow"
+	ServerName    = "docdyne"
 	ServerVersion = "1.0.0"
 )
 
@@ -28,7 +28,7 @@ const (
 // 工具 handler，见 streamable.go 的 connectStreamable 注释）。
 type Identity struct {
 	UserID uuid.UUID
-	// IsPAT 表示凭证为 PAT（dfpat_）；JWT access token 不受 scope 限制。
+	// IsPAT 表示凭证为 PAT（ddpat_）；JWT access token 不受 scope 限制。
 	IsPAT bool
 	// Scopes 为 PAT 授权 scope 列表；nil 表示不受限（JWT 或未限定 scope
 	// 的 PAT），与 auth.RequireScope 的判定语义一致。
@@ -120,7 +120,7 @@ type Deps struct {
 	Search  SearchService
 	// AI 为 AI 能力（ask_docs/summarize_file/ai_chat；AI 能力第一版）。
 	AI AIAssistant
-	// Convos 为 AI 会话存取（df_list/get/append_conversation；nil 不注册）。
+	// Convos 为 AI 会话存取（dd_list/get/append_conversation；nil 不注册）。
 	Convos ConvoStore
 }
 
@@ -154,8 +154,8 @@ var errToolUnavailable = errors.New("capability not available on this deployment
 
 // serverInstructions 为 initialize 应答的 instructions 字段（SDK
 // ServerOptions.Instructions）。
-const serverInstructions = "DocFlow 文档中台 MCP 服务端（统一空间模型）。工具均以 df_ 前缀命名；" +
-	"文件操作按空间定位：space_id 缺省为你的默认空间，df_list_spaces 可列出全部可见空间。" +
+const serverInstructions = "DocDyne 文档中台 MCP 服务端（统一空间模型）。工具均以 dd_ 前缀命名；" +
+	"文件操作按空间定位：space_id 缺省为你的默认空间，dd_list_spaces 可列出全部可见空间。" +
 	"写入走上传管线（office 校验/扫描/配额生效）；文本类（md/txt/xml/json/excalidraw 等）" +
-	"可用 df_read_file 直读、df_write_version 覆盖编辑；drawio 的 .drawio 文件即 XML，" +
+	"可用 dd_read_file 直读、dd_write_version 覆盖编辑；drawio 的 .drawio 文件即 XML，" +
 	"excalidraw 的 .excalidraw 即 JSON，均可按文本直接读写。"

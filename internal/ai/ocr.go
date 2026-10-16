@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // ocrPrompt OCR 提示词：只输出识别文字、保持原有顺序与换行；无文字

@@ -13,14 +13,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
-// maxReadBytes 为 df_read_file 的内容大小上限（与搜索索引的内容上限一致，
+// maxReadBytes 为 dd_read_file 的内容大小上限（与搜索索引的内容上限一致，
 // 2MiB）：超出提示走 download 链接，避免大文件撑爆模型上下文。
 const maxReadBytes = 2 << 20
 
@@ -40,7 +40,7 @@ func searchAvailable(d *Deps) bool { return d.Search != nil }
 
 // ---------- 工具清单 ----------
 
-// allTools 返回全部 df_ 工具（手写 JSON Schema；名称统一 df_ 前缀）。
+// allTools 返回全部 dd_ 工具（手写 JSON Schema；名称统一 dd_ 前缀）。
 func allTools() []Tool {
 	prop := func(desc string, extra ...map[string]any) map[string]any {
 		p := map[string]any{"type": "string", "description": desc}
@@ -51,7 +51,7 @@ func allTools() []Tool {
 		}
 		return p
 	}
-	spaceIDProp := prop("空间 ID（UUID）；缺省为你的默认空间，df_list_spaces 可列出全部可见空间")
+	spaceIDProp := prop("空间 ID（UUID）；缺省为你的默认空间，dd_list_spaces 可列出全部可见空间")
 	parentIDProp := prop("父目录 file_id；缺省为对应空间根目录")
 	fileIDProp := prop("文件或目录的 file_id（UUID）")
 	limitProp := func(max int) map[string]any {
@@ -62,7 +62,7 @@ func allTools() []Tool {
 
 	return []Tool{
 		{
-			Name:        "df_list_files",
+			Name:        "dd_list_files",
 			Description: "列出目录内容（缺省根目录）：指定空间（space_id 缺省为默认空间），返回子项 id/name/type/parent_id 等。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -74,7 +74,7 @@ func allTools() []Tool {
 			Handler:   toolListFiles,
 		},
 		{
-			Name:        "df_get_file",
+			Name:        "dd_get_file",
 			Description: "获取文件/目录元数据与当前版本信息（版本号、大小、sha256、MIME、状态）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"file_id": fileIDProp}, "required": []string{"file_id"}},
@@ -82,7 +82,7 @@ func allTools() []Tool {
 			Handler:     toolGetFile,
 		},
 		{
-			Name:        "df_create_folder",
+			Name:        "dd_create_folder",
 			Description: "创建子目录（空间内；写权限按空间角色/ACL 判定）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -93,7 +93,7 @@ func allTools() []Tool {
 			Handler:   toolCreateFolder,
 		},
 		{
-			Name:        "df_write_file",
+			Name:        "dd_write_file",
 			Description: "新建文件并写入内容：走上传管线（office 格式校验、病毒扫描、空间配额、扩展名黑名单、MIME 按扩展名推断均生效）。同名冲突时换名重试。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -105,7 +105,7 @@ func allTools() []Tool {
 			Handler:   toolWriteFile,
 		},
 		{
-			Name:        "df_write_version",
+			Name:        "dd_write_version",
 			Description: "覆盖既有文件为新版本（内容不可变版本链）：走覆盖上传管线（校验/扫描/配额生效），可用于编辑文本、drawio XML、excalidraw JSON 等。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -115,7 +115,7 @@ func allTools() []Tool {
 			Handler:   toolWriteVersion,
 		},
 		{
-			Name:        "df_read_file",
+			Name:        "dd_read_file",
 			Description: "读取文件内容（当前或指定版本）：文本类（md/txt/json/xml/js/drawio/excalidraw 等）以 text 直读，二进制用 base64；超过 2MB 提示改用 download 链接。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -127,7 +127,7 @@ func allTools() []Tool {
 			Handler:   toolReadFile,
 		},
 		{
-			Name:        "df_rename_file",
+			Name:        "dd_rename_file",
 			Description: "重命名文件或目录（根目录不可改名）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -137,7 +137,7 @@ func allTools() []Tool {
 			Handler:   toolRenameFile,
 		},
 		{
-			Name:        "df_move_file",
+			Name:        "dd_move_file",
 			Description: "移动文件/目录到新父目录（不能移动到自身或其子孙目录下）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -147,7 +147,7 @@ func allTools() []Tool {
 			Handler:   toolMoveFile,
 		},
 		{
-			Name:        "df_copy_file",
+			Name:        "dd_copy_file",
 			Description: "复制文件到目标目录（仅文件，目录不可复制；name 缺省为「原名 copy」）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -157,15 +157,15 @@ func allTools() []Tool {
 			Handler:   toolCopyFile,
 		},
 		{
-			Name:        "df_delete_file",
-			Description: "删除文件/目录到回收站（软删除，可用 df_restore_file 恢复；根目录不可删）。",
+			Name:        "dd_delete_file",
+			Description: "删除文件/目录到回收站（软删除，可用 dd_restore_file 恢复；根目录不可删）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"file_id": fileIDProp}, "required": []string{"file_id"}},
 			Available:   filesAvailable,
 			Handler:     toolDeleteFile,
 		},
 		{
-			Name:        "df_restore_file",
+			Name:        "dd_restore_file",
 			Description: "从回收站恢复软删除的文件/目录（父目录仍在回收站或名称冲突时报错）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"file_id": fileIDProp}, "required": []string{"file_id"}},
@@ -173,7 +173,7 @@ func allTools() []Tool {
 			Handler:     toolRestoreFile,
 		},
 		{
-			Name:        "df_list_trash",
+			Name:        "dd_list_trash",
 			Description: "列出回收站顶层条目（指定空间；space_id 缺省为默认空间）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -183,7 +183,7 @@ func allTools() []Tool {
 			Handler:   toolListTrash,
 		},
 		{
-			Name:        "df_list_versions",
+			Name:        "dd_list_versions",
 			Description: "列出文件全部历史版本（版本号倒序；含大小、sha256、MIME、状态）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"file_id": fileIDProp}, "required": []string{"file_id"}},
@@ -191,7 +191,7 @@ func allTools() []Tool {
 			Handler:     toolListVersions,
 		},
 		{
-			Name:        "df_restore_version",
+			Name:        "dd_restore_version",
 			Description: "把文件的 current_version 回滚到既有历史版本（版本内容不可变）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -201,7 +201,7 @@ func allTools() []Tool {
 			Handler:   toolRestoreVersion,
 		},
 		{
-			Name:        "df_search_files",
+			Name:        "dd_search_files",
 			Description: "全文检索文件（文件名 + 文本内容；覆盖全部可见空间）。需部署启用搜索，未启用时调用返回明确错误。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -211,7 +211,7 @@ func allTools() []Tool {
 			Handler:   toolSearchFiles,
 		},
 		{
-			Name:        "df_list_shares",
+			Name:        "dd_list_shares",
 			Description: "列出当前用户创建的分享（含关联文件名、权限、有效期、撤销状态）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"limit": limitProp(200)}},
@@ -219,7 +219,7 @@ func allTools() []Tool {
 			Handler:     toolListShares,
 		},
 		{
-			Name:        "df_create_share",
+			Name:        "dd_create_share",
 			Description: "为文件创建分享：public 返回一次性 token 与访问链接（可附密码）；private 授权给指定用户/空间（须再提供 user_ids/space_ids）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -236,7 +236,7 @@ func allTools() []Tool {
 			Handler:   toolCreateShare,
 		},
 		{
-			Name:        "df_revoke_share",
+			Name:        "dd_revoke_share",
 			Description: "撤销分享（幂等；撤销后公开链接立即失效）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"share_id": prop("分享 ID（UUID）")}, "required": []string{"share_id"}},
@@ -244,7 +244,7 @@ func allTools() []Tool {
 			Handler:     toolRevokeShare,
 		},
 		{
-			Name:        "df_list_spaces",
+			Name:        "dd_list_spaces",
 			Description: "列出当前用户可见的空间（id/name/description/owner_id/is_default），供 space_id 定位目标空间。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -252,7 +252,7 @@ func allTools() []Tool {
 			Handler:     toolListSpaces,
 		},
 		{
-			Name:        "df_resolve_path",
+			Name:        "dd_resolve_path",
 			Description: "按路径定位文件/目录并返回 file_id（如 path=\"docs/报告.md\"；空间内相对路径，space_id 缺省为默认空间）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -263,8 +263,8 @@ func allTools() []Tool {
 			Handler:   toolResolvePath,
 		},
 		{
-			Name:        "df_download_url",
-			Description: "返回文件的下载/预览 API 路径（大文件超出 df_read_file 上限时，让用户或客户端带 Bearer 凭证经此链接获取）。",
+			Name:        "dd_download_url",
+			Description: "返回文件的下载/预览 API 路径（大文件超出 dd_read_file 上限时，让用户或客户端带 Bearer 凭证经此链接获取）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"file_id": fileIDProp}, "required": []string{"file_id"}},
 			Available:   filesAvailable,
@@ -740,7 +740,7 @@ func toolDeleteFile(_ context.Context, deps *Deps, id Identity, args json.RawMes
 	if err := deps.Files.Delete(id.UserID, fileID); err != nil {
 		return nil, err
 	}
-	return map[string]any{"file_id": fileID, "deleted": true, "hint": "soft-deleted to trash; restore with df_restore_file"}, nil
+	return map[string]any{"file_id": fileID, "deleted": true, "hint": "soft-deleted to trash; restore with dd_restore_file"}, nil
 }
 
 func toolRestoreFile(_ context.Context, deps *Deps, id Identity, args json.RawMessage) (any, error) {
@@ -1062,7 +1062,7 @@ func toolDownloadURL(_ context.Context, deps *Deps, id Identity, args json.RawMe
 		"file_id":      fileID,
 		"download_url": "/api/v1/files/" + fileID.String() + "/download",
 		"preview_url":  "/api/v1/files/" + fileID.String() + "/preview",
-		"auth_hint":    "send Authorization: Bearer <dfpat_ PAT or access token>",
+		"auth_hint":    "send Authorization: Bearer <ddpat_ PAT or access token>",
 	}, nil
 }
 

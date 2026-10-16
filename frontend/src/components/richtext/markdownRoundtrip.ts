@@ -10,7 +10,7 @@ export type EmbedKind = 'drawio' | 'excalidraw' | 'xmind' | 'office' | 'web' | '
 
 export const EMBED_KINDS: readonly EmbedKind[] = ['drawio', 'excalidraw', 'xmind', 'office', 'web', 'file']
 
-/** 嵌入块引用（对应 DocflowEmbed node 的 attrs）。 */
+/** 嵌入块引用（对应 DocdyneEmbed node 的 attrs）。 */
 export interface EmbedRef {
   kind: EmbedKind
   fileId: string

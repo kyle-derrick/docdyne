@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
-# DocFlow backup script v2 (same semantics as scripts/backup.sh).
+# DocDyne backup script v2 (same semantics as scripts/backup.sh).
 #
-# Output: BACKUP_DIR/docflow-backup-<ts>/ directory containing
+# Output: BACKUP_DIR/docdyne-backup-<ts>/ directory containing
 #   - postgres.sql       PostgreSQL logical dump (pg_dump)
 #   - objects.zip        object storage dir archive (STORAGE_DRIVER=local only;
 #                        skipped for s3: the bucket is backed up/versioned at the
@@ -35,8 +35,8 @@ $verifyMode = ($args -contains '--verify') -or ($args -contains '-verify')
 
 # ---------- --verify: recompute sha256 of the most recent backup ----------
 if ($verifyMode) {
-  $latest = Get-ChildItem $dir -Directory -Filter 'docflow-backup-*' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
-  if (-not $latest) { throw "no docflow-backup-* directory found under $dir" }
+  $latest = Get-ChildItem $dir -Directory -Filter 'docdyne-backup-*' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+  if (-not $latest) { throw "no docdyne-backup-* directory found under $dir" }
   $manifestPath = Join-Path $latest.FullName 'manifest.json'
   if (-not (Test-Path $manifestPath -PathType Leaf)) { throw "manifest.json not found in $($latest.FullName)" }
   $m = Get-Content $manifestPath -Raw | ConvertFrom-Json
@@ -72,7 +72,7 @@ New-Item -ItemType Directory -Force -LiteralPath $dir | Out-Null
 
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
 $iso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-$out = Join-Path $dir "docflow-backup-$stamp"
+$out = Join-Path $dir "docdyne-backup-$stamp"
 New-Item -ItemType Directory -Path $out | Out-Null
 
 if (-not $env:DATABASE_URL) { throw 'DATABASE_URL is required' }
@@ -123,10 +123,10 @@ Get-ChildItem $out -File | ForEach-Object {
 } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $out 'manifest.json')
 
 # retention: prune backup dirs (and legacy v1 loose artifacts) older than RETENTION days.
-Get-ChildItem $dir -Directory -Filter 'docflow-backup-*' -ErrorAction SilentlyContinue |
+Get-ChildItem $dir -Directory -Filter 'docdyne-backup-*' -ErrorAction SilentlyContinue |
   Where-Object { $_.LastWriteTimeUtc -lt (Get-Date).ToUniversalTime().AddDays(-$retention) } |
   Remove-Item -Recurse -Force
-Get-ChildItem $dir -File -Filter 'docflow-*' -ErrorAction SilentlyContinue |
+Get-ChildItem $dir -File -Filter 'docdyne-*' -ErrorAction SilentlyContinue |
   Where-Object { $_.LastWriteTimeUtc -lt (Get-Date).ToUniversalTime().AddDays(-$retention) } |
   Remove-Item -Force
 

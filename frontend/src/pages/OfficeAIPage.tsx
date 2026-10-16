@@ -1,5 +1,5 @@
-// Office AI 插件页（v8 SPA 桥接）：OnlyOffice「DocFlow AI」插件面板的
-// 真身——由插件宿主页（public/oo-plugins/docflow-ai/index.html）以 iframe
+// Office AI 插件页（v8 SPA 桥接）：OnlyOffice「DocDyne AI」插件面板的
+// 真身——由插件宿主页（public/oo-plugins/docdyne-ai/index.html）以 iframe
 // 加载本路由（/office-ai，同源）。与站内编辑页 AI 对话**同一套组件**
 // （AIEditChat → AIChatShell）：会话服务端持久化、技能包、谨慎模式对话内
 // 确认、智能/对话模式、模型选择、联网/思考/MCP 开关全部复用。
@@ -45,7 +45,7 @@ export default function OfficeAIPage() {
   useEffect(() => {
     // 文件标识：宿主 EditorPage 写入的同源 localStorage。
     try {
-      const raw = window.localStorage.getItem('docflow.ai.editor.file')
+      const raw = window.localStorage.getItem('docdyne.ai.editor.file')
       if (raw) {
         const v = JSON.parse(raw) as { id?: string; name?: string }
         if (v.id) setFileInfo({ id: v.id, name: v.name ?? '' })
@@ -135,7 +135,7 @@ export default function OfficeAIPage() {
         <div className="office-ai-empty muted">
           {window.parent !== window
             ? '正在连接编辑器工具…（若长时间无响应，请重新打开本文档）'
-            : '本页为 OnlyOffice「DocFlow AI」插件面板：请在文档编辑器侧栏中打开。'}
+            : '本页为 OnlyOffice「DocDyne AI」插件面板：请在文档编辑器侧栏中打开。'}
         </div>
       </div>
     )

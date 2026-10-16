@@ -536,7 +536,7 @@ function ProfileInfoModal({ onClose }: { onClose: () => void }) {
       })
       setMe(updated)
       setNotice('资料已保存')
-      window.dispatchEvent(new Event('docflow:me'))
+      window.dispatchEvent(new Event('docdyne:me'))
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
     } finally {
@@ -621,8 +621,8 @@ function ProfileInfoModal({ onClose }: { onClose: () => void }) {
 
 /**
  * 外观快捷入口（v2.2）：Popover 内明暗切换 + accent 色板 + 语言，紧凑单列。
- * 与设置页「外观」面板共享 theme.ts 偏好（saveTheme 广播 docflow:theme，
- * 双向实时同步）；语言沿用 docflow:locale 事件。
+ * 与设置页「外观」面板共享 theme.ts 偏好（saveTheme 广播 docdyne:theme，
+ * 双向实时同步）；语言沿用 docdyne:locale 事件。
  */
 function AppearanceQuickEntry({ locale }: { locale: 'zh-CN' | 'en-US' }) {
   const zh = locale === 'zh-CN'
@@ -636,8 +636,8 @@ function AppearanceQuickEntry({ locale }: { locale: 'zh-CN' | 'en-US' }) {
       setAccent(cur.accent)
       setMode(cur.mode)
     }
-    window.addEventListener('docflow:theme', onTheme)
-    return () => window.removeEventListener('docflow:theme', onTheme)
+    window.addEventListener('docdyne:theme', onTheme)
+    return () => window.removeEventListener('docdyne:theme', onTheme)
   }, [])
   // v2.5 防漂移：update 一律基于 localStorage 现值合并（而非本地 state）——
   // THEME_EVENT 监听的 setState 异步生效，快速跨入口连续操作时本地 state
@@ -648,7 +648,7 @@ function AppearanceQuickEntry({ locale }: { locale: 'zh-CN' | 'en-US' }) {
   }
   const switchLocale = (next: 'zh-CN' | 'en-US') => {
     saveLocale(next)
-    window.dispatchEvent(new Event('docflow:locale'))
+    window.dispatchEvent(new Event('docdyne:locale'))
   }
   const panel = (
     <div className="appearance-pop">
@@ -725,8 +725,8 @@ function TopBar() {
   // 资料在别处（如个人信息弹窗）更新后刷新顶栏显示名。
   useEffect(() => {
     const onMe = () => { void getMe().then(setMe).catch(() => undefined) }
-    window.addEventListener('docflow:me', onMe)
-    return () => window.removeEventListener('docflow:me', onMe)
+    window.addEventListener('docdyne:me', onMe)
+    return () => window.removeEventListener('docdyne:me', onMe)
   }, [])
   useEffect(() => {
     let alive = true
@@ -765,7 +765,7 @@ function TopBar() {
   }
   return (
     <header className="topbar">
-      <span className="brand">DocFlow</span>
+      <span className="brand">DocDyne</span>
       <nav className="nav">
         <Link to="/dashboard" className={location.pathname === '/dashboard' ? 'active' : ''}>{msg('overview')}</Link>
         <Link to="/" className={location.pathname === '/' ? 'active' : ''}>{msg('files')}</Link>
@@ -878,7 +878,7 @@ export default function App() {
             编辑器分发；须置于 /view/:fileId、/edit/:fileId 之前匹配。 */}
         <Route path="/view/by-path/:nsType/:nsScope/*" element={<RequireAuth bare><ViewByPathPage /></RequireAuth>} />
         <Route path="/edit/by-path/:nsType/:nsScope/*" element={<RequireAuth bare><EditByPathPage /></RequireAuth>} />
-        {/* 按文件类型分发的独立只读查看页；不挂 DocFlow 顶栏。 */}
+        {/* 按文件类型分发的独立只读查看页；不挂 DocDyne 顶栏。 */}
         <Route path="/view/:fileId" element={<RequireAuth bare><ViewerPage /></RequireAuth>} />
         {/* UUID 直链编辑分发页：按扩展名（及 ?open= 偏好）分发各编辑器——
             仅显式「编辑 Office」等合法 force 才进入 OnlyOffice；此前固定渲染

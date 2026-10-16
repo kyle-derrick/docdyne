@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DocFlow 全量运行时 API 冒烟测试 v2（真实后端 + 真实 PostgreSQL）。
+# DocDyne 全量运行时 API 冒烟测试 v2（真实后端 + 真实 PostgreSQL）。
 set -u
 base=http://127.0.0.1:18080
 pass=0; fail=0
@@ -20,13 +20,13 @@ sha(){ sha256sum "$1" | cut -d' ' -f1; }
 login=$(curl -sS -c /tmp/dfcookies -H 'Content-Type: application/json' --data-binary '{"email":"admin@example.com","password":"AdminPassword123"}' "$base/api/v1/auth/login")
 token=$(printf '%s' "$login" | json access_token)
 [ -n "$token" ] && ok "auth/login" || bad "auth/login"
-csrf=$(awk '$6=="docflow_csrf" {print $7}' /tmp/dfcookies)
+csrf=$(awk '$6=="docdyne_csrf" {print $7}' /tmp/dfcookies)
 A=(-H "Authorization: Bearer $token" -H "X-CSRF-Token: $csrf" -b /tmp/dfcookies)
 expect "login wrong password 401" 401 "$(curl -sS -o /tmp/r -w '%{http_code}' -H 'Content-Type: application/json' --data-binary '{"email":"admin@example.com","password":"WrongPassword123"}' "$base/api/v1/auth/login")"
-csrf2=$(awk '$6=="docflow_csrf" {print $7}' /tmp/dfcookies2 2>/dev/null || true)
+csrf2=$(awk '$6=="docdyne_csrf" {print $7}' /tmp/dfcookies2 2>/dev/null || true)
 code=$(curl -sS -o /tmp/r -w '%{http_code}' -c /tmp/dfcookies2 -H 'Content-Type: application/json' --data-binary '{"email":"admin@example.com","password":"AdminPassword123"}' "$base/api/v1/auth/login")
 expect "login repeat 200" 200 "$code"
-csrf2=$(awk '$6=="docflow_csrf" {print $7}' /tmp/dfcookies2)
+csrf2=$(awk '$6=="docdyne_csrf" {print $7}' /tmp/dfcookies2)
 expect "auth/refresh rotation 200" 200 "$(curl -sS -o /tmp/r -w '%{http_code}' -b /tmp/dfcookies2 -c /tmp/dfcookies3 -H "X-CSRF-Token: $csrf2" -H "Origin: http://127.0.0.1:18080" -X POST "$base/api/v1/auth/refresh")"
 expect "unauth 401" 401 "$(curl -sS -o /dev/null -w '%{http_code}' "$base/api/v1/files")"
 

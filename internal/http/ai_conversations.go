@@ -16,7 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // aiConvoStore 抽象会话存取（生产实现 *auth.UserStore，NewHandler 装配；

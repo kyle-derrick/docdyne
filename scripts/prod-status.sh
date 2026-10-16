@@ -2,7 +2,7 @@
 # 生产前核对 - 栈状态探查：容器健康 + /ready 六项 + caddy 入口
 cd "$(dirname "$0")/.."
 echo '=== containers ==='
-docker ps -a --format 'table {{.Names}}\t{{.Status}}' | grep -E 'docflow|NAMES'
+docker ps -a --format 'table {{.Names}}\t{{.Status}}' | grep -E 'docdyne|NAMES'
 echo '=== /ready (direct 18081/18082) ==='
 for p in 18081 18082; do
   r=$(curl -s -m 3 "http://127.0.0.1:${p}/ready")

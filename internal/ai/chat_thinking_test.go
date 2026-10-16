@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // fakeOpenAIReasoning 假 openai 兼容上游：流式返回 reasoning_content 与

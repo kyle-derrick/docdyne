@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/google/uuid"
 )
 

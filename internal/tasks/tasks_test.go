@@ -12,8 +12,8 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // --- 测试替身 ---
@@ -109,8 +109,8 @@ func waitCalled(t *testing.T, ch chan uuid.UUID) uuid.UUID {
 // --- InProcess 驱动 ---
 
 // InProcess Enqueuer 在 goroutine 中触发处理函数并传入正确 ID，
-// 计入 docflow_queue_enqueued_total{driver=inprocess} 与
-// docflow_queue_processed_total{status=success}。
+// 计入 docdyne_queue_enqueued_total{driver=inprocess} 与
+// docdyne_queue_processed_total{status=success}。
 func TestInProcessDispatchesHandlers(t *testing.T) {
 	sessionID, fileID := uuid.New(), uuid.New()
 	completions := newFakeCompleter(upload.UploadSession{}, nil)
@@ -125,27 +125,27 @@ func TestInProcessDispatchesHandlers(t *testing.T) {
 		t.Fatalf("Driver() = %q, want inprocess", p.Driver())
 	}
 
-	enqueuedBefore := counterValue(t, "docflow_queue_enqueued_total", map[string]string{"type": TaskTypeCompleteUpload, "driver": "inprocess"})
-	okBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "success"})
+	enqueuedBefore := counterValue(t, "docdyne_queue_enqueued_total", map[string]string{"type": TaskTypeCompleteUpload, "driver": "inprocess"})
+	okBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "success"})
 	if err := p.EnqueueCompleteUpload(sessionID); err != nil {
 		t.Fatalf("EnqueueCompleteUpload: %v", err)
 	}
 	if got := waitCalled(t, completions.called); got != sessionID {
 		t.Fatalf("Complete id = %s, want %s", got, sessionID)
 	}
-	if d := counterValue(t, "docflow_queue_enqueued_total", map[string]string{"type": TaskTypeCompleteUpload, "driver": "inprocess"}) - enqueuedBefore; d != 1 {
+	if d := counterValue(t, "docdyne_queue_enqueued_total", map[string]string{"type": TaskTypeCompleteUpload, "driver": "inprocess"}) - enqueuedBefore; d != 1 {
 		t.Fatalf("enqueued 差值 = %v, want 1", d)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "success"}, okBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "success"}, okBefore, 1)
 
-	extractOKBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeExtractWebpkg, "status": "success"})
+	extractOKBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeExtractWebpkg, "status": "success"})
 	if err := p.EnqueueExtractWebpkg(fileID); err != nil {
 		t.Fatalf("EnqueueExtractWebpkg: %v", err)
 	}
 	if got := waitCalled(t, extractor.called); got != fileID {
 		t.Fatalf("AutoExtract id = %s, want %s", got, fileID)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeExtractWebpkg, "status": "success"}, extractOKBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeExtractWebpkg, "status": "success"}, extractOKBefore, 1)
 }
 
 // waitMetric 轮询等待计数器差值达到 want（InProcess 在 goroutine 中计数，
@@ -168,12 +168,12 @@ func waitMetric(t *testing.T, name string, labels map[string]string, before, wan
 // 后续任务照常执行（哨兵证明队列未死）。
 func TestInProcessRecoversPanic(t *testing.T) {
 	boom := func(context.Context, uuid.UUID) error { panic("boom") }
-	failedBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"})
+	failedBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"})
 	p := NewInProcess(boom, boom, nil, nil)
 	if err := p.EnqueueCompleteUpload(uuid.New()); err != nil {
 		t.Fatalf("enqueue panicking task: %v", err)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"}, failedBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"}, failedBefore, 1)
 	done := make(chan struct{})
 	p.completeUpload = func(context.Context, uuid.UUID) error { close(done); return nil }
 	if err := p.EnqueueCompleteUpload(uuid.New()); err != nil {
@@ -190,11 +190,11 @@ func TestInProcessRecoversPanic(t *testing.T) {
 func TestInProcessHandlerErrorCountedFailed(t *testing.T) {
 	cause := errors.New("transient")
 	p := NewInProcess(func(context.Context, uuid.UUID) error { return cause }, nil, nil, nil)
-	failedBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"})
+	failedBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"})
 	if err := p.EnqueueCompleteUpload(uuid.New()); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"}, failedBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"}, failedBefore, 1)
 }
 
 // Close 取消在途任务的执行 ctx 并等待其返回；等待在途任务（不感知 ctx）
@@ -357,7 +357,7 @@ func TestMuxDispatchesTasksLocally(t *testing.T) {
 // 载荷非法：mux 包装返回错误（含 SkipRetry 语义），计入 processed{failed}。
 func TestMuxInvalidPayloadFails(t *testing.T) {
 	mux := NewMux(func(context.Context, uuid.UUID) error { return nil }, nil, nil, nil)
-	failedBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"})
+	failedBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"})
 	err := mux.ProcessTask(context.Background(), asynq.NewTask(TaskTypeCompleteUpload, []byte("not-json")))
 	if err == nil {
 		t.Fatal("invalid payload: want error")
@@ -365,7 +365,7 @@ func TestMuxInvalidPayloadFails(t *testing.T) {
 	if !errors.Is(err, asynq.SkipRetry) {
 		t.Fatalf("err = %v, want SkipRetry wrapped", err)
 	}
-	if d := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"}) - failedBefore; d != 1 {
+	if d := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeCompleteUpload, "status": "failed"}) - failedBefore; d != 1 {
 		t.Fatalf("processed{failed} 差值 = %v, want 1", d)
 	}
 }
@@ -382,8 +382,8 @@ func TestInProcessWebhookDelivery(t *testing.T) {
 		got <- raw
 		return nil
 	})
-	enqueuedBefore := counterValue(t, "docflow_queue_enqueued_total", map[string]string{"type": TaskTypeWebhookDelivery, "driver": "inprocess"})
-	okBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "success"})
+	enqueuedBefore := counterValue(t, "docdyne_queue_enqueued_total", map[string]string{"type": TaskTypeWebhookDelivery, "driver": "inprocess"})
+	okBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "success"})
 	if err := p.EnqueueWebhookDelivery(payload); err != nil {
 		t.Fatalf("EnqueueWebhookDelivery: %v", err)
 	}
@@ -395,19 +395,19 @@ func TestInProcessWebhookDelivery(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("webhook delivery handler was not invoked within timeout")
 	}
-	if d := counterValue(t, "docflow_queue_enqueued_total", map[string]string{"type": TaskTypeWebhookDelivery, "driver": "inprocess"}) - enqueuedBefore; d != 1 {
+	if d := counterValue(t, "docdyne_queue_enqueued_total", map[string]string{"type": TaskTypeWebhookDelivery, "driver": "inprocess"}) - enqueuedBefore; d != 1 {
 		t.Fatalf("enqueued 差值 = %v, want 1", d)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "success"}, okBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "success"}, okBefore, 1)
 
 	// 处理函数返回错误：计入 failed，进程不崩。
 	cause := errors.New("endpoint down")
 	p2 := NewInProcess(nil, nil, nil, func(context.Context, []byte) error { return cause })
-	failedBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "failed"})
+	failedBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "failed"})
 	if err := p2.EnqueueWebhookDelivery([]byte("{}")); err != nil {
 		t.Fatalf("enqueue failing delivery: %v", err)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "failed"}, failedBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeWebhookDelivery, "status": "failed"}, failedBefore, 1)
 }
 
 // asynq mux：webhook-delivery 载荷原样透传（不经 decodePayload），
@@ -522,27 +522,27 @@ func TestInProcessSearchIndex(t *testing.T) {
 	fileID := uuid.New()
 	indexer := &fakeIndexer{called: make(chan uuid.UUID, 4)}
 	p := NewInProcess(nil, nil, SearchIndexHandler(indexer), nil)
-	enqueuedBefore := counterValue(t, "docflow_queue_enqueued_total", map[string]string{"type": TaskTypeSearchIndex, "driver": "inprocess"})
-	okBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "success"})
+	enqueuedBefore := counterValue(t, "docdyne_queue_enqueued_total", map[string]string{"type": TaskTypeSearchIndex, "driver": "inprocess"})
+	okBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "success"})
 	if err := p.EnqueueSearchIndex(fileID); err != nil {
 		t.Fatalf("EnqueueSearchIndex: %v", err)
 	}
 	if got := waitCalled(t, indexer.called); got != fileID {
 		t.Fatalf("Index id = %s, want %s", got, fileID)
 	}
-	if d := counterValue(t, "docflow_queue_enqueued_total", map[string]string{"type": TaskTypeSearchIndex, "driver": "inprocess"}) - enqueuedBefore; d != 1 {
+	if d := counterValue(t, "docdyne_queue_enqueued_total", map[string]string{"type": TaskTypeSearchIndex, "driver": "inprocess"}) - enqueuedBefore; d != 1 {
 		t.Fatalf("enqueued 差值 = %v, want 1", d)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "success"}, okBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "success"}, okBefore, 1)
 
 	// 处理错误：计入 failed，进程不崩。
 	cause := errors.New("db down")
 	p2 := NewInProcess(nil, nil, SearchIndexHandler(&fakeIndexer{called: make(chan uuid.UUID, 4), err: cause}), nil)
-	failedBefore := counterValue(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "failed"})
+	failedBefore := counterValue(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "failed"})
 	if err := p2.EnqueueSearchIndex(uuid.New()); err != nil {
 		t.Fatalf("enqueue failing index: %v", err)
 	}
-	waitMetric(t, "docflow_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "failed"}, failedBefore, 1)
+	waitMetric(t, "docdyne_queue_processed_total", map[string]string{"type": TaskTypeSearchIndex, "status": "failed"}, failedBefore, 1)
 }
 
 // search-index 载荷与 mux 派发：载荷 {file_id} 往返一致；asynq mux 本地

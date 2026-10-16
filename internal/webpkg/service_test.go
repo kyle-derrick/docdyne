@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // fakeSource 是 FileSource 的最小内存实现（模式同 http 包 previewFakeSource）。

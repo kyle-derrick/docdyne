@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
 	"github.com/google/uuid"
 )
 
@@ -474,7 +474,7 @@ func (s *Service) StartReplace(user, target uuid.UUID, size int64, expected stri
 	return s.start(user, parent, f.Name, size, expected, &f.ID)
 }
 
-// start 创建会话并计入 docflow_upload_sessions_total{status=created|failed}
+// start 创建会话并计入 docdyne_upload_sessions_total{status=created|failed}
 // （自定义 API 与 tus 创建扩展共用入口）。
 func (s *Service) start(user, parent uuid.UUID, name string, size int64, expected string, targetFileID *uuid.UUID) (UploadSession, error) {
 	v, err := s.createSession(user, parent, name, size, expected, targetFileID)
@@ -673,7 +673,7 @@ func (s *Service) Complete(id uuid.UUID) (UploadSession, error) {
 	}
 	v.Status = StatusVerifying
 	// verify 阶段：读取 + SHA-256 全量校验（计入
-	// docflow_upload_processing_duration_seconds{stage=verify}）。
+	// docdyne_upload_processing_duration_seconds{stage=verify}）。
 	verifyStart := time.Now()
 	r, e := s.storage.Read(v.StorageKey)
 	if e != nil {

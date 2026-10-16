@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// MeiliIndexUID 为 DocFlow 检索索引的固定标识（主键 file_id）。
-const MeiliIndexUID = "docflow-files"
+// MeiliIndexUID 为 DocDyne 检索索引的固定标识（主键 file_id）。
+const MeiliIndexUID = "docdyne-files"
 
 // meiliTimeout 单次 Meilisearch 请求超时。
 const meiliTimeout = 10 * time.Second

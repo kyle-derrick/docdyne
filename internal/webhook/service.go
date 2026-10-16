@@ -9,11 +9,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/notify"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 )
 
 const (
-	// secretPrefix 为签名密钥明文前缀（UI 识别用，同 dfpat_ 模式）。
+	// secretPrefix 为签名密钥明文前缀（UI 识别用，同 ddpat_ 模式）。
 	secretPrefix = "whsec_"
 	// secretRandomBytes 为随机体长度（32B → URL-safe base64 43 字符）。
 	secretRandomBytes = 32

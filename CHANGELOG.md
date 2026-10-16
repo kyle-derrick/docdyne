@@ -5,12 +5,13 @@
 ## [Unreleased]
 
 ### 变更
+- **项目更名 DocFlow → DocDyne（全量、破坏性）**：消除与 Toss `docflow` npm 包、合合信息 TextIn DocFlow 商业产品等的命名空间冲突（四路查重：GitHub/npm/PyPI/商业产品均确认 docdyne 干净）。涉及：Go module path `github.com/kyle-derrick/docdyne`、npm scope `@docdyne/chat`、MCP 工具前缀 `df_`→`dd_`（25 个对外工具 + 站内 AI 平台工具）、PAT 前缀 `dfpat_`→`ddpat_`、webhook 签名头 `X-DocFlow-Signature`→`X-DocDyne-Signature`、Docker 镜像 `docdyne/backend|caddy`、环境变量 `DOCDYNE_IMAGE_TAG/DEV_API/URL`、compose 数据面标识（DB 名/用户/S3 bucket/ES 索引/RAG collection 前缀/Redis channel）、UI 品牌与文档全套。**兼容性**：旧 PAT 失效（前缀识别）、旧 webhook 接收方须改验签头名、既有部署数据卷需重建或手工迁移、浏览器 localStorage 偏好回落默认；`.dfrt`/`.dfdoc` 文件扩展名与 `/dfdoc` 路由作为数据格式协议保留不改；`migrations/` 历史文件按红线原样保留（其中 dfpat_ 仅存于注释）。
 - **Agent 体系 P2 全量落地（对标 pi/opencode，设计采纳不引码；TODO-agent.md 留档）**：
-  - 死代码清理（-835 行）：单轮指令通道（richtext-patch/docflow-edit、白板/drawio 单轮提示、autoApply/undo、scope 选区）全删——Agent 工具循环为唯一编辑通道；引用文件接入 Agent（此前静默失效）
+  - 死代码清理（-835 行）：单轮指令通道（richtext-patch/docdyne-edit、白板/drawio 单轮提示、autoApply/undo、scope 选区）全删——Agent 工具循环为唯一编辑通道；引用文件接入 Agent（此前静默失效）
   - **子 Agent（C1）**：deep_search（独立只读小循环 ≤8 轮，同参连败 4 次熔断，只回结构化摘要不占主上下文）+ parallel_scan（≤3 目标并发）作为元工具注入执行通道
   - **技能包（C2，pi packages 式）**：ai.agent_packages 平台设置（管理端 PUT /admin/settings/ai 维护）+ 3 个内置包（Excel 报表专家/图表架构师/文档审校，按 applyKind 过滤）；/ai/models 暴露；编辑页工具栏选择器——选中注入附加规范并按工具白名单过滤
-  - **MCP 全能力开放（C4）**：df_list/get/append_conversation（会话外控）+ **df_platform_skills**（内置领域知识对外开放：drawio XML/excalidraw 骨架/Office 规范——外部 agent 取技能后直接产出合法图表/白板文件）；docs/mcp.md 同步
-- **Agent 强化 P1（TODO-agent.md）**：①谨慎模式（默认开，可关）——破坏性工具（delete_*/clear_*/replace_diagram/write_document/delete_block 等）执行前确认，取消=跳过并回喂模型自适应（编辑页 antd confirm + 插件 ?v=15 confirm，状态 localStorage 记忆）；②用量可见性——SSE usage 逐轮聚合到回合，TraceView 头部显示「N 轮 · N tok · Ns」，插件完成提示带 token；③会话导入导出——编辑页头部按钮，本文件域全部会话（含过程 trace）.json 导出/合并导入；④后端双循环（openai/anthropic）接入同参连败熔断（8 次，df_* JSON 结果可判定时）
+  - **MCP 全能力开放（C4）**：dd_list/get/append_conversation（会话外控）+ **dd_platform_skills**（内置领域知识对外开放：drawio XML/excalidraw 骨架/Office 规范——外部 agent 取技能后直接产出合法图表/白板文件）；docs/mcp.md 同步
+- **Agent 强化 P1（TODO-agent.md）**：①谨慎模式（默认开，可关）——破坏性工具（delete_*/clear_*/replace_diagram/write_document/delete_block 等）执行前确认，取消=跳过并回喂模型自适应（编辑页 antd confirm + 插件 ?v=15 confirm，状态 localStorage 记忆）；②用量可见性——SSE usage 逐轮聚合到回合，TraceView 头部显示「N 轮 · N tok · Ns」，插件完成提示带 token；③会话导入导出——编辑页头部按钮，本文件域全部会话（含过程 trace）.json 导出/合并导入；④后端双循环（openai/anthropic）接入同参连败熔断（8 次，dd_* JSON 结果可判定时）
 - **Agent 体系强化 P0（对标 pi/opencode 设计，TODO-agent.md）**：①上下文压缩（pi/opencode 式滑动窗口——超 60 条丢中段+注入压缩说明、旧工具结果截短，300 轮预算下防上下文爆窗；不改写原始会话，「继续」仍用全量）；②瞬态错误自动重试（网络/网关抖动重试 1 次）；③最后一条 AI 消息「重新生成」（删本轮问答对并按当前模式重发）；④**计划模式**（opencode plan agent 式）：编辑页面板与 Office 插件新增「计划」档——只读工具子集探查并产出分步执行计划（模型请求写工具会被拦截引导），一键「按计划执行」转入执行循环（插件 ?v=14）
 - **AI 会话记录服务端持久化（v7.2）**：新增 ai_conversations 表（migration 053）与 /api/v1/ai/conversations CRUD（openapi 同步）；全局助手、编辑页面板（按文件）、OnlyOffice 插件三处会话统一落服务端（source=assistant/editor/plugin 分域，每域保留最近 **300** 个，写入裁最旧）——跨设备一致；本机 localStorage 旧记录首载自动迁移上服务端，插件离线时本机只读回退。会话选择器统一为共用 ConvoPicker 组件（新建 + **标题搜索**（本地即时过滤）+ 切换 + 重命名 + 删除 + 计数脚注），全局助手与编辑页同源渲染、插件为同款原生实现
 - 修复全局助手「打开抽屉不在最新行」根因：项目样式由外层 .aic-list-wrap 接管滚动（内部 scroll-box overflow:visible），此前贴底逻辑滚的是不可滚动的内部元素（空操作）；useStickyScroll 改为探测真实可滚动容器（内部 scroll-box → 包裹层 → 父级），打开/发送/切会话/摘要均经 scrollToBottom 生效
@@ -20,10 +21,10 @@
   - 白板（Excalidraw）从单轮整体生成升级为元素级工具循环：read_scene / insert_elements / update_elements / move_elements / delete_elements（id 定位局部改色改字，不再整图重画；删除连带标签与绑定箭头清理）
   - drawIO 从单轮整图替换升级为单元格级工具循环：read_diagram / list_cells / insert_cells / update_cells / delete_cells / replace_diagram（styleSet 键值合并改样式；悬空边自动清理）
   - 富文本 Agent 工具 5→12 个：format_text（行内格式）/ set_block_type（标题·列表·代码块·引用）/ insert_table / insert_image / insert_link / **insert_embed（内嵌平台 drawio/白板/Office/文件卡片——跨类型组合）** / delete_block / write_document
-  - AIEditChat agent 页「仅对话」模式改为纯问答（无编辑工具）；agentSystemExtra 宿主规范注入机制；Agent 轮次上限 14→24；df_write_file 工具描述显式说明可创建图表/白板源文件（助手跨类型创作）
-- **移除 AI 创作空间（/studio）与 Agent 创作舱**：批量/多步文件创作改由外部 agent（Claude Code、Codex 等）经平台 MCP（docs/mcp.md）对接实现；平台 MCP 服务端、df_* 文档工具、AI 助手与编辑页对话完整保留。迁移 052 幂等 DROP agent_tasks / agent_task_logs / studio_projects；compose 移除 docker.sock 挂载与 IPC 卷，Dockerfile.agent / agent-runner 删除
-- Office 编辑页 AI 收敛为编辑器内「DocFlow AI」插件面板（不 autostart，从插件图标展开）；插件清单为静态相对 URL（DS 对 variations[].url 按 config.json 所在目录拼接，绝对 URL 会 404——实测结论），页内外部 AI 面板移除
-- **插件 v4.0 真集成**：「可修改」模式 = AI 输出 docflow-edit 编辑指令（replaceAll/append/insertAtCursor/replaceSelection/insertTable），插件经 OnlyOffice Api 直接在文档上执行，轻量 Markdown（标题/加粗/行内代码/列表/表格行/代码块）转原生文档元素，每项操作成败明细 + 可展开原始输出；「仅对话」= 问答 + 手动插入。补齐模型选择（/ai/models，与主应用共用偏好）、联网/思考、多轮历史、思考折叠、停止、清空、引用选中/全文；直接编辑支持 word（cell/slide 明确提示暂不支持）
+  - AIEditChat agent 页「仅对话」模式改为纯问答（无编辑工具）；agentSystemExtra 宿主规范注入机制；Agent 轮次上限 14→24；dd_write_file 工具描述显式说明可创建图表/白板源文件（助手跨类型创作）
+- **移除 AI 创作空间（/studio）与 Agent 创作舱**：批量/多步文件创作改由外部 agent（Claude Code、Codex 等）经平台 MCP（docs/mcp.md）对接实现；平台 MCP 服务端、dd_* 文档工具、AI 助手与编辑页对话完整保留。迁移 052 幂等 DROP agent_tasks / agent_task_logs / studio_projects；compose 移除 docker.sock 挂载与 IPC 卷，Dockerfile.agent / agent-runner 删除
+- Office 编辑页 AI 收敛为编辑器内「DocDyne AI」插件面板（不 autostart，从插件图标展开）；插件清单为静态相对 URL（DS 对 variations[].url 按 config.json 所在目录拼接，绝对 URL 会 404——实测结论），页内外部 AI 面板移除
+- **插件 v4.0 真集成**：「可修改」模式 = AI 输出 docdyne-edit 编辑指令（replaceAll/append/insertAtCursor/replaceSelection/insertTable），插件经 OnlyOffice Api 直接在文档上执行，轻量 Markdown（标题/加粗/行内代码/列表/表格行/代码块）转原生文档元素，每项操作成败明细 + 可展开原始输出；「仅对话」= 问答 + 手动插入。补齐模型选择（/ai/models，与主应用共用偏好）、联网/思考、多轮历史、思考折叠、停止、清空、引用选中/全文；直接编辑支持 word（cell/slide 明确提示暂不支持）
 - AI agent 私有目录（.opencode/.trae/opencode.json 等）出库；通用技能迁用户级 ~/.claude/skills，MCP 客户端定义集中项目根 .mcp.json
 
 ### 修复
@@ -68,7 +69,7 @@ AI 全功能体系：多 Provider 网关、RAG 混合检索、联网搜索与思
 
 ### MCP 双向
 - 作为客户端消费外部 MCP 服务器：平台管理配置 ≤8 个 Streamable HTTP 服务 + 鉴权头（支持测试连接）；对话「MCP 工具」开关，工具调用 ≤5 轮，SSE 流式展示工具调用
-- 自身作为 MCP Server 对外暴露文档工具（/mcp，21 个 df_* 工具，见 docs/mcp.md）
+- 自身作为 MCP Server 对外暴露文档工具（/mcp，21 个 dd_* 工具，见 docs/mcp.md）
 
 ### AI 创作空间
 - 顶部入口：项目绑定空间目录、多会话持久化、目录树 / 任务列表
@@ -125,7 +126,7 @@ AI 全功能体系：多 Provider 网关、RAG 混合检索、联网搜索与思
 - Office：新上传 OOXML 结构校验（拒坏文件）、下载 URL 带真实文件名、回调 MIME 修正；空白 Word/Excel/PowerPoint 模板创建
 
 ### 集成与运维
-- MCP 服务端（/mcp，21 个 df_* 工具，PAT/Token 鉴权，全部复用现有权限与上传管线）——AI agent 可完全操作 DocFlow
+- MCP 服务端（/mcp，21 个 dd_* 工具，PAT/Token 鉴权，全部复用现有权限与上传管线）——AI agent 可完全操作 DocDyne
 - 目录上传（webkitdirectory 自动建树）、文件夹流式 zip 下载、Caddy /mcp 反代
 - 修复：CSRF 双路径 Cookie 兼容清理、多标签页刷新串行化（Web Locks）、OnlyOffice 文档 key 白名单、EnsureRoot 个人根作用域、最近文件有效性过滤
 
@@ -156,4 +157,4 @@ AI 全功能体系：多 Provider 网关、RAG 混合检索、联网搜索与思
 ### 验证
 - 真实全栈联调共修复 26 个运行时/编排缺陷（详见 git 历史）；生产 .env 模板与配置校验脚本
 
-[1.0.0]: https://github.com/docflow/docflow/releases/tag/v1.0.0
+[1.0.0]: https://github.com/kyle-derrick/docdyne/releases/tag/v1.0.0

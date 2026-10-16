@@ -7,11 +7,11 @@ import App from './App'
 import { THEME_ACCENTS, initTheme, useColorMode } from './theme'
 import './styles.css'
 import { LocaleContext, loadLocale, Locale } from './i18n'
-import { registerChatFileApi } from '@docflow/chat'
+import { registerChatFileApi } from '@docdyne/chat'
 import { listFiles, listSpaceFiles, listSpaces, uploadFile } from './api'
 import { Modal } from './components/FileBrowser'
 
-// K2 组合根：向 @docflow/chat 注入宿主文件能力与弹窗外壳（依赖倒置，包零
+// K2 组合根：向 @docdyne/chat 注入宿主文件能力与弹窗外壳（依赖倒置，包零
 // 反向依赖）。uploadFile 的 UploadPhase 回调差异以 lambda 适配（免断言）；
 // ModalShell 复用 FileBrowser.Modal 保持「保存为文件」弹窗与全站视觉一致。
 registerChatFileApi({
@@ -92,7 +92,7 @@ function AntdConfig({ locale, children }: { locale: Locale; children: ReactNode 
       componentSize="small"
       locale={locale === 'zh-CN' ? zhCN : enUS}
       theme={{
-        cssVar: { key: 'docflow' },
+        cssVar: { key: 'docdyne' },
         algorithm: mode === 'light' ? antdTheme.defaultAlgorithm : antdTheme.darkAlgorithm,
         token: {
           colorPrimary: accent,
@@ -115,8 +115,8 @@ function Root() {
   const [locale, setLocale] = useState<Locale>(loadLocale)
   React.useEffect(() => {
     const onLocale = () => setLocale(loadLocale())
-    window.addEventListener('docflow:locale', onLocale)
-    return () => window.removeEventListener('docflow:locale', onLocale)
+    window.addEventListener('docdyne:locale', onLocale)
+    return () => window.removeEventListener('docdyne:locale', onLocale)
   }, [])
   return (
     <LocaleContext.Provider value={locale}>

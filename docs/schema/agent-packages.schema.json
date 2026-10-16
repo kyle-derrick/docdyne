@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://docflow.local/schema/agent-packages.schema.json",
-  "title": "DocFlow AI 技能包（agent packages）交换格式",
+  "$id": "https://docdyne.local/schema/agent-packages.schema.json",
+  "title": "DocDyne AI 技能包（agent packages）交换格式",
   "description": "GET /admin/settings/ai/agent-packages/export 的 JSON 导出与 POST /admin/settings/ai/agent-packages/import 的输入格式。两种形态均合法：(1) envelope 对象 {packages, exported_at, scope}（导出默认形态）；(2) packages 裸数组（导入亦接受）。YAML 导入导出与 JSON 键名一致（snake_case），可先 YAML→JSON 再用本 schema 校验。约束与 internal/settings.ValidateAIAgentPackages 逐条对应（该函数为准；此处 maxLength 按 Unicode 码点计，与 Go 的 rune 计数一致）。",
   "oneOf": [
     { "$ref": "#/$defs/exportEnvelope" },
@@ -61,7 +61,7 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true,
-          "description": "df_* 平台工具白名单（空/缺省 = 不限制）。当前全集：df_list_dir / df_read_file / df_write_file / df_mkdir / df_search / df_read_memory / df_write_memory / df_search_history。列表不封闭——后端仅校验条目非空，未知工具名由 Agent 循环的「未知工具」反馈兜底。"
+          "description": "dd_* 平台工具白名单（空/缺省 = 不限制）。当前全集：dd_list_dir / dd_read_file / dd_write_file / dd_mkdir / dd_search / dd_read_memory / dd_write_memory / dd_search_history。列表不封闭——后端仅校验条目非空，未知工具名由 Agent 循环的「未知工具」反馈兜底。"
         },
         "kinds": {
           "type": "array",

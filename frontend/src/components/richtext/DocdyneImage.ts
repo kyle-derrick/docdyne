@@ -1,13 +1,13 @@
-// DocFlow 富文本「文档图片」块级节点（自定义 Tiptap node）：
+// DocDyne 富文本「文档图片」块级节点（自定义 Tiptap node）：
 // - 存 fileId 引用（不存 URL：raw 授权 10 分钟过期，渲染时现取），attrs
 //   { fileId, title, width(25|50|75|100) }，data-file-id 属性序列化；
 // - 渲染：认证态 fetchPreview 换 blob URL（卸载 revoke）；公开分享态
 //   raw/share 解析直连 URL；加载/失败态占位（失败可删，见 NodeView）；
 // - 选中（可编辑态）浮出宽度快捷条 25/50/75/100%（NodeView updateAttributes）。
 import { Node, mergeAttributes, ReactNodeViewRenderer } from '@tiptap/react'
-import DocflowImageView from './DocflowImageView'
+import DocdyneImageView from './DocdyneImageView'
 
-export interface DocflowImageAttrs {
+export interface DocdyneImageAttrs {
   fileId: string
   title: string
   width: number
@@ -15,8 +15,8 @@ export interface DocflowImageAttrs {
 
 export const IMAGE_WIDTHS = [25, 50, 75, 100]
 
-export const DocflowImage = Node.create({
-  name: 'docflowImage',
+export const DocdyneImage = Node.create({
+  name: 'docdyneImage',
   group: 'block',
   atom: true,
   selectable: true,
@@ -43,16 +43,16 @@ export const DocflowImage = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'div[data-docflow-image]' }]
+    return [{ tag: 'div[data-docdyne-image]' }]
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['div', mergeAttributes({ 'data-docflow-image': '1' }, HTMLAttributes)]
+    return ['div', mergeAttributes({ 'data-docdyne-image': '1' }, HTMLAttributes)]
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(DocflowImageView)
+    return ReactNodeViewRenderer(DocdyneImageView)
   },
 })
 
-export default DocflowImage
+export default DocdyneImage

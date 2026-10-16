@@ -1,5 +1,5 @@
 /**
- * DocFlow drawio 选区跟踪插件（v7.15 D1）。
+ * DocDyne drawio 选区跟踪插件（v7.15 D1）。
  *
  * 官方 embed 协议（proto=json postMessage）不发送选中事件（drawio 27.x
  * app.min.js 实测：父页可收事件仅 init/autosave/save/export/exit/load/
@@ -13,7 +13,7 @@
  *  - frontend/Dockerfile 把本文件 COPY 进 drawio webapp 的 plugins/ 目录；
  *  - js/PreConfig.js 追加 window.ALLOW_CUSTOM_PLUGINS=true（app.min.js 解析
  *    时读取）；
- *  - 宿主页（同源）把 'plugins/docflow-selection.js' 写入 drawio 本地设置
+ *  - 宿主页（同源）把 'plugins/docdyne-selection.js' 写入 drawio 本地设置
  *    （.drawio-config 的 plugins 列表，DrawioPage.enableSelectionPlugin），
  *    drawio 启动时经 mxscript 同域加载并执行 Draw.loadPlugin 回调。
  *

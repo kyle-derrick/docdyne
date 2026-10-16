@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""OIDC authorization code 流程模拟（Keycloak 登录页表单提交 → DocFlow 会话）。"""
+"""OIDC authorization code 流程模拟（Keycloak 登录页表单提交 → DocDyne 会话）。"""
 import http.cookiejar, json, re, sys, urllib.parse, urllib.request
 
 BASE = 'http://127.0.0.1'
 # Keycloak issuer 主机名（与 .env OIDC_ISSUER 逐字一致；Ubuntu hosts 指向
 # 127.0.0.1，Docker Desktop 对集成发行区做 localhost 端口转发）。
-ISSUER_HOST = 'http://docflow-idp.local:18090'
+ISSUER_HOST = 'http://docdyne-idp.local:18090'
 
 jar = http.cookiejar.CookieJar()
 opener = urllib.request.build_opener(
@@ -26,7 +26,7 @@ def get(url, headers=None):
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers), e.read()
 
-# 1) DocFlow login 端点 -> 302 Keycloak authorize
+# 1) DocDyne login 端点 -> 302 Keycloak authorize
 code, hdrs, body = get(f'{BASE}/api/v1/auth/oidc/login')
 assert code in (302, 303), f'login not redirect: {code} {body[:200]}'
 loc = hdrs.get('Location')
@@ -86,7 +86,7 @@ if 'login-actions/required-action' in cb:
 assert '/api/v1/auth/oidc/callback' in cb and 'code=' in cb, f'no callback code: {cb[:160]}'
 print('PASS keycloak authenticated -> callback with code')
 
-# 4) callback -> 302 前端 /sso#access_token=...（DocFlow 下发 refresh cookie）
+# 4) callback -> 302 前端 /sso#access_token=...（DocDyne 下发 refresh cookie）
 code, hdrs, body = get(cb.replace('http://127.0.0.1', BASE))
 assert code in (302, 303), f'callback: {code} {body[:300]}'
 names = [c.name for c in jar]

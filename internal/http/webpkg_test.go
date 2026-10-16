@@ -12,10 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/upload"
-	"github.com/docflow/docflow/internal/webpkg"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/webpkg"
 )
 
 // webpkgFakeSource 同时实现 share.FileSource 与 webpkg.FileSource，

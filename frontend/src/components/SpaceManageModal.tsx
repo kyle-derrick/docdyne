@@ -1008,10 +1008,10 @@ export default function SpaceManageModal({
       }
       styles={{ body: { height: '70vh', overflow: 'hidden', padding: 0 } }}
       classNames={{
-        header: 'docflow-modal-header',
-        title: 'docflow-modal-title',
+        header: 'docdyne-modal-header',
+        title: 'docdyne-modal-title',
         body: 'space-manage-modal-body',
-        close: 'docflow-modal-close',
+        close: 'docdyne-modal-close',
       }}
       onCancel={onClose}
     >

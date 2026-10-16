@@ -83,7 +83,7 @@ func TestApplyCSRFAcceptsMatchingRootCookieWhenLegacyPathCookieComesFirst(t *tes
 	req := httptest.NewRequest(http.MethodPost, "/op", nil)
 	req.Header.Set("Origin", "http://example.com")
 	req.Header.Set("X-CSRF-Token", "current")
-	req.Header.Set("Cookie", "docflow_csrf=legacy; docflow_csrf=current; refresh_token=refresh")
+	req.Header.Set("Cookie", "docdyne_csrf=legacy; docdyne_csrf=current; refresh_token=refresh")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {

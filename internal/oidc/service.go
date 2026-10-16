@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/google/uuid"
 )
 
@@ -98,7 +98,7 @@ func (s *Service) BeginLogin() (state, authorizeURL string, err error) {
 }
 
 // CompleteLogin 消费 state（用后即焚）→ 换取令牌 → 解析身份 →
-// 映射/开户用户。返回 DocFlow 用户 ID。
+// 映射/开户用户。返回 DocDyne 用户 ID。
 func (s *Service) CompleteLogin(ctx context.Context, state, code string) (uuid.UUID, error) {
 	verifier, ok := s.states.Consume(state)
 	if !ok {

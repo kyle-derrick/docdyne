@@ -14,8 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/share"
 )
 
 // zipEnv 复用 fakeShareFiles（sharetree_test）作为 zipper 的内存树：

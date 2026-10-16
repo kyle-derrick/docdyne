@@ -19,8 +19,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/space"
 )
 
 func main() {

@@ -276,7 +276,7 @@ test.describe.serial('AI 基座验收', () => {
     await page.getByRole('menuitem', { name: '摘要' }).click()
     await expect(page.locator('.ai-edit-output').filter({ hasText: /Mock/ })).toBeVisible({ timeout: 20000 })
     // 富文本工具栏自带「插入链接/插入」按钮，故限定弹窗内的操作按钮。
-    const modalActions = page.locator('.docflow-modal .modal-actions')
+    const modalActions = page.locator('.docdyne-modal .modal-actions')
     await modalActions.getByRole('button', { name: /插\s*入/ }).click()
     await expect(page.locator('.ai-edit-output')).toHaveCount(0)
     await expect(page.locator('.ProseMirror').first()).toContainText('Mock', { timeout: 10000 })
@@ -322,7 +322,7 @@ test.describe.serial('AI 基座验收', () => {
     const created = await api.post('/api/v1/tokens', { headers: H(), data: { name: `ai-e2e-${R()}`, scopes: ['ai:chat'] } })
     expect(created.ok(), `create PAT: ${created.status()}`).toBeTruthy()
     const pat = ((await created.json()).token) as string
-    expect(pat).toMatch(/^dfpat_/)
+    expect(pat).toMatch(/^ddpat_/)
 
     const call = (args: Record<string, unknown>) =>
       api.post('/mcp', { headers: { Authorization: `Bearer ${pat}` }, data: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'ask_docs', arguments: args } } })

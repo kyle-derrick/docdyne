@@ -58,12 +58,12 @@ func TestAIAgentPackagesCRUD(t *testing.T) {
 	// 合法载荷（version + changelog + tools/kinds）→ 200 回读。
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings/ai/agent-packages", strings.NewReader(
-		`{"packages":[{"id":"p1","name":"P1","system_extra":"extra","tools":["df_read_file"],"kinds":["text"],"version":2,"changelog":[{"version":1,"date":"2026-10-01","note":"init"},{"version":2,"note":"tune"}]}]}`))
+		`{"packages":[{"id":"p1","name":"P1","system_extra":"extra","tools":["dd_read_file"],"kinds":["text"],"version":2,"changelog":[{"version":1,"date":"2026-10-01","note":"init"},{"version":2,"note":"tune"}]}]}`))
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("put = %d %s", w.Code, w.Body.String())
 	}
-	for _, want := range []string{`"id":"p1"`, `"version":2`, `"note":"init"`, `"note":"tune"`, `"df_read_file"`} {
+	for _, want := range []string{`"id":"p1"`, `"version":2`, `"note":"init"`, `"note":"tune"`, `"dd_read_file"`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Fatalf("put body %s must contain %s", w.Body.String(), want)
 		}
@@ -103,7 +103,7 @@ func TestAIAgentPackagesExport(t *testing.T) {
 			t.Fatalf("json export %s must contain %s", body, want)
 		}
 	}
-	if disp := w.Header().Get("Content-Disposition"); !strings.Contains(disp, "docflow-agent-packages.json") {
+	if disp := w.Header().Get("Content-Disposition"); !strings.Contains(disp, "docdyne-agent-packages.json") {
 		t.Fatalf("content-disposition = %q", disp)
 	}
 

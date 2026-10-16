@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/oidc"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/oidc"
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,7 +52,7 @@ func (h *Handler) oidcLogin(c *gin.Context) {
 // oidcCallback GET /api/v1/auth/oidc/callback?state=&code=：
 //  1. state 双验证（cookie == 参数）并经服务端内存消费（用后即焚）；
 //  2. 授权码换令牌、解析身份、映射/开户用户（见 oidc.Service）；
-//  3. 成功：签发 DocFlow 会话（refresh cookie + access token 经 URL
+//  3. 成功：签发 DocDyne 会话（refresh cookie + access token 经 URL
 //     fragment 跳转前端落地页 /sso——fragment 不发往服务器，不进日志与
 //     Referer），302 {PUBLIC_BASE_URL 或相对}/sso#access_token=<jwt>。
 func (h *Handler) oidcCallback(c *gin.Context) {

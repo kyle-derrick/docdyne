@@ -1,6 +1,6 @@
-# @docflow/chat
+# @docdyne/chat
 
-DocFlow AI 对话共享组件族（npm workspace 包，源码分发）。
+DocDyne AI 对话共享组件族（npm workspace 包，源码分发）。
 
 自 `frontend/src/components/aichat/` 与 `AIMarkdown.tsx` 提取（K2）：全局 AI 助手、
 编辑器侧栏（AIEditChat）、查看页悬浮卡（ViewerAIWidget）三个对话场景共用的
@@ -38,7 +38,7 @@ import）。宿主能力一律经 `registerChatFileApi` 在组合根（`main.tsx
 
 组件样式沿用**宿主全局样式表**（`frontend/src/styles.css` 的 `ai-*` /
 `ai-md-*` / `ai-attach-*` 类，约 340 行）：部分规则与宿主选择器复合（如
-`.text-editor-body:has(> .ai-edit-chat-panel)`、`.docflow-modal-head-extra
+`.text-editor-body:has(> .ai-edit-chat-panel)`、`.docdyne-modal-head-extra
 .ai-summary-inline`），非干净可切割，故样式保留应用侧、随包导入链全局生效
 （宿主恒导入本包）。antd 侧视觉由宿主 ConfigProvider token 体系参数化。
 

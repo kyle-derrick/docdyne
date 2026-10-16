@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // zipSpec 描述一个待构造的 zip 条目。

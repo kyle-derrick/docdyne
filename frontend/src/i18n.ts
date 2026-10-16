@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 
 export type Locale = 'zh-CN' | 'en-US'
 export const LocaleContext = createContext<Locale>('zh-CN')
-export const localeStorageKey = 'docflow.locale'
+export const localeStorageKey = 'docdyne.locale'
 export function loadLocale(): Locale {
   return localStorage.getItem(localeStorageKey) === 'en-US' ? 'en-US' : 'zh-CN'
 }

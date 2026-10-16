@@ -4,8 +4,8 @@
 //   style/class/id 等表现属性，保留结构（标题/段落/列表/表格/链接/图片，
 //   结构标签由 Tiptap schema 再过滤一层）；
 // - rewriteRemoteImages：对 <img> 的 http(s)/data: 来源逐个尝试抓取并经
-//   uploader 上传，成功后改写为 docflowImage 节点标记（div[data-docflow-image]，
-//   由 DocflowImage.parseHTML 消费）；CORS 抓取失败的远程图保留原 URL，
+//   uploader 上传，成功后改写为 docdyneImage 节点标记（div[data-docdyne-image]，
+//   由 DocdyneImage.parseHTML 消费）；CORS 抓取失败的远程图保留原 URL，
 //   file:// 等本地引用（Word 本地路径）移除。
 
 /** 允许保留的结构标签（其余整棵移除；不在名单内的容器标签做「去壳保留子节点」）。 */
@@ -65,7 +65,7 @@ export function sanitizePastedHTML(html: string): string {
   return doc.body.innerHTML
 }
 
-/** 重写 HTML 内图片：可抓取的（http(s)/data:）上传后换 docflowImage 标记。
+/** 重写 HTML 内图片：可抓取的（http(s)/data:）上传后换 docdyneImage 标记。
  * clipboardFiles 为剪贴板随 HTML 一并提供的图片文件（网页复制图片时
  * <img src="blob:..."> 指向源页上下文的 blob URL，跨页不可 fetch）：blob:
  * 来源优先按顺序消费剪贴板文件重上传，取不到才保留/移除。 */
@@ -96,7 +96,7 @@ export async function rewriteRemoteImages(
       try {
         const uploaded = await upload(file)
         const holder = doc.createElement('div')
-        holder.setAttribute('data-docflow-image', '1')
+        holder.setAttribute('data-docdyne-image', '1')
         holder.setAttribute('data-file-id', uploaded.id)
         holder.setAttribute('data-title', uploaded.name)
         holder.setAttribute('data-width', '100')
@@ -122,7 +122,7 @@ export async function rewriteRemoteImages(
       })()
       const uploaded = await upload(new File([blob], nameFromURL, { type: blob.type }))
       const holder = doc.createElement('div')
-      holder.setAttribute('data-docflow-image', '1')
+      holder.setAttribute('data-docdyne-image', '1')
       holder.setAttribute('data-file-id', uploaded.id)
       holder.setAttribute('data-title', uploaded.name)
       holder.setAttribute('data-width', '100')

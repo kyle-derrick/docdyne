@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// callbackCount 读取 docflow_onlyoffice_callbacks_total 指定标签系列的当前值
+// callbackCount 读取 docdyne_onlyoffice_callbacks_total 指定标签系列的当前值
 // （计数器为进程级全局，测试一律取前后差值断言）。
 func callbackCount(t *testing.T, status, result string) float64 {
 	t.Helper()
@@ -16,7 +16,7 @@ func callbackCount(t *testing.T, status, result string) float64 {
 		t.Fatalf("gather metrics: %v", err)
 	}
 	for _, mf := range families {
-		if mf.GetName() != "docflow_onlyoffice_callbacks_total" {
+		if mf.GetName() != "docdyne_onlyoffice_callbacks_total" {
 			continue
 		}
 		for _, m := range mf.GetMetric() {
@@ -66,7 +66,7 @@ func TestHandleCallbackCountsMetric(t *testing.T) {
 	assertDelta := func(name, status, result string, before float64, want float64) {
 		t.Helper()
 		if got := callbackCount(t, status, result) - before; got != want {
-			t.Errorf("%s: docflow_onlyoffice_callbacks_total{status=%q,result=%q} 差值 = %v, want %v", name, status, result, got, want)
+			t.Errorf("%s: docdyne_onlyoffice_callbacks_total{status=%q,result=%q} 差值 = %v, want %v", name, status, result, got, want)
 		}
 	}
 

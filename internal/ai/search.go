@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // WebSearchTimeout 单次搜索请求超时（超时/网络错误静默降级）。

@@ -1,7 +1,7 @@
 // 查看页悬浮 AI 助理（替换查看页原 AI 摘要按钮行）：
 // - 收起态：44px 悬浮球（Sparkles，主色）；pointer 事件手写拖动
 //   （位移 >4px 判定为拖动，否则视为点击展开/收起），位置记忆 localStorage
-//   （docflow.viewer-ai.pos）；默认 CSS right/bottom 贴窗口右下角（v3.8），
+//   （docdyne.viewer-ai.pos）；默认 CSS right/bottom 贴窗口右下角（v3.8），
 //   双击重置回默认；
 // - 弹窗内挂载（FileBrowser 查看弹窗标题行）：默认锚点切到弹窗容器右下角；
 // - 展开态卡片（v3.9）：360×520 固有比例（按边界收缩），位置以球锚点经
@@ -22,8 +22,8 @@ import { App as AntdApp, Button, Popconfirm, Segmented, Tooltip } from 'antd'
 import { Check, ChevronDown, Copy, Globe, Brain, RotateCcw, Save, Sparkles, Trash2 } from 'lucide-react'
 import AIModelSelect from './AIModelSelect'
 import { AIModelOption, AI_MODEL_STORAGE_KEY, AI_THINK_STORAGE_KEY, AI_WEB_STORAGE_KEY, defaultAIModelKey, getAIModels, readAIFlag, writeAIFlag } from './AIAssistant'
-import { AIChatThinking, aiFriendlyError, AIMarkdown, applyToolResult, ChatInput, ChatThread, toolEntryFrom, useStickyScroll } from '@docflow/chat'
-import type { AIToolCallEntry, ChatMessage } from '@docflow/chat'
+import { AIChatThinking, aiFriendlyError, AIMarkdown, applyToolResult, ChatInput, ChatThread, toolEntryFrom, useStickyScroll } from '@docdyne/chat'
+import type { AIToolCallEntry, ChatMessage } from '@docdyne/chat'
 import {
   AIMessage,
   aiChat,
@@ -36,7 +36,7 @@ import { useAIEnabled } from '../aiFeature'
 import { t, useLocale } from '../i18n'
 
 /** 悬浮位置持久化 key（{x,y}：x/y 为悬浮球左上角（视口坐标））。 */
-const WIDGET_POS_KEY = 'docflow.viewer-ai.pos'
+const WIDGET_POS_KEY = 'docdyne.viewer-ai.pos'
 /** 悬浮球尺寸 / 卡片尺寸（px）。 */
 const BALL_SIZE = 44
 const CARD_W = 360
@@ -381,8 +381,8 @@ export default function ViewerAIWidget({
   const ensureFileContext = async (): Promise<string> => {
     if (!textLike) {
       return zh
-        ? `用户正在 DocFlow 查看文件「${fileName}」（非文本类文件，无法提供全文，仅可就文件名对话）。`
-        : `The user is viewing "${fileName}" in DocFlow (non-text file; no full text available).`
+        ? `用户正在 DocDyne 查看文件「${fileName}」（非文本类文件，无法提供全文，仅可就文件名对话）。`
+        : `The user is viewing "${fileName}" in DocDyne (non-text file; no full text available).`
     }
     if (fileTextRef.current === null) {
       try {
@@ -394,8 +394,8 @@ export default function ViewerAIWidget({
     const full = fileTextRef.current ?? ''
     const truncated = full.length > CONTEXT_TEXT_LIMIT
     return zh
-      ? `用户正在 DocFlow 查看文件「${fileName}」。文件全文如下${truncated ? `（超过 ${CONTEXT_TEXT_LIMIT} 字已截断）` : ''}：\n\n${full.slice(0, CONTEXT_TEXT_LIMIT)}`
-      : `The user is viewing "${fileName}" in DocFlow. Full text below${truncated ? ` (truncated to ${CONTEXT_TEXT_LIMIT} chars)` : ''}:\n\n${full.slice(0, CONTEXT_TEXT_LIMIT)}`
+      ? `用户正在 DocDyne 查看文件「${fileName}」。文件全文如下${truncated ? `（超过 ${CONTEXT_TEXT_LIMIT} 字已截断）` : ''}：\n\n${full.slice(0, CONTEXT_TEXT_LIMIT)}`
+      : `The user is viewing "${fileName}" in DocDyne. Full text below${truncated ? ` (truncated to ${CONTEXT_TEXT_LIMIT} chars)` : ''}:\n\n${full.slice(0, CONTEXT_TEXT_LIMIT)}`
   }
 
   /** 发送一轮对话（多轮历史 + 文件上下文 system 前置）。 */
@@ -517,7 +517,7 @@ export default function ViewerAIWidget({
   }, [aiOn, open])
 
   // 文件切换（同页复用组件时）：按 fileId 存取会话（跨打开持久化）。
-  const convKey = fileId ? `docflow.ai.view.conv.${fileId}` : ''
+  const convKey = fileId ? `docdyne.ai.view.conv.${fileId}` : ''
   useEffect(() => {
     if (!convKey) return
     try {

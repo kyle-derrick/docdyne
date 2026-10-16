@@ -18,34 +18,34 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/docflow/docflow/internal/acl"
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/caddytls"
-	"github.com/docflow/docflow/internal/collab"
-	"github.com/docflow/docflow/internal/config"
-	"github.com/docflow/docflow/internal/contenturl"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/group"
-	httpapi "github.com/docflow/docflow/internal/http"
-	"github.com/docflow/docflow/internal/invite"
-	"github.com/docflow/docflow/internal/janitor"
-	"github.com/docflow/docflow/internal/mail"
-	"github.com/docflow/docflow/internal/notify"
-	"github.com/docflow/docflow/internal/oidc"
-	"github.com/docflow/docflow/internal/onlyoffice"
-	"github.com/docflow/docflow/internal/readiness"
-	"github.com/docflow/docflow/internal/realtime"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/settings"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/space"
-	"github.com/docflow/docflow/internal/tagging"
-	"github.com/docflow/docflow/internal/tasks"
-	"github.com/docflow/docflow/internal/upload"
-	"github.com/docflow/docflow/internal/webhook"
-	"github.com/docflow/docflow/internal/webpkg"
+	"github.com/kyle-derrick/docdyne/internal/acl"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/caddytls"
+	"github.com/kyle-derrick/docdyne/internal/collab"
+	"github.com/kyle-derrick/docdyne/internal/config"
+	"github.com/kyle-derrick/docdyne/internal/contenturl"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/group"
+	httpapi "github.com/kyle-derrick/docdyne/internal/http"
+	"github.com/kyle-derrick/docdyne/internal/invite"
+	"github.com/kyle-derrick/docdyne/internal/janitor"
+	"github.com/kyle-derrick/docdyne/internal/mail"
+	"github.com/kyle-derrick/docdyne/internal/notify"
+	"github.com/kyle-derrick/docdyne/internal/oidc"
+	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
+	"github.com/kyle-derrick/docdyne/internal/readiness"
+	"github.com/kyle-derrick/docdyne/internal/realtime"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/tagging"
+	"github.com/kyle-derrick/docdyne/internal/tasks"
+	"github.com/kyle-derrick/docdyne/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/webhook"
+	"github.com/kyle-derrick/docdyne/internal/webpkg"
 )
 
 func main() {
@@ -184,8 +184,8 @@ func main() {
 	// newBlob=false 表示同 sha256 复用既有 blob，Complete 侧据 !newBlob
 	// 清理冗余物理对象（upload.Service.createFile 同签名直传）。
 	uploadService := upload.NewService(upload.NewGormStore(db), storage, cfg.UploadSessionTTL, cfg.MaxFileSize, cfg.ScanEnabled, fileStore.ValidateFolder, fileStore.CreateUploadedFile)
-	// 扫描结果与 scan 阶段耗时计入 Prometheus 指标（docflow_scan_results_total、
-	// docflow_upload_processing_duration_seconds{stage=scan}）。
+	// 扫描结果与 scan 阶段耗时计入 Prometheus 指标（docdyne_scan_results_total、
+	// docdyne_upload_processing_duration_seconds{stage=scan}）。
 	uploadService.SetScanner(upload.NewCountingScanner(upload.SelectScanner(cfg.ScanEnabled, cfg.ClamAVAddr, cfg.ClamAVRequired, cfg.ClamAVTimeout)))
 	// 空间文件版本删除通知（file.version.deleted）：DeleteVersion 事务提交后
 	// 回调（files.dispatchVersionDeleted 已过滤——删除者≠owner）；异步通知
@@ -359,13 +359,13 @@ func main() {
 	}
 	// WebSocket 跨实例广播桥：QUEUE_DRIVER=redis 时复用队列同一 Redis
 	//（REDIS_ADDR/REDIS_PASSWORD，连通性已由上方 PingRedis 一并校验），
-	// 经 docflow:notify Pub/Sub 频道把站内通知扇出到所有实例的本地连接
+	// 经 docdyne:notify Pub/Sub 频道把站内通知扇出到所有实例的本地连接
 	//（Hub 本地直发 + 远端订阅分发，msg_id seen 去重回环）；inprocess 下
 	// Noop 桥保持单实例纯本地行为。
 	var broadcaster realtime.Broadcaster = realtime.NoopBroadcaster{}
 	if cfg.QueueDriver == "redis" {
 		broadcaster = realtime.NewRedisBroadcaster(cfg.RedisAddr, cfg.RedisPassword)
-		log.Printf("ws broadcast: redis (channel=%s)", "docflow:notify")
+		log.Printf("ws broadcast: redis (channel=%s)", "docdyne:notify")
 	}
 	realtimeHub.SetBroadcaster(broadcaster)
 	// 上传完成钩子（新建与覆盖版本两条成功路径均触发，见 upload.Complete）：
@@ -424,7 +424,7 @@ func main() {
 	//（password_reset_tokens，migration 014）。
 	service.SetCredentials(userStore)
 	service.SetPasswordResetStore(auth.NewGormPasswordResetStore(db))
-	// 个人访问令牌（PAT）：api_tokens（migration 016），Bearer dfpat_ 前缀
+	// 个人访问令牌（PAT）：api_tokens（migration 016），Bearer ddpat_ 前缀
 	// 凭证经 RequireAccessToken 双路径校验（见 internal/auth）。
 	service.SetTokenStore(auth.NewGormAPITokenStore(db))
 	// 两步验证（TOTP，v2 设计）：user_totp（migration 020）；enabled 用户
@@ -708,7 +708,7 @@ func main() {
 			ServerURL:    cfg.OnlyOfficeServerURL,
 			PublicURL:    cfg.OnlyOfficePublicURL,
 			DownloadBase: cfg.OnlyOfficeDownloadURLBase,
-			// v3.5 浏览器可达基址（DocFlow AI 插件静态页 pluginsData 用）：
+			// v3.5 浏览器可达基址（DocDyne AI 插件静态页 pluginsData 用）：
 			// 缺省回退 PublicURL 同源（compose 反代场景同域）。
 			BrowserBase:      cfg.PublicBaseURL,
 			JWTSecret:        cfg.OnlyOfficeJWTSecret,
@@ -772,7 +772,7 @@ func main() {
 			log.Printf("http shutdown: %v", err)
 		}
 	}()
-	log.Printf("DocFlow backend listening on :%s", cfg.Port)
+	log.Printf("DocDyne backend listening on :%s", cfg.Port)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}

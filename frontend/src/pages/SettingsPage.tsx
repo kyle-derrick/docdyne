@@ -288,7 +288,7 @@ function TokensPanel({ onError, onNotice }: { onError: (msg: string) => void; on
     <div className="panel setting-group">
       <h3>{msg('patTitle')}</h3>
       <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        供脚本/CI 等以 Bearer dfpat_… 直接调用 API；令牌仅创建时可见一次，撤销立即失效。
+        供脚本/CI 等以 Bearer ddpat_… 直接调用 API；令牌仅创建时可见一次，撤销立即失效。
       </div>
       {oneTimeToken && (
         <>
@@ -741,7 +741,7 @@ function EmailChangePanel({ onNotice }: { onNotice: (msg: string) => void }) {
       setOpen(false)
       setMe((prev) => (prev ? { ...prev, email: r.email } : prev))
       onNotice(zh ? `绑定邮箱已更换为 ${r.email}` : `Email changed to ${r.email}`)
-      window.dispatchEvent(new Event('docflow:me'))
+      window.dispatchEvent(new Event('docdyne:me'))
     } catch (err) {
       setError(err instanceof Error ? err.message : zh ? '换绑失败' : 'Failed to change email')
     } finally {
@@ -844,7 +844,7 @@ function AppearancePanel() {
   const [accent, setAccent] = useState<ThemeAccent>(() => loadTheme().accent)
   const [mode, setMode] = useState<ThemeMode>(() => loadTheme().mode)
 
-  // 顶栏外观快捷入口改动主题时同步本面板（共享 docflow.theme 存储）。
+  // 顶栏外观快捷入口改动主题时同步本面板（共享 docdyne.theme 存储）。
   useEffect(() => {
     const onTheme = () => {
       const cur = loadTheme()
@@ -910,7 +910,7 @@ function AppearancePanel() {
             onChange={(v) => {
               const next = v === 'en-US' ? 'en-US' : 'zh-CN'
               saveLocale(next)
-              window.dispatchEvent(new Event('docflow:locale'))
+              window.dispatchEvent(new Event('docdyne:locale'))
               void updateMe({ language: next }).catch(() => { /* 资料字段写入失败不阻塞界面语言切换 */ })
             }}
             options={[
@@ -1039,7 +1039,7 @@ function WebhooksPanel({ onError, onNotice }: { onError: (msg: string) => void; 
     <div className="panel setting-group">
       <h3>{msg('webhookTitle')}</h3>
       <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        事件发生时向回调 URL POST JSON（X-DocFlow-Signature 头含 HMAC-SHA256 签名，以创建时下发的一次性
+        事件发生时向回调 URL POST JSON（X-DocDyne-Signature 头含 HMAC-SHA256 签名，以创建时下发的一次性
         secret 验签）；受「通知偏好」同一开关控制。连续 10 次投递失败将自动停用。
       </div>
       {oneTimeSecret && (
@@ -1513,7 +1513,7 @@ function OpenWithPanel({ onError, onNotice }: { onError: (msg: string) => void; 
   )
 }
 
-/** MCP 服务卡片（v1.7）：DocFlow 已内置 MCP 服务端（POST /mcp，JSON-RPC 2.0，
+/** MCP 服务卡片（v1.7）：DocDyne 已内置 MCP 服务端（POST /mcp，JSON-RPC 2.0，
  * PAT Bearer 鉴权）。本卡片展示接入端点与客户端配置示例（Claude Desktop /
  * Cursor / Cline），凭据经下方「个人访问令牌」创建（建议限定 files:read /
  * files:write scope 最小授权）。服务随部署常开，无独立开关；按 PAT 可控
@@ -1525,10 +1525,10 @@ function McpPanel({ onNotice }: { onNotice: (msg: string) => void }) {
   const clientConfig = JSON.stringify(
     {
       mcpServers: {
-        docflow: {
+        docdyne: {
           type: 'http',
           url: endpoint,
-          headers: { Authorization: 'Bearer dfpat_用你的令牌替换' },
+          headers: { Authorization: 'Bearer ddpat_用你的令牌替换' },
         },
       },
     },
@@ -1550,11 +1550,11 @@ function McpPanel({ onNotice }: { onNotice: (msg: string) => void }) {
       <h3>MCP{zh ? ' 服务（AI 接入）' : ' service (AI access)'}</h3>
       <div className="setting-desc muted">
         {zh ? (
-          <>DocFlow 已内置 MCP（Model Context Protocol）服务端：在 Claude Desktop / Cursor / Cline 等
+          <>DocDyne 已内置 MCP（Model Context Protocol）服务端：在 Claude Desktop / Cursor / Cline 等
             AI 客户端接入后，AI 可直接操作你的文件（浏览 / 读写 / 版本管理 / 分享 / 全文检索，共 21 个工具）。
             权限与你的账号完全一致，写入走完整上传管线（病毒扫描 / 配额 / 黑名单）。</>
         ) : (
-          <>DocFlow ships a built-in MCP (Model Context Protocol) server: connect from Claude Desktop,
+          <>DocDyne ships a built-in MCP (Model Context Protocol) server: connect from Claude Desktop,
             Cursor, Cline and let AI operate your files (browse / read / write / versions / shares / search,
             21 tools). Permissions mirror your account; writes go through the full upload pipeline.</>
         )}
@@ -1672,9 +1672,9 @@ export default function SettingsPage() {
         <>
           <div className="panel setting-group" style={{ padding: '12px 16px' }}>
             <div className="setting-desc muted" style={{ marginBottom: 0 }}>
-              开发者工具：MCP 服务接入（DocFlow 内置 MCP 服务端的连接指引）、
+              开发者工具：MCP 服务接入（DocDyne 内置 MCP 服务端的连接指引）、
               Webhook（事件发生时向回调 URL 推送 HMAC 签名的 JSON）与个人访问令牌
-              （PAT，供脚本/CI 以 Bearer dfpat_… 调用 API，可申请 ai:chat 等权限）。
+              （PAT，供脚本/CI 以 Bearer ddpat_… 调用 API，可申请 ai:chat 等权限）。
               三者均为本人维度，一次性凭据仅在创建时展示一次。
             </div>
           </div>

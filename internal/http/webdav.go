@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/space"
 	"github.com/google/uuid"
 )
 
@@ -130,7 +130,7 @@ func (d *davHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	user, token, ok := r.BasicAuth()
 	if !ok {
-		w.Header().Set("WWW-Authenticate", `Basic realm="DocFlow WebDAV"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="DocDyne WebDAV"`)
 		http.Error(w, "authentication required", 401)
 		return
 	}
@@ -138,14 +138,14 @@ func (d *davHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	authKey := user + "|" + davClientIP(r.RemoteAddr)
 	if locked, wait := d.davAuthLocked(authKey); locked {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
-		w.Header().Set("WWW-Authenticate", `Basic realm="DocFlow WebDAV"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="DocDyne WebDAV"`)
 		http.Error(w, "too many failed attempts, try later", 401)
 		return
 	}
 	uid, err := d.tokens.Verify(user, token)
 	if err != nil {
 		d.davAuthFail(authKey)
-		w.Header().Set("WWW-Authenticate", `Basic realm="DocFlow WebDAV"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="DocDyne WebDAV"`)
 		http.Error(w, "invalid credentials", 401)
 		return
 	}

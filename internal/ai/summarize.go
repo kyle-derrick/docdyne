@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // summarizeV2SystemPrompt 为 v1 摘要编排（/ai/summarize 与 MCP）的系统

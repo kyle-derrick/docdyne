@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/invite"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/invite"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

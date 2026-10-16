@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/docflow/docflow/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 var _ Repo = (*GormStore)(nil)

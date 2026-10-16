@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/webhook"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/webhook"
 	"github.com/gin-gonic/gin"
 )
 

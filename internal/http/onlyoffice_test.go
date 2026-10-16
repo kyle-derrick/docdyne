@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/docflow/docflow/internal/onlyoffice"
+	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
 )
 
 func newOnlyofficeConfigHandler(publicURL string) *Handler {
@@ -52,21 +52,21 @@ func onlyofficeConfigGet(t *testing.T, h *Handler, url, forwardedProto string) m
 func TestOnlyofficeConfigPublicURLDerivation(t *testing.T) {
 	// 未配置：按请求 Host 推导（http）。
 	h := newOnlyofficeConfigHandler("")
-	if got := onlyofficeConfigGet(t, h, "http://docflow.example.com/api/v1/onlyoffice/config", ""); got["server_url"] != "http://docflow.example.com/onlyoffice" {
+	if got := onlyofficeConfigGet(t, h, "http://docdyne.example.com/api/v1/onlyoffice/config", ""); got["server_url"] != "http://docdyne.example.com/onlyoffice" {
 		t.Fatalf("server_url = %v", got["server_url"])
 	}
 	// 未配置 + X-Forwarded-Proto: https（caddy TLS 反代）→ https。
-	if got := onlyofficeConfigGet(t, h, "http://docflow.example.com/api/v1/onlyoffice/config", "https"); got["server_url"] != "https://docflow.example.com/onlyoffice" {
+	if got := onlyofficeConfigGet(t, h, "http://docdyne.example.com/api/v1/onlyoffice/config", "https"); got["server_url"] != "https://docdyne.example.com/onlyoffice" {
 		t.Fatalf("server_url (forwarded https) = %v", got["server_url"])
 	}
 	// 显式外网域名：原样返回（不按 Host 推导）。
 	hExplicit := newOnlyofficeConfigHandler("https://office.example.com/onlyoffice")
-	if got := onlyofficeConfigGet(t, hExplicit, "http://docflow.example.com/api/v1/onlyoffice/config", ""); got["server_url"] != "https://office.example.com/onlyoffice" {
+	if got := onlyofficeConfigGet(t, hExplicit, "http://docdyne.example.com/api/v1/onlyoffice/config", ""); got["server_url"] != "https://office.example.com/onlyoffice" {
 		t.Fatalf("explicit server_url = %v", got["server_url"])
 	}
 	// 显式 127.0.0.1（env 默认/本地联调值）：视为未配置，按 Host 推导。
 	hLoopback := newOnlyofficeConfigHandler("http://127.0.0.1/onlyoffice")
-	if got := onlyofficeConfigGet(t, hLoopback, "http://docflow.example.com/api/v1/onlyoffice/config", "https"); got["server_url"] != "https://docflow.example.com/onlyoffice" {
+	if got := onlyofficeConfigGet(t, hLoopback, "http://docdyne.example.com/api/v1/onlyoffice/config", "https"); got["server_url"] != "https://docdyne.example.com/onlyoffice" {
 		t.Fatalf("loopback server_url = %v", got["server_url"])
 	}
 	// 显式 localhost：同 127.0.0.1 处理。

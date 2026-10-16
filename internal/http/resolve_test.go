@@ -13,9 +13,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/contenturl"
-	"github.com/docflow/docflow/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/contenturl"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // rawFakeTree 是 resolveAPI/unpackAPI 的内存实现：维护父子树与版本/blob，

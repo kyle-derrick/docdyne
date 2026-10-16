@@ -1,4 +1,4 @@
-// Package metrics 提供 DocFlow 的 Prometheus 指标（设计文档 13.3 / 16.6）：
+// Package metrics 提供 DocDyne 的 Prometheus 指标（设计文档 13.3 / 16.6）：
 // HTTP 请求计数与耗时、上传会话与 Complete 各阶段耗时、病毒扫描结果、
 // ONLYOFFICE 回调计数、备份校验计数与最近成功时间戳，以及 GET /metrics
 // 抓取端点（promhttp，默认 registry 自带 go_* 与 process_* 进程指标）。
@@ -25,20 +25,20 @@ const (
 	// RouteUnknown 为未匹配路由模板的请求（404）的 route 标签值。
 	RouteUnknown = "unknown"
 
-	// 上传会话创建结果（docflow_upload_sessions_total 的 status）。
+	// 上传会话创建结果（docdyne_upload_sessions_total 的 status）。
 	UploadSessionCreated = "created"
 	UploadSessionFailed  = "failed"
 
-	// Complete 阶段（docflow_upload_processing_duration_seconds 的 stage）。
+	// Complete 阶段（docdyne_upload_processing_duration_seconds 的 stage）。
 	UploadStageVerify = "verify"
 	UploadStageScan   = "scan"
 
-	// 扫描结果（docflow_scan_results_total 的 result）。
+	// 扫描结果（docdyne_scan_results_total 的 result）。
 	ScanResultClean    = "clean"
 	ScanResultInfected = "infected"
 	ScanResultError    = "error"
 
-	// ONLYOFFICE 回调状态归一（docflow_onlyoffice_callbacks_total 的 status）：
+	// ONLYOFFICE 回调状态归一（docdyne_onlyoffice_callbacks_total 的 status）：
 	// 2=保存、4=清理，其余（1/3/6/7 与校验失败）归为 other。
 	CallbackStatusSave    = "2"
 	CallbackStatusCleanup = "4"
@@ -48,69 +48,69 @@ const (
 	CallbackResultOK    = "0"
 	CallbackResultError = "1"
 
-	// 后台任务队列驱动（docflow_queue_enqueued_total 的 driver）。
+	// 后台任务队列驱动（docdyne_queue_enqueued_total 的 driver）。
 	QueueDriverInProcess = "inprocess"
 	QueueDriverRedis     = "redis"
 
-	// 队列任务处理结果（docflow_queue_processed_total 的 status）。
+	// 队列任务处理结果（docdyne_queue_processed_total 的 status）。
 	QueueStatusSuccess = "success"
 	QueueStatusFailed  = "failed"
 
-	// 备份校验结果（docflow_backup_verification_total 的 result）。
+	// 备份校验结果（docdyne_backup_verification_total 的 result）。
 	BackupResultSuccess = "success"
 	BackupResultFailed  = "failed"
 )
 
 var (
 	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_http_requests_total",
+		Name: "docdyne_http_requests_total",
 		Help: "HTTP 请求总数。route 为 gin 路由模板（如 /api/v1/files/:id），未匹配路由（404）为 unknown。",
 	}, []string{"method", "route", "status"})
 
 	httpRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "docflow_http_request_duration_seconds",
+		Name:    "docdyne_http_request_duration_seconds",
 		Help:    "HTTP 请求耗时分布（秒）。route 为 gin 路由模板。",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"method", "route"})
 
 	uploadSessionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_upload_sessions_total",
+		Name: "docdyne_upload_sessions_total",
 		Help: "上传会话创建计数（自定义上传 API 与 tus 创建扩展共用）。",
 	}, []string{"status"})
 
 	uploadProcessingDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "docflow_upload_processing_duration_seconds",
+		Name:    "docdyne_upload_processing_duration_seconds",
 		Help:    "上传 Complete 各阶段处理耗时（秒）。",
 		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
 	}, []string{"stage"})
 
 	scanResultsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_scan_results_total",
+		Name: "docdyne_scan_results_total",
 		Help: "病毒扫描结果计数（clean=放行，infected=检出恶意内容，error=扫描器错误）。",
 	}, []string{"result"})
 
 	onlyofficeCallbacksTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_onlyoffice_callbacks_total",
+		Name: "docdyne_onlyoffice_callbacks_total",
 		Help: "ONLYOFFICE DocumentServer 回调计数。status 归一为 2（保存）/4（清理）/other；result 0=成功、1=失败。",
 	}, []string{"status", "result"})
 
 	queueEnqueuedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_queue_enqueued_total",
+		Name: "docdyne_queue_enqueued_total",
 		Help: "后台任务队列入队计数。type 为任务类型（task:complete-upload / task:extract-webpkg），driver 为 inprocess / redis。",
 	}, []string{"type", "driver"})
 
 	queueProcessedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_queue_processed_total",
+		Name: "docdyne_queue_processed_total",
 		Help: "后台任务队列处理结果计数。type 为任务类型，status 为 success / failed。",
 	}, []string{"type", "status"})
 
 	backupVerificationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "docflow_backup_verification_total",
+		Name: "docdyne_backup_verification_total",
 		Help: "备份校验计数（POST /admin/backups/verify 对最近备份的只读 sha256 复核）。result 为 success / failed。",
 	}, []string{"result"})
 
 	backupLastSuccessTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "docflow_backup_last_success_timestamp",
+		Name: "docdyne_backup_last_success_timestamp",
 		Help: "最近一次备份校验成功的 Unix 时间戳（秒）；从未成功校验时为 0。",
 	})
 )

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // fakeRegistry 是 UserRegistry 的内存实现：用户名/邮箱唯一冲突返回

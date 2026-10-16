@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // fakeFileSource 按 owner 模拟 files.Store 的读授权（Get 即 authorizeFileAccess）。

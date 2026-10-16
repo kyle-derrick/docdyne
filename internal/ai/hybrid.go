@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/docflow/docflow/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/google/uuid"
 )
 

@@ -9,7 +9,7 @@
       程序化提取「工具名(关键参数)→✓/✗」+用户意图行生成结构化摘要，
       超预算丢最旧并注明；trace 侧工具条目既有 turns.ts 渲染覆盖；
       纯函数抽至 frontend/src/ai/convoView.ts）
-- [x] A3. df_search_history 工具（44fd775：会话历史检索——ILIKE 关键词，
+- [x] A3. dd_search_history 工具（44fd775：会话历史检索——ILIKE 关键词，
       含被压缩的早期内容；平台工具 6 件套，测试同步）
 - [x] A4. 后端压缩事件推送前端（44fd775：SSE tool 事件 context_compress
       输出「N 条 → M 条」；v7.15 收尾——turns.ts 标签映射补
@@ -21,14 +21,14 @@
       消息行表 + pg_trgm GIN；AppendAIConvoEvent 同步维护 turn 追加/
       snapshot 重建，检索跨会话全 source 含被压缩早期内容；存量事件
       重放回填；实测 turn/snapshot/删除级联/通配符字面匹配全过）
-- [x] A7. 工具式记忆（v7.15：df_read_memory/df_write_memory 平台工具，
+- [x] A7. 工具式记忆（v7.15：dd_read_memory/dd_write_memory 平台工具，
       include_memory 开启即注入且独立于文件栈；system 仅注入标题列表
       （20 条 ×48 字符 ≈200tok）+ 工具用法提示；写走 CreateAutoAIMemory
       + 裁剪；ai_memory_auto 自动提取等既有链路不变）
 - [x] A8. 管理端配置（v7.15：ai.history_search 键 keyword/off 默认
       keyword——A6 选了 PG 全文路线，vector 值位预留未启用（会话消息
       按轮 embedding 的成本/链路另行评估）；AISettingsPanel 增「对话
-      历史检索」卡片；off 时 df_search_history 声明剔除）
+      历史检索」卡片；off 时 dd_search_history 声明剔除）
 
 ## A2. 孤儿数据清理链（用户提出的同步清理需求）
 - [x] A2.1. 会话删除 → RAG 向量清理（v7.15：会话向量化整体 defer——
@@ -79,7 +79,7 @@
 - [x] D1. 编辑器 getTarget 返回当前选中元素 ID（drawio/白板）
       - drawio：官方 embed 协议**无** select 事件（对 vendored 27.0.9 app.min.js
         全量 grep 实证）→ 自建插件链路：frontend/docker/drawio/plugins/
-        docflow-selection.js（Draw.loadPlugin + mxEvent.CHANGE → postMessage
+        docdyne-selection.js（Draw.loadPlugin + mxEvent.CHANGE → postMessage
         select）+ Dockerfile 给 PreConfig.js 追加 ALLOW_CUSTOM_PLUGINS=true
         + DrawioPage 同源写 .drawio-config 注册插件；跨源/写失败静默降级
       - 白板：handleChange 同步 selectedElementIds → aiGetTarget 选中摘要
@@ -97,15 +97,15 @@
       selection → system-reminder 注入模式）
 
 ## E. 工具调用稳定性
-- [x] E1. df_search 编辑页误调（44fd775：【硬性禁止】段落 + deep_search≠
-      df_search 澄清 + 未知工具反馈 df_* 专项提示）
+- [x] E1. dd_search 编辑页误调（44fd775：【硬性禁止】段落 + deep_search≠
+      dd_search 澄清 + 未知工具反馈 dd_* 专项提示）
 - [x] E2. read_scene 中途不可用（工具集丢失）：检查工具集传递链路
       （agentTools ref 是否被 GC 或重置）（v7.15 复核：链路无丢失路径——
       agentToolsRef 为 useRef 且每渲染同步 current（组件存活期内 ref
       恒可达，无 GC/重置代码路径）；runAgentLoop 的 tools 是调用时传入的
       本地快照（执行期间锁定 package，中途切包不影响当轮循环）；未知工具
       反馈含完整可用列表 + 近名建议 + 技能包/宿主工具计数诊断 + console
-      级现场记录，模型可即时自纠。原始症状更可能是 E1 的 df_* 误调幻觉）
+      级现场记录，模型可即时自纠。原始症状更可能是 E1 的 dd_* 误调幻觉）
 - [x] E3. "empty message content" 错误：deep_search 子代理返回空时
       的处理优化（92ac92d + v7.15 复核：入口拦截——goal 为空不再发起
       请求；FINAL 空文本不再当成功，按错误回喂重试，两条路径均不再
@@ -200,7 +200,7 @@
       最终回答独立；服务端 openai/anthropic 循环每轮文本并流是根因）
 - [x] 6. 输入框顶部间距：componentSize=small textarea 竖直 padding=0，
       统一补 8/10/2（三宿主一致）
-- [x] 7. 白板误调 df_*：系统提示显式声明 + 未知工具反馈 df_* 专项提示
+- [x] 7. 白板误调 dd_*：系统提示显式声明 + 未知工具反馈 dd_* 专项提示
       （400 循环需真实模型复现取响应体）
 - [x] 8. 谨慎模式对话内确认卡（[确认执行/跳过]），替代系统 Modal；
       停止/切会话/卸载自动解除
@@ -216,7 +216,7 @@
       富文本 focus()+链式 insertContentAt 时序性整文替换 → 去 focus()；
       read_document 静默截断 + TOOL_RESULT 3000 字上限 → 模型误判丢失、
       盲目重写抹掉内嵌块（用户所见"加了又去掉"的真相）→ 截断标记 +
-      上限 15000；子代理 df_* 幻觉加固；图表指南移植
+      上限 15000；子代理 dd_* 幻觉加固；图表指南移植
       coleam00/excalidraw-diagram-skill 方法论（视觉模式/形状语义/容器
       纪律/分节构建/自检），内置图表架构师技能包同步强化
 - [x] 5. 插件 v7.7（?v=18）：初始化失败自动重试 + 可操作提示；
@@ -379,7 +379,7 @@
       全覆盖：web 搜索块/RAG 参考资料/我的文件片段/附件全文/记忆标题）
 - [x] J3. 审计增强：AI 执行的每个写操作记录审计日志（谁/何时/改了什么/结果）
       （v7.15 J3：ai.tool 审计 metadata 增强——失败附 error 原文，
-      df_write_file 附 file_id/created（新建 vs 覆盖），df_write_memory
+      dd_write_file 附 file_id/created（新建 vs 覆盖），dd_write_memory
       附 memory_id；谁=user_id、何时=created_at 既有）
 
 ## K. 库封装与复用（所有功能完成并稳定后）
@@ -393,9 +393,9 @@
 > 留存于各条附注。
 - [x] K1. Go Agent 库 → **定夺：不提取，保持内部**（2026-10-16）。
       agent 循环带 J 批次安全硬化（工具沙箱钉死/UntrustedBlock 围栏/写
-      审计），是 DocFlow 平台语义——通用框架（cloudwego/eino 等）不承接
+      审计），是 DocDyne 平台语义——通用框架（cloudwego/eino 等）不承接
       这些；生态位也已被占据，发库受众不足。内部保持 internal/ai 现状。
-- [x] K2. React Chat UI 库（@docflow/chat）：npm workspace 真提取
+- [x] K2. React Chat UI 库（@docdyne/chat）：npm workspace 真提取
       （2026-10-15）——`frontend/packages/chat/`（源码分发：exports →
       src/index.ts，Vite/tsc bundler 解析直消 TS 源；peerDeps=react/antd/
       lucide/@ant-design/x/react-markdown 系/katex 随宿主版本）。依赖
@@ -404,13 +404,13 @@
       （组合根 main.tsx，UploadPhase 回调差异 lambda 适配）；errors.ts 去
       ApiError instanceof/i18n 依赖（.code 鸭子判定+同文回落文案）；
       AISource/AIUsage/AIToolCall/AIToolResult 迁包内 types.ts、api.ts
-      re-export 保持兼容。应用侧 5 文件导入改 '@docflow/chat'，tsc+build
+      re-export 保持兼容。应用侧 5 文件导入改 '@docdyne/chat'，tsc+build
       全绿。CSS 暂留宿主 styles.css（~340 行 ai-* 规则含复合选择器非干净
       可切割，随包导入链全局生效）；独立 CSS 主题变量=发布前置，连同
       token 化与产物构建记于 packages/chat/README.md「样式契约」
-- [x] K3. 平台工具 SDK（@docflow/tools）→ **取消**（2026-10-16）。
+- [x] K3. 平台工具 SDK（@docdyne/tools）→ **取消**（2026-10-16）。
       「第三方注册自定义工具」的诉求 MCP 已经回答：平台 MCP server 暴露
-      21 个 df_* 工具 + internal/mcpclient 可配置外部 MCP server，第三方
+      21 个 dd_* 工具 + internal/mcpclient 可配置外部 MCP server，第三方
       扩展走标准协议即可——自定义插件 SDK 是重复发明已标准化的东西
 - [x] K4. 技能包格式规范：JSON Schema + 版本化 + 可分享格式（v7.15：
       版本化=version/changelog（I1）、可分享格式=JSON/YAML 导入导出（I2，
@@ -427,7 +427,7 @@
       （github.com/modelcontextprotocol/go-sdk v1.8.0）。自研 JSON-RPC/
       传输/会话分发层删除，换 SDK StreamableHTTPHandler（stateless +
       JSONResponse，wire 形态与迁移前一致：单请求-响应、恒 application/
-      json、notification 202、GET 405）；DocFlow 保留 df_* 工具定义 +
+      json、notification 202、GET 405）；DocDyne 保留 dd_* 工具定义 +
       Deps 接口 + PAT scope 门控（身份经 WithIdentity 注入 req context，
       SDK 传播进工具 handler）。语义变化（有意）：scope 不足与入参非法
       从协议错误码（-32003/-32602）改为 isError 工具结果（SDK 错误约定）；
@@ -437,7 +437,7 @@
       可用性快照重建 SDK Server。docs/mcp.md / architecture.md 已同步；
       测试重写为 httptest 驱动真实传输层
 - [x] K7. Go Search 抽象 → **取消**（2026-10-16）。835 行里大头是
-      DocFlow 特有 glue（OCR/文档解析/增量索引）；后端已直接对接
+      DocDyne 特有 glue（OCR/文档解析/增量索引）；后端已直接对接
       （meili.go 原生 HTTP / PG tsvector 内建）。「统一搜索抽象」外部
       受众为零——每家的 glue 都不同
 - [x] K8. Go WebPKG 库 → **定夺：不提取，保持内部**（2026-10-16）。
@@ -445,7 +445,7 @@
       足矣；发库无收益
 - [x] K9. Go OnlyOffice 集成库 → **定夺：不提取，保持内部**
       （2026-10-16）。回调/JWT 与版本链（F4 全量保留）深度联动是
-      DocFlow 语义；若未来开源引流再议（产品决策非工程决策）
+      DocDyne 语义；若未来开源引流再议（产品决策非工程决策）
 - [x] K10. Go 文件版本库 → **取消**（2026-10-16）。F4 定全量保留后
       「自动保留策略」卖点消失；版本链与 files 同表同事务，独立化
       无收益
@@ -454,7 +454,7 @@
       （upload/mcp/search/webpkg/onlyoffice/acl 等）依赖倒置到窄接口。
       收益=可测试性与未来可替换性（不为发库）。实测：files 不反向依赖
       acl/space（无环，单向下沉）；acl 仅用 files.File 类型（28 处）；
-      各包耦合点集中（每包 1-2 文件）。前置完成后 K6 迁移的 df_* 处理器
+      各包耦合点集中（每包 1-2 文件）。前置完成后 K6 迁移的 dd_* 处理器
       接线也更干净
 
 ## L. 参考项目复盘产出（2026-10-15，经 20170 代理拉源码实证：drawio-mcp

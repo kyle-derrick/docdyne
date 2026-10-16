@@ -30,12 +30,12 @@ var ErrNotConfigured = errors.New("service dependency is not configured")
 const PasswordResetTokenTTL = 30 * time.Minute
 
 // PAT（个人访问令牌）格式与约束：
-//   - 明文 = "dfpat_" + 32 字节随机数的 URL-safe base64（6 + 43 字符）；
+//   - 明文 = "ddpat_" + 32 字节随机数的 URL-safe base64（6 + 43 字符）；
 //   - token_hash = 明文 SHA-256 十六进制小写（64 字符，只存哈希）；
-//   - prefix = 明文前 14 字符（dfpat_ + 随机体前 8 字符），认证按其索引定位；
+//   - prefix = 明文前 14 字符（ddpat_ + 随机体前 8 字符），认证按其索引定位；
 //   - 名称 1-100 rune；有效期 0（永久）或 1-3650 天。
 const (
-	PATPrefix       = "dfpat_"
+	PATPrefix       = "ddpat_"
 	patPrefixLen    = len(PATPrefix) + 8
 	PATBodyLen      = 43
 	PATNameMax      = 100
@@ -206,7 +206,7 @@ func (s *Service) RevokeAllSessions(userID uuid.UUID) error {
 	return s.store.RevokeAllForUser(userID, "", s.now().UTC())
 }
 
-// NewPersonalAccessToken 创建 PAT 并返回一次性明文（dfpat_ + 43 字符
+// NewPersonalAccessToken 创建 PAT 并返回一次性明文（ddpat_ + 43 字符
 // base64url）。name 去首尾空白后限 1-100 rune；expiresInDays 为 0 表示
 // 永久，否则 1-3650 天。
 func (s *Service) NewPersonalAccessToken(userID uuid.UUID, name string, expiresInDays int) (APIToken, string, error) {

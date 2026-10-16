@@ -82,7 +82,7 @@ type SessionView struct {
 
 // APIToken 对应 api_tokens 表（migrations/016）。TokenHash 为明文 token 的
 // SHA-256 十六进制哈希（64 字符）；明文仅创建响应返回一次。Prefix 为明文
-// 前 14 字符（dfpat_ + 随机体前 8 字符），认证按其定位候选行。
+// 前 14 字符（ddpat_ + 随机体前 8 字符），认证按其定位候选行。
 type APIToken struct {
 	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
 	UserID    uuid.UUID `gorm:"type:uuid;not null;index"`

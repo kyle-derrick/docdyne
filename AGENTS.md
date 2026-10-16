@@ -1,4 +1,4 @@
-# AGENTS.md — DocFlow 开发指南
+# AGENTS.md — DocDyne 开发指南
 
 ## 项目概览
 
@@ -24,7 +24,7 @@
 | 一键部署 | `make deploy-minimal` / `make deploy-full`（内部调用 `scripts/deploy.ps1`） |
 | 备份 | `make backup` / `make backup-windows` |
 
-本地开发 DB：`postgres://docflow:change-this-password@localhost:5432/docflow`
+本地开发 DB：`postgres://docdyne:change-this-password@localhost:5432/docdyne`
 
 ## CI 必须通过（.github/workflows/ci.yml）
 

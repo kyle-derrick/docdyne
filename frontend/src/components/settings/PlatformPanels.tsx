@@ -141,7 +141,7 @@ export function TlsPanel({ onNotice }: { onNotice: (msg: string) => void }) {
             <label className="field">
               <span>站点域名或 IP</span>
               <Input
-                placeholder="如 docflow.example.com / 192.168.1.10"
+                placeholder="如 docdyne.example.com / 192.168.1.10"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
               />
@@ -365,7 +365,7 @@ export function MailPanel({ onNotice, onError }: { onNotice: (m: string) => void
               <Input
                 value={form.from}
                 onChange={(e) => setForm((prev) => ({ ...prev, from: e.target.value }))}
-                placeholder={view.env.from || '如 docflow@example.com'}
+                placeholder={view.env.from || '如 docdyne@example.com'}
               />
             </label>
             <label className="field">

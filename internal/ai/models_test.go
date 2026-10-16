@@ -9,7 +9,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // TestEffectiveModelsLegacyCompat 旧 settings JSON（providers 无 models
@@ -202,7 +202,7 @@ func TestValidateAIRAGEmbeddingFromProviders(t *testing.T) {
 		}},
 		Temperature: 0.3, MaxTokens: 1024, PerUserPerMin: 20,
 		RAG: settings.AIRAGConfig{
-			Mode: "hybrid", VectorEnabled: true, QdrantURL: "http://qdrant:6333", CollectionPrefix: "docflow_",
+			Mode: "hybrid", VectorEnabled: true, QdrantURL: "http://qdrant:6333", CollectionPrefix: "docdyne_",
 			TopK: 8, ChunkSize: 1000, ChunkOverlap: 100,
 		},
 	}

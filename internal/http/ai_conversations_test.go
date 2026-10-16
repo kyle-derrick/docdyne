@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // ---------- AI 会话记录（/ai/conversations，migration 053）----------

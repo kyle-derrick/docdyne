@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/notify"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 )
 
 func newTestService() (*Service, *MemoryStore) {

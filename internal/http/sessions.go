@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -98,7 +98,7 @@ func tokenJSON(t auth.APIToken) gin.H {
 }
 
 // createToken POST /api/v1/tokens {name, expires_in_days?}：创建 PAT。
-// 一次性明文 token（dfpat_ + 43 字符）仅在 201 响应返回；expires_in_days
+// 一次性明文 token（ddpat_ + 43 字符）仅在 201 响应返回；expires_in_days
 // 缺省或 0 表示永久。写 token.create 审计（PAT 认证本身不审计）。
 func (h *Handler) createToken(c *gin.Context) {
 	var request createTokenRequest

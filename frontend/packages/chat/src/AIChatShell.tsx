@@ -20,7 +20,7 @@ export type ChatHostType = 'assistant' | 'editor' | 'viewer'
 export type ChatMode = 'edit' | 'chat'
 
 /** 悬浮窗位置尺寸持久化 key（三宿主共用）。 */
-const FLOAT_POS_KEY = 'docflow.ai.chat.floatpos'
+const FLOAT_POS_KEY = 'docdyne.ai.chat.floatpos'
 /** 悬浮窗尺寸上下限。 */
 const FLOAT_MIN_W = 360
 const FLOAT_MIN_H = 360

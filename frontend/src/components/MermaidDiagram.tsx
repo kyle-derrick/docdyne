@@ -35,7 +35,7 @@ export default function MermaidDiagram({ source, dark = false }: MermaidDiagramP
           initializedTheme = theme
         }
         renderSeq += 1
-        const { svg } = await mermaid.render(`docflow-mermaid-${renderSeq}`, source)
+        const { svg } = await mermaid.render(`docdyne-mermaid-${renderSeq}`, source)
         if (!alive || !hostRef.current) return
         hostRef.current.innerHTML = svg
         const svgEl = hostRef.current.querySelector('svg')

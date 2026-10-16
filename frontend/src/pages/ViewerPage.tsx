@@ -50,7 +50,7 @@ import { useColorMode } from '../theme'
  * 上 iframe 挂在非 flex 父级下高度塌陷为 150px 的「高度被压缩」问题。
  */
 /** iframe 内容高度上报消息类型（注入脚本 → parent postMessage）。 */
-const RAW_HEIGHT_MSG = 'docflow:raw-height'
+const RAW_HEIGHT_MSG = 'docdyne:raw-height'
 
 export function RawHtmlViewer({ resolveFn, title }: { resolveFn: () => Promise<string | null>; title: string }) {
   const [src, setSrc] = useState<string | null>(null)

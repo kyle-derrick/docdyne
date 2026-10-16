@@ -1,6 +1,6 @@
 // 文件卡片 NodeView：
 // - 普通文件 = 内联芯片（图标+名称+大小）。点击行为——认证态经全局事件
-//   docflow:open-file-card 上提给 RichTextEditor 层弹出查看弹窗
+//   docdyne:open-file-card 上提给 RichTextEditor 层弹出查看弹窗
 //   （FileViewerDispatch 懒加载；不直接在 NodeView 内渲染 Modal：ProseMirror
 //   会搬移 NodeView 的 DOM，antd Modal 的 portal 卸载会与 React
 //   reconciliation 冲突）；公开分享态解析 raw/share URL 后新窗口打开。
@@ -9,7 +9,7 @@
 //   （可调宽度，解析失败占位；公开态 raw 白名单不含 xmind，保持芯片）；
 //   其他文件保持芯片不变。内容嵌入为 inline-block 块视觉（不破坏段落
 //   DOM 结构）。
-// - 右键（仅编辑页）：上提 docflow:card-context 事件，编辑器层弹「编辑
+// - 右键（仅编辑页）：上提 docdyne:card-context 事件，编辑器层弹「编辑
 //   （新窗口）」菜单（editorRouteFor 按扩展名分发编辑器路由）。
 import { lazy, Suspense, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -20,7 +20,7 @@ import { FileSpreadsheet, FileText, Image as ImageIcon, Network, PenLine } from 
 import { fetchPreview, getFileMeta } from '../../api'
 import { formatQuota } from '../FileBrowser'
 import { useLocale } from '../../i18n'
-import type { DocflowFileCardAttrs } from './DocflowFileCard'
+import type { DocdyneFileCardAttrs } from './DocdyneFileCard'
 import { useRichTextPublic } from './RichTextPublicContext'
 import { resolvePublicUrl } from './publicResource'
 
@@ -28,10 +28,10 @@ import { resolvePublicUrl } from './publicResource'
 const XMindViewer = lazy(() => import('../XMindViewer'))
 
 /** 卡片点击 → 编辑器层查看弹窗（detail: { fileId, name }）。 */
-export const OPEN_FILE_CARD_EVENT = 'docflow:open-file-card'
+export const OPEN_FILE_CARD_EVENT = 'docdyne:open-file-card'
 
 /** 卡片右键 → 编辑器层上下文菜单（detail: { fileId, name, x, y }）。 */
-export const CARD_CONTEXT_EVENT = 'docflow:card-context'
+export const CARD_CONTEXT_EVENT = 'docdyne:card-context'
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'svg'])
 const OFFICE_EXTS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'])
@@ -57,7 +57,7 @@ const metaCache = new Map<string, { name: string; size: number } | null>()
 const CARD_WIDTHS = [25, 50, 75, 100]
 
 export default function FileCardView({ node, editor, selected, getPos }: NodeViewProps) {
-  const attrs = node.attrs as DocflowFileCardAttrs
+  const attrs = node.attrs as DocdyneFileCardAttrs
   const publicBase = useRichTextPublic()
   const locale = useLocale()
   const zh = locale === 'zh-CN'
@@ -72,7 +72,7 @@ export default function FileCardView({ node, editor, selected, getPos }: NodeVie
     if (!Number.isFinite(pos) || pos < 0) return
     const view = editor.view
     const target = view.state.doc.nodeAt(pos)
-    if (!target || target.type.name !== 'docflowFileCard') return
+    if (!target || target.type.name !== 'docdyneFileCard') return
     view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...target.attrs, width }))
   }
   const [meta, setMeta] = useState<{ name: string; size: number } | null>(() =>

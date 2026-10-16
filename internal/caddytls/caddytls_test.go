@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -142,8 +142,8 @@ func TestRenderModes(t *testing.T) {
 		t.Fatal("http mode must not contain tls directive")
 	}
 
-	autoConf := Render(ModeAuto, "docflow.example.com")
-	if !strings.Contains(autoConf, "docflow.example.com {\n") || strings.Contains(autoConf, "tls internal") {
+	autoConf := Render(ModeAuto, "docdyne.example.com")
+	if !strings.Contains(autoConf, "docdyne.example.com {\n") || strings.Contains(autoConf, "tls internal") {
 		t.Fatalf("auto mode site invalid:\n%s", firstLines(autoConf, 3))
 	}
 

@@ -19,7 +19,7 @@ RUN mkdir /drawio-static \
     && rm -rf /drawio-static/WEB-INF
 # v7.15 D1：选区跟踪插件 + 允许同域自定义插件（PreConfig.js 为 drawio 官方
 # 自托管定制点，app.min.js 解析时读 window.ALLOW_CUSTOM_PLUGINS）。
-COPY docker/drawio/plugins/docflow-selection.js /drawio-static/plugins/
+COPY docker/drawio/plugins/docdyne-selection.js /drawio-static/plugins/
 RUN echo 'window.ALLOW_CUSTOM_PLUGINS = true;' >> /drawio-static/js/PreConfig.js
 
 FROM caddy:2.8.4-alpine

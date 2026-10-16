@@ -48,9 +48,9 @@ const SAVE_HINT_DEBOUNCE_MS = 3000
 const DOC_EDITOR_READY_TIMEOUT_MS = 15000
 
 /** 跨标签页保存标记：本窗口保存后写入，其他窗口 storage 事件感知后刷新版本。 */
-const savedMarkerKey = (fileId: string) => `docflow:onlyoffice-saved:${fileId}`
+const savedMarkerKey = (fileId: string) => `docdyne:onlyoffice-saved:${fileId}`
 
-/** DocFlow AI OnlyOffice 插件清单 URL：前端站点同源静态资源（构建期
+/** DocDyne AI OnlyOffice 插件清单 URL：前端站点同源静态资源（构建期
  *  public/ 拷入产物）。DS 对 variations[].url 的解析是「拼接到 config.json
  *  所在目录」——只支持相对路径（绝对 URL 会被拼成 …/ai-plugin/http://…
  *  导致 404，v3.10 实测），故 config.json 用相对 url + 静态托管。
@@ -60,8 +60,8 @@ const savedMarkerKey = (fileId: string) => `docflow:onlyoffice-saved:${fileId}`
  * fetch 拉取）。清单内 baseUrl/variations[].url 均为按请求 Host 推导的
  * 绝对 URL，规避部分 DS 版本空 baseUrl 相对解析落 SPA 兜底（面板打开成
  * 「文件页」）的问题。 */
-const docflowAIPluginConfigURL = () =>
-  new URL('oo-plugins/docflow-ai/config.json', window.location.origin + '/').href
+const docdyneAIPluginConfigURL = () =>
+  new URL('oo-plugins/docdyne-ai/config.json', window.location.origin + '/').href
 
 /**
  * 动态注入 DocumentServer 的 api.js（全局只增不删）：
@@ -75,7 +75,7 @@ const docflowAIPluginConfigURL = () =>
 export function loadDocEditorScript(serverUrl: string): Promise<void> {
   if (window.DocsAPI?.DocEditor) return Promise.resolve()
   const src = `${serverUrl.replace(/\/+$/, '')}/web-apps/apps/api/documents/api.js`
-  const existing = document.querySelector<HTMLScriptElement>(`script[data-docflow-onlyoffice="${src}"]`)
+  const existing = document.querySelector<HTMLScriptElement>(`script[data-docdyne-onlyoffice="${src}"]`)
   if (existing) {
     return new Promise((resolve, reject) => {
       existing.addEventListener('load', () => resolve(), { once: true })
@@ -86,7 +86,7 @@ export function loadDocEditorScript(serverUrl: string): Promise<void> {
     const script = document.createElement('script')
     script.src = src
     script.async = true
-    script.dataset.docflowOnlyoffice = src
+    script.dataset.docdyneOnlyoffice = src
     script.onload = () => resolve()
     script.onerror = () => {
       script.remove()
@@ -208,7 +208,7 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             : 'OnlyOffice DocsAPI is unavailable (script loaded but API missing)')
           return
         }
-        // 同源 localStorage 传编辑器类型与文件标识给 DocFlow AI 插件（docx→word /
+        // 同源 localStorage 传编辑器类型与文件标识给 DocDyne AI 插件（docx→word /
         // xlsx→cell / pptx→slide）。该定制 DS 构建的沙箱初始化期只有
         // 混淆内部方法，callCommand 探测不可靠——agent 误判 unknown 是
         // Excel/Word 编辑失效的根因；从 fileType 硬判定彻底消除。文件标识
@@ -216,8 +216,8 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
         try {
           const ft = String(((config as Record<string, unknown>).document as Record<string, unknown> | undefined)?.fileType ?? '')
           const kind = /xl/i.test(ft) ? 'cell' : /pp/i.test(ft) ? 'slide' : ft ? 'word' : 'pdf'
-          window.localStorage.setItem('docflow.ai.editor.kind', ft ? kind : 'pdf')
-          window.localStorage.setItem('docflow.ai.editor.file', JSON.stringify({ id: fileId, name: '' }))
+          window.localStorage.setItem('docdyne.ai.editor.kind', ft ? kind : 'pdf')
+          window.localStorage.setItem('docdyne.ai.editor.file', JSON.stringify({ id: fileId, name: '' }))
         } catch { /* ignore */ }
         const editorConfig: OnlyOfficeEditorConfig = {
           ...config,
@@ -229,7 +229,7 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             ...((config.customization as Record<string, unknown> | undefined) ?? {}),
             uiTheme: colorMode === 'dark' ? 'theme-dark' : 'theme-classic-light',
           },
-          // DocFlow AI 插件（编辑会话）：pluginsData 指向同源静态清单，DS
+          // DocDyne AI 插件（编辑会话）：pluginsData 指向同源静态清单，DS
           // 据此在「插件」菜单注册侧栏 AI 对话面板。v3.10：不 autostart——
           // 默认收起，用户从编辑器左侧插件图标按需展开。plugins 为后端
           // JWT 载荷未覆盖的 UI 级字段（前端追加与 customization/events 同
@@ -238,7 +238,7 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
             editorConfig: {
               ...((config.editorConfig as Record<string, unknown> | undefined) ?? {}),
               plugins: {
-                pluginsData: [docflowAIPluginConfigURL()],
+                pluginsData: [docdyneAIPluginConfigURL()],
               },
             },
           }),
@@ -319,7 +319,7 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
     if (file) {
       setAIContextFile({ fileId: file.id, fileName: file.name })
       // 文件元信息就绪后补全插件会话标识（config 加载期可能先于元信息到达）。
-      try { window.localStorage.setItem('docflow.ai.editor.file', JSON.stringify({ id: file.id, name: file.name })) } catch { /* ignore */ }
+      try { window.localStorage.setItem('docdyne.ai.editor.file', JSON.stringify({ id: file.id, name: file.name })) } catch { /* ignore */ }
     }
     return () => setAIContextFile(null)
   }, [file])
@@ -393,7 +393,7 @@ export default function EditorPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
 
       {/* DocEditor 挂载容器：未进入错误态时始终渲染，placeholder 由 effect
           内命令式创建（每次 init 全新 id）。v3.9：Office 的 AI 对话入口 =
-          编辑器内 DocFlow AI 插件面板（见上方 plugins 注入，从插件图标展开），
+          编辑器内 DocDyne AI 插件面板（见上方 plugins 注入，从插件图标展开），
           页内不再渲染外部 AI 面板。 */}
       {!error && !loadError && <div className="editor-shell" ref={shellRef} />}
           {verHistOpen && file && (

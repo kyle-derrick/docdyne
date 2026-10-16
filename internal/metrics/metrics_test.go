@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// resetDocflowMetrics 清空全部 docflow_* 系列，保证文本断言可精确到值
+// resetDocdyneMetrics 清空全部 docdyne_* 系列，保证文本断言可精确到值
 // （包内测试串行执行，直接操作未导出 collector）。
-func resetDocflowMetrics() {
+func resetDocdyneMetrics() {
 	httpRequestsTotal.Reset()
 	httpRequestDuration.Reset()
 	uploadSessionsTotal.Reset()
@@ -56,7 +56,7 @@ func TestNormalizeRoute(t *testing.T) {
 // 404 归一 unknown，query 不影响 route 标签。
 func TestGinMiddlewareCountsByRouteTemplate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	resetDocflowMetrics()
+	resetDocdyneMetrics()
 	r := gin.New()
 	r.Use(GinMiddleware())
 	r.GET("/api/v1/files/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -80,11 +80,11 @@ func TestGinMiddlewareCountsByRouteTemplate(t *testing.T) {
 
 	body := scrape(t)
 	wantLines := []string{
-		`docflow_http_requests_total{method="GET",route="/api/v1/files/:id",status="200"} 1`,
-		`docflow_http_requests_total{method="POST",route="/api/v1/uploads",status="201"} 1`,
-		`docflow_http_requests_total{method="GET",route="unknown",status="404"} 1`,
-		`docflow_http_request_duration_seconds_count{method="GET",route="/api/v1/files/:id"} 1`,
-		`docflow_http_request_duration_seconds_count{method="GET",route="unknown"} 1`,
+		`docdyne_http_requests_total{method="GET",route="/api/v1/files/:id",status="200"} 1`,
+		`docdyne_http_requests_total{method="POST",route="/api/v1/uploads",status="201"} 1`,
+		`docdyne_http_requests_total{method="GET",route="unknown",status="404"} 1`,
+		`docdyne_http_request_duration_seconds_count{method="GET",route="/api/v1/files/:id"} 1`,
+		`docdyne_http_request_duration_seconds_count{method="GET",route="unknown"} 1`,
 	}
 	for _, line := range wantLines {
 		if !strings.Contains(body, line) {
@@ -96,7 +96,7 @@ func TestGinMiddlewareCountsByRouteTemplate(t *testing.T) {
 // 备份校验指标：IncBackupVerification 按 result 计数；
 // SetBackupLastSuccessTimestamp 记录最近一次校验成功时间（Unix 秒，gauge）。
 func TestBackupMetricsExported(t *testing.T) {
-	resetDocflowMetrics()
+	resetDocdyneMetrics()
 	IncBackupVerification(BackupResultSuccess)
 	IncBackupVerification(BackupResultSuccess)
 	IncBackupVerification(BackupResultFailed)
@@ -104,9 +104,9 @@ func TestBackupMetricsExported(t *testing.T) {
 
 	body := scrape(t)
 	wantLines := []string{
-		`docflow_backup_verification_total{result="success"} 2`,
-		`docflow_backup_verification_total{result="failed"} 1`,
-		`docflow_backup_last_success_timestamp 1.7578908e+09`,
+		`docdyne_backup_verification_total{result="success"} 2`,
+		`docdyne_backup_verification_total{result="failed"} 1`,
+		`docdyne_backup_last_success_timestamp 1.7578908e+09`,
 	}
 	for _, line := range wantLines {
 		if !strings.Contains(body, line) {
@@ -127,7 +127,7 @@ func TestHandlerExposesRuntimeMetrics(t *testing.T) {
 
 // 业务埋点 API：upload / scan / onlyoffice 计数均出现在抓取文本中。
 func TestBusinessCountersExported(t *testing.T) {
-	resetDocflowMetrics()
+	resetDocdyneMetrics()
 	IncUploadSession(UploadSessionCreated)
 	IncUploadSession(UploadSessionFailed)
 	ObserveUploadProcessing(UploadStageVerify, 0.125)
@@ -136,11 +136,11 @@ func TestBusinessCountersExported(t *testing.T) {
 
 	body := scrape(t)
 	wantLines := []string{
-		`docflow_upload_sessions_total{status="created"} 1`,
-		`docflow_upload_sessions_total{status="failed"} 1`,
-		`docflow_upload_processing_duration_seconds_count{stage="verify"} 1`,
-		`docflow_scan_results_total{result="clean"} 1`,
-		`docflow_onlyoffice_callbacks_total{result="0",status="2"} 1`,
+		`docdyne_upload_sessions_total{status="created"} 1`,
+		`docdyne_upload_sessions_total{status="failed"} 1`,
+		`docdyne_upload_processing_duration_seconds_count{stage="verify"} 1`,
+		`docdyne_scan_results_total{result="clean"} 1`,
+		`docdyne_onlyoffice_callbacks_total{result="0",status="2"} 1`,
 	}
 	for _, line := range wantLines {
 		if !strings.Contains(body, line) {

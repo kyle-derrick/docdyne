@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	gorm "gorm.io/gorm"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // Indexer 在文件版本落库后重建其检索索引：查文件行与当前版本 blob →

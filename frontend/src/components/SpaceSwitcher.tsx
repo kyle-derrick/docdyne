@@ -54,7 +54,7 @@ export default function SpaceSwitcher({
   // 同源），而非总回默认空间——否则顶栏显示默认空间名但实际内容是记忆
   // 空间的（「显示 admin的空间但实际是 V25S-t5hore」的根因）。
   const rememberedSpaceId = currentSpaceId || (() => {
-    try { return localStorage.getItem('docflow.lastSpace') ?? '' } catch { return '' }
+    try { return localStorage.getItem('docdyne.lastSpace') ?? '' } catch { return '' }
   })()
   const ordered = [...spaces.filter((s) => s.is_default), ...spaces.filter((s) => !s.is_default)]
 
@@ -68,7 +68,7 @@ export default function SpaceSwitcher({
         onChange={(v) => {
           // 全局空间记忆（v3.4）：切换写入 localStorage——AI 助手工作目录、
           // 下次进入文件页（无 ?space 参数时）均回落到该空间，而非总回默认。
-          try { localStorage.setItem('docflow.lastSpace', v || '') } catch { /* ignore */ }
+          try { localStorage.setItem('docdyne.lastSpace', v || '') } catch { /* ignore */ }
           navigate(v ? `/files?space=${v}` : '/files')
         }}
         options={ordered.map((s) => ({

@@ -45,7 +45,7 @@ const (
 )
 
 // AccessTokenVerifier 抽象 PAT 认证路径（生产实现为 *Service 的
-// VerifyPersonalAccessToken）；未注入（nil）时 dfpat_ 前缀凭证一律 401。
+// VerifyPersonalAccessToken）；未注入（nil）时 ddpat_ 前缀凭证一律 401。
 type AccessTokenVerifier interface {
 	VerifyPersonalAccessToken(token string) (uuid.UUID, error)
 }
@@ -104,7 +104,7 @@ var errUnauthorized = errors.New("unauthorized")
 
 // VerifyBearer 校验 Authorization 头中的 Bearer 凭证（RequireAccessToken 与
 // MCP /mcp 端点共用的公共鉴权函数，语义与原中间件内联实现一致）：
-//   - 以 dfpat_ 开头：走 PAT 路径（prefix 定位 + 哈希比对 + 未过期未撤销
+//   - 以 ddpat_ 开头：走 PAT 路径（prefix 定位 + 哈希比对 + 未过期未撤销
 //   - 属主 active + TouchLastUsed，见 Service.VerifyPersonalAccessToken）；
 //     verifier 未注入（nil）时一律拒绝；
 //   - 其余：按 HS256 JWT 解析（subject 为用户 UUID）。
@@ -152,7 +152,7 @@ func VerifyBearer(secret string, pat AccessTokenVerifier, header string) (uuid.U
 }
 
 // RequireAccessToken 同时接受两类 Bearer 凭证：
-//   - 以 dfpat_ 开头：走 PAT 路径（prefix 定位 + 哈希比对 + 未过期未撤销
+//   - 以 ddpat_ 开头：走 PAT 路径（prefix 定位 + 哈希比对 + 未过期未撤销
 //   - 属主 active + TouchLastUsed，见 Service.VerifyPersonalAccessToken），
 //     成功后 context 标记 auth_kind=pat；PAT 无 refresh 语义；
 //   - 其余：按 HS256 JWT 解析（subject 为用户 UUID），标记 auth_kind=jwt。

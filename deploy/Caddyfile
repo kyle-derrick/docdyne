@@ -1,8 +1,8 @@
-# DocFlow 生产入口（设计文档 §12.2）。caddy 是唯一映射宿主端口（80/443）的
+# DocDyne 生产入口（设计文档 §12.2）。caddy 是唯一映射宿主端口（80/443）的
 # 服务；前端静态产物在构建期拷入镜像 /srv/frontend（见 frontend/Dockerfile）。
 #
 # 站点地址取环境变量 APP_DOMAIN：未设置时默认 :80（本地验证，无 TLS）；
-# 设为域名（如 docflow.example.com）时自动申请/续期 HTTPS 证书
+# 设为域名（如 docdyne.example.com）时自动申请/续期 HTTPS 证书
 #（ACME HTTP 挑战走 80 端口，已在 docker-compose.yml 映射）。
 #
 # HTTPS 运行时切换（管理页 → TLS）：backend 经 admin API 热下发与本文件

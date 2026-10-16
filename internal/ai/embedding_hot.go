@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // ErrVectorDisabled 表示当前热配置未启用向量路径（RAG mode 非 hybrid 或

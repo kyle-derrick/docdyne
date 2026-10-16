@@ -109,7 +109,7 @@ if [[ $AUTO -eq 0 ]]; then
   [[ -z "$PG_PASS" ]] && PG_PASS="$(gen_password)"
 fi
 set_kv POSTGRES_PASSWORD "$PG_PASS"
-set_kv DATABASE_URL "postgres://docflow:${PG_PASS}@postgres:5432/docflow?sslmode=disable"
+set_kv DATABASE_URL "postgres://docdyne:${PG_PASS}@postgres:5432/docdyne?sslmode=disable"
 MADE+=('POSTGRES_PASSWORD + DATABASE_URL')
 
 # 2) JWT_SECRET
@@ -130,7 +130,7 @@ ask_default() { # $1 标签 $2 默认值
   printf '%s\n' "${v:-$2}"
 }
 echo ''
-EMAIL="$(ask_default '初始管理员邮箱（SEED_ADMIN_EMAIL）' 'admin@docflow.local')"
+EMAIL="$(ask_default '初始管理员邮箱（SEED_ADMIN_EMAIL）' 'admin@docdyne.local')"
 USERNAME="$(ask_default '初始管理员用户名（SEED_ADMIN_USERNAME）' 'admin')"
 ADMIN_PASS="$(gen_password)"
 if [[ $AUTO -eq 0 ]]; then

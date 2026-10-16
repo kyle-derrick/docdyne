@@ -1,5 +1,5 @@
 // 主题（accent 色系）与明暗模式管理（v1.1）。
-// - 偏好持久化在 localStorage（key: docflow.theme，JSON {accent, mode}）；
+// - 偏好持久化在 localStorage（key: docdyne.theme，JSON {accent, mode}）；
 // - 应用方式：document.documentElement 的 data-theme（accent）与
 //   data-mode（dark|light，system 模式按 prefers-color-scheme 实时解析）；
 // - 默认 indigo + light（v4.1：默认浅色，更符合办公文档场景的普遍预期；
@@ -13,11 +13,11 @@ export type ThemeAccent = 'indigo' | 'violet' | 'emerald' | 'rose' | 'amber'
 /** 明暗模式：system 跟随 prefers-color-scheme。 */
 export type ThemeMode = 'dark' | 'light' | 'system'
 
-export const THEME_STORAGE_KEY = 'docflow.theme'
+export const THEME_STORAGE_KEY = 'docdyne.theme'
 
 /** 主题变更广播事件（saveTheme 派发）：顶栏外观快捷入口与设置页外观面板
- * 各自持有本地态，监听本事件互相同步（与 i18n 的 docflow:locale 同模式）。 */
-export const THEME_EVENT = 'docflow:theme'
+ * 各自持有本地态，监听本事件互相同步（与 i18n 的 docdyne:locale 同模式）。 */
+export const THEME_EVENT = 'docdyne:theme'
 
 /** 各 accent 的展示名与色块颜色（设置页外观卡片与帮助展示用）。 */
 export const THEME_ACCENTS: Array<{ value: ThemeAccent; label: string; color: string }> = [

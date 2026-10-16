@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // ResolvePersonalProvider 把个人 Provider 条目适配为与平台同构的

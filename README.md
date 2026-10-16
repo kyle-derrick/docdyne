@@ -1,4 +1,4 @@
-# DocFlow
+# DocDyne
 
 自托管的企业级文档与文件管理平台：团队空间、细粒度权限、断点续传上传、在线编辑（OnlyOffice / draw.io / Excalidraw）、全文搜索、病毒扫描、OIDC 单点登录与完整审计。
 
@@ -76,24 +76,24 @@ draw.io 与前端 SPA 均无独立服务：静态层在构建期并入 caddy 镜
 
 | 镜像 | 构建上下文 | 内容 |
 |---|---|---|
-| `docflow/backend:1.0.0` | `./`（Dockerfile） | Go 多阶段构建：`/docflow` 服务、`/migrate`、`/seed`，含 migrations |
-| `docflow/caddy:1.0.0` | `./frontend`（frontend/Dockerfile） | 前端 Vite 产物 → `/srv/frontend` + draw.io 静态层 → `/srv/drawio`，Caddy 托管 + 反代 |
-| `docflow/onlyoffice:8.2.3-cjk` | `./deploy/onlyoffice` | 官方 DocumentServer + 中文字体（`make up-full` 时构建） |
+| `docdyne/backend:1.0.0` | `./`（Dockerfile） | Go 多阶段构建：`/docdyne` 服务、`/migrate`、`/seed`，含 migrations |
+| `docdyne/caddy:1.0.0` | `./frontend`（frontend/Dockerfile） | 前端 Vite 产物 → `/srv/frontend` + draw.io 静态层 → `/srv/drawio`，Caddy 托管 + 反代 |
+| `docdyne/onlyoffice:8.2.3-cjk` | `./deploy/onlyoffice` | 官方 DocumentServer + 中文字体（`make up-full` 时构建） |
 
 推送到镜像仓库后即可在任意装了 docker compose 的主机部署：
 
 ```bash
-docker build -t <registry>/docflow/backend:1.0.0 .
-docker build -t <registry>/docflow/caddy:1.0.0 ./frontend
-docker push <registry>/docflow/backend:1.0.0
-docker push <registry>/docflow/caddy:1.0.0
+docker build -t <registry>/docdyne/backend:1.0.0 .
+docker build -t <registry>/docdyne/caddy:1.0.0 ./frontend
+docker push <registry>/docdyne/backend:1.0.0
+docker push <registry>/docdyne/caddy:1.0.0
 ```
 
 ## 部署（生产）
 
 ### 从源码一键部署
 
-无需预先存在 DocFlow 镜像，部署入口会校验 Docker Compose、创建（但不覆盖）`.env`、构建前端/Caddy 与 backend 镜像，并按 `postgres → migrate → seed → backend → caddy` 依赖顺序启动：
+无需预先存在 DocDyne 镜像，部署入口会校验 Docker Compose、创建（但不覆盖）`.env`、构建前端/Caddy 与 backend 镜像，并按 `postgres → migrate → seed → backend → caddy` 依赖顺序启动：
 
 ```bash
 # 首次运行会复制 .env.example 后提示补齐密钥，再次运行即可
@@ -106,7 +106,7 @@ make deploy-full
 
 `minimal` 仅启动 caddy、backend、PostgreSQL；`full` 额外启动 Redis 和 OnlyOffice。ClamAV、Meilisearch、MinIO 分别使用 `antivirus`、`search`、`storage` profile 叠加。AI 能力默认关闭，关闭时不依赖任何外部服务；启用 RAG 向量检索需叠加 `--profile ai-vector` 启动 Qdrant，并在 AI 设置中开启向量检索、勾选 embedding 模型（Qdrant 只提供存储服务，不会自动启用 AI）；启用联网搜索可叠加 `--profile ai-search` 启动 SearXNG，或仅配置 Tavily Key（无需额外服务）。
 
-镜像标签由 `DOCFLOW_IMAGE_TAG` 配置，backend、migrate、seed 和 caddy 使用同一标签。检查构建配置可执行 `make validate-compose`（等价于 `docker compose config --quiet`）。
+镜像标签由 `DOCDYNE_IMAGE_TAG` 配置，backend、migrate、seed 和 caddy 使用同一标签。检查构建配置可执行 `make validate-compose`（等价于 `docker compose config --quiet`）。
 
 三步：
 
@@ -149,7 +149,7 @@ https://你的域名/webdav
 Basic Auth 用户名使用平台邮箱/用户名，密码使用创建时显示一次的 WebDAV 令牌。令牌只存哈希，丢失后只能吊销并重新创建。
 
 - Windows：文件资源管理器 → 此电脑 → 映射网络驱动器 → 输入 WebDAV 地址。
-- Linux：安装 `davfs2` 后使用 `mount -t davfs https://域名/webdav /mnt/docflow`。
+- Linux：安装 `davfs2` 后使用 `mount -t davfs https://域名/webdav /mnt/docdyne`。
 - macOS：Finder → 前往 → 连接服务器 → 输入 WebDAV 地址。
 
 WebDAV 默认关闭；管理员需要在部署配置中设置 `webdav.enabled=true`，并在设置页创建令牌。
@@ -172,8 +172,8 @@ WebDAV 默认关闭；管理员需要在部署配置中设置 `webdav.enabled=tr
 
 ```bash
 # 后端（:8080）：先自备 PostgreSQL 或临时容器
-docker run -d --name docflow-pg -p 5432:5432 \
-  -e POSTGRES_DB=docflow -e POSTGRES_USER=docflow \
+docker run -d --name docdyne-pg -p 5432:5432 \
+  -e POSTGRES_DB=docdyne -e POSTGRES_USER=docdyne \
   -e POSTGRES_PASSWORD=change-me postgres:16-alpine
 cp .env.example .env   # 本地默认值开箱可用
 make run

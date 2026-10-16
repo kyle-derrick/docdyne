@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/backup"
-	"github.com/docflow/docflow/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/backup"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -124,7 +124,7 @@ func TestAdminBackupStatusDirMissing(t *testing.T) {
 func TestAdminBackupStatusWithBackup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	dir := t.TempDir()
-	writeTestBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	writeTestBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql":  "-- dump\n",
 		"env.sanitized": "PORT=8080\n",
 	})
@@ -138,7 +138,7 @@ func TestAdminBackupStatusWithBackup(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{
 		`"enabled":true`,
-		`"name":"docflow-backup-20260915T000000Z"`,
+		`"name":"docdyne-backup-20260915T000000Z"`,
 		`"timestamp":"2026-09-15T00:00:00Z"`,
 		`"components":["postgres","env"]`,
 		`"object_store":"local"`,
@@ -152,7 +152,7 @@ func TestAdminBackupStatusWithBackup(t *testing.T) {
 		}
 	}
 	// 写入校验标记后：verified=true 且携带校验时间。
-	if err := backup.WriteVerifyMarker(filepath.Join(dir, "docflow-backup-20260915T000000Z"), backup.VerifyMarker{Verified: true, VerifiedAt: "2026-09-15T01:00:00Z", Files: 2}); err != nil {
+	if err := backup.WriteVerifyMarker(filepath.Join(dir, "docdyne-backup-20260915T000000Z"), backup.VerifyMarker{Verified: true, VerifiedAt: "2026-09-15T01:00:00Z", Files: 2}); err != nil {
 		t.Fatal(err)
 	}
 	c, w = adminContext(http.MethodGet, "/api/v1/admin/backups/status", "")
@@ -209,12 +209,12 @@ func TestAdminBackupVerifyNoBackup(t *testing.T) {
 func TestAdminBackupVerifyOK(t *testing.T) {
 	h, rec, actor := newBackupVerifyHandler(t)
 	dir := t.TempDir()
-	backupDir := writeTestBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	backupDir := writeTestBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql":  "-- dump\n",
 		"env.sanitized": "PORT=8080\n",
 	})
 	h.SetBackupDir(dir)
-	successBefore := backupMetricValue(t, "docflow_backup_verification_total", map[string]string{"result": metrics.BackupResultSuccess})
+	successBefore := backupMetricValue(t, "docdyne_backup_verification_total", map[string]string{"result": metrics.BackupResultSuccess})
 	w := callBackupVerify(h, actor)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
@@ -226,18 +226,18 @@ func TestAdminBackupVerifyOK(t *testing.T) {
 		}
 	}
 	// 指标：success 计数 +1；最近成功时间戳 > 0。
-	if after := backupMetricValue(t, "docflow_backup_verification_total", map[string]string{"result": metrics.BackupResultSuccess}); after != successBefore+1 {
-		t.Fatalf("docflow_backup_verification_total{success} = %v, want %v", after, successBefore+1)
+	if after := backupMetricValue(t, "docdyne_backup_verification_total", map[string]string{"result": metrics.BackupResultSuccess}); after != successBefore+1 {
+		t.Fatalf("docdyne_backup_verification_total{success} = %v, want %v", after, successBefore+1)
 	}
-	if ts := backupMetricValue(t, "docflow_backup_last_success_timestamp", nil); ts <= 0 {
-		t.Fatalf("docflow_backup_last_success_timestamp = %v, want > 0", ts)
+	if ts := backupMetricValue(t, "docdyne_backup_last_success_timestamp", nil); ts <= 0 {
+		t.Fatalf("docdyne_backup_last_success_timestamp = %v, want > 0", ts)
 	}
 	// 审计：backup.verify success，ResourceID 为备份目录名。
 	entry := rec.find(audit.ActionBackupVerify)
 	if entry == nil {
 		t.Fatalf("audit backup.verify not recorded: %+v", rec.entries)
 	}
-	if entry.ResourceType != audit.ResourceBackup || entry.ResourceID != "docflow-backup-20260915T000000Z" || entry.Status != audit.StatusSuccess {
+	if entry.ResourceType != audit.ResourceBackup || entry.ResourceID != "docdyne-backup-20260915T000000Z" || entry.Status != audit.StatusSuccess {
 		t.Fatalf("audit entry = %+v", entry)
 	}
 	if !strings.Contains(entry.Metadata, `"files":2`) {
@@ -258,11 +258,11 @@ func TestAdminBackupVerifyOK(t *testing.T) {
 func TestAdminBackupVerifyCorrupt(t *testing.T) {
 	h, rec, actor := newBackupVerifyHandler(t)
 	dir := t.TempDir()
-	backupDir := writeTestBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	backupDir := writeTestBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql": "-- dump\n",
 	})
 	h.SetBackupDir(dir)
-	failedBefore := backupMetricValue(t, "docflow_backup_verification_total", map[string]string{"result": metrics.BackupResultFailed})
+	failedBefore := backupMetricValue(t, "docdyne_backup_verification_total", map[string]string{"result": metrics.BackupResultFailed})
 	if err := os.WriteFile(filepath.Join(backupDir, "postgres.sql"), []byte("-- tampered\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -274,8 +274,8 @@ func TestAdminBackupVerifyCorrupt(t *testing.T) {
 	if !strings.Contains(body, `"verified":false`) || !strings.Contains(body, "sha256 mismatch") {
 		t.Fatalf("body must carry failure detail: %s", body)
 	}
-	if after := backupMetricValue(t, "docflow_backup_verification_total", map[string]string{"result": metrics.BackupResultFailed}); after != failedBefore+1 {
-		t.Fatalf("docflow_backup_verification_total{failed} = %v, want %v", after, failedBefore+1)
+	if after := backupMetricValue(t, "docdyne_backup_verification_total", map[string]string{"result": metrics.BackupResultFailed}); after != failedBefore+1 {
+		t.Fatalf("docdyne_backup_verification_total{failed} = %v, want %v", after, failedBefore+1)
 	}
 	entry := rec.find(audit.ActionBackupVerify)
 	if entry == nil || entry.Status != audit.StatusFailure {

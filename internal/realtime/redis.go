@@ -11,7 +11,7 @@ import (
 )
 
 // notifyChannel 为跨实例通知广播的 Redis Pub/Sub 频道。
-const notifyChannel = "docflow:notify"
+const notifyChannel = "docdyne:notify"
 
 // RedisBroadcaster 基于 Redis Pub/Sub 的跨实例广播桥（QUEUE_DRIVER=redis
 // 时启用）：连接参数与 asynq 队列共用（REDIS_ADDR/REDIS_PASSWORD，无独立

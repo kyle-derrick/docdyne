@@ -8,11 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/acl"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/acl"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/space"
 )
 
 // aclService 抽象路径级 ACL 管理能力（SetACL 注入；生产实现 *acl.Service，

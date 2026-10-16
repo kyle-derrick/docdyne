@@ -1,4 +1,4 @@
-/* DocFlow AI OnlyOffice 插件 v8（SPA 桥接宿主）——UI 已迁平台 /office-ai
+/* DocDyne AI OnlyOffice 插件 v8（SPA 桥接宿主）——UI 已迁平台 /office-ai
  * 路由（同一套 AIChatShell/AIEditChat 组件：会话/技能包/谨慎模式/多模态
  * 附件全复用）。本文件仅保留：
  *  1) OnlyOffice 文档沙箱工具运行时（word 26 / excel 19 / ppt 13，ES5，
@@ -14,12 +14,12 @@
   var docInfo = null;
 
   function readEditorKind() {
-    try { var k = window.localStorage.getItem('docflow.ai.editor.kind');
+    try { var k = window.localStorage.getItem('docdyne.ai.editor.kind');
       if (k === 'word' || k === 'cell' || k === 'slide' || k === 'pdf') return k;
     } catch (e) {}
     return null;
   }
-  function csrfToken() { var m = document.cookie.match(/(?:^|; )docflow_csrf=([^;]*)/); return m ? decodeURIComponent(m[1]) : null; }
+  function csrfToken() { var m = document.cookie.match(/(?:^|; )docdyne_csrf=([^;]*)/); return m ? decodeURIComponent(m[1]) : null; }
   function refresh() {
     var h = { 'Content-Type': 'application/json' };
     var c = csrfToken(); if (c) h['X-CSRF-Token'] = c;
@@ -1062,7 +1062,7 @@
   function buildSystem() {
     var k = editorType || 'pdf';
     var L = [
-      '你是 DocFlow 内置文档编辑 Agent，运行在 OnlyOffice 编辑器侧栏中。',
+      '你是 DocDyne 内置文档编辑 Agent，运行在 OnlyOffice 编辑器侧栏中。',
       '当前编辑器类型：' + k + '。你操作的是当前打开的编辑器文档——不是平台文件系统。',
       '重要：写入内容必须用编辑器工具（insert_content / write_table / add_slide 等）直接修改当前文档，不要用 list_files/read_file 生成新文件。',
       '',

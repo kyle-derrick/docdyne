@@ -1,4 +1,4 @@
-// DocFlow 富文本多人实时协作会话（.dfrt/.dfdoc，Tiptap + prosemirror-collab）。
+// DocDyne 富文本多人实时协作会话（.dfrt/.dfdoc，Tiptap + prosemirror-collab）。
 // - 传输：GET /api/v1/collab/:fileId/ws（升级为 WebSocket；JWT 经
 //   Sec-WebSocket-Protocol 的 bearer 子协议携带，与通知 WS 同一校验方式）；
 // - 消息协议（JSON 信封）：
@@ -227,7 +227,7 @@ type RemoteCaretMeta =
   | { clear: true }
 
 /** 远程光标插件状态键（dispatch meta 更新 / 读 getState 用）。 */
-export const remoteCaretsKey = new PluginKey<RemoteCaretsPluginState>('docflowRemoteCarets')
+export const remoteCaretsKey = new PluginKey<RemoteCaretsPluginState>('docdyneRemoteCarets')
 
 function buildCaretDecorations(carets: Map<string, RemoteCaretEntry>, doc: EditorState['doc']): DecorationSet {
   const decos: Decoration[] = []
@@ -317,7 +317,7 @@ export function clearRemoteCarets(view: EditorView): void {
  */
 export function createCollabExtension(clientID: number, version: number): Extension {
   return Extension.create({
-    name: 'docflowCollab',
+    name: 'docdyneCollab',
     addProseMirrorPlugins() {
       return [pmCollab({ clientID, version }), createRemoteCaretsPlugin()]
     },

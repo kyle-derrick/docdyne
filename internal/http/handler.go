@@ -9,30 +9,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/caddytls"
-	"github.com/docflow/docflow/internal/collab"
-	"github.com/docflow/docflow/internal/contenturl"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/group"
-	"github.com/docflow/docflow/internal/invite"
-	"github.com/docflow/docflow/internal/mail"
-	"github.com/docflow/docflow/internal/mcp"
-	"github.com/docflow/docflow/internal/metrics"
-	"github.com/docflow/docflow/internal/notify"
-	"github.com/docflow/docflow/internal/oidc"
-	"github.com/docflow/docflow/internal/onlyoffice"
-	"github.com/docflow/docflow/internal/realtime"
-	"github.com/docflow/docflow/internal/settings"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/space"
-	"github.com/docflow/docflow/internal/tagging"
-	"github.com/docflow/docflow/internal/tasks"
-	"github.com/docflow/docflow/internal/upload"
-	"github.com/docflow/docflow/internal/webhook"
-	"github.com/docflow/docflow/internal/webpkg"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/caddytls"
+	"github.com/kyle-derrick/docdyne/internal/collab"
+	"github.com/kyle-derrick/docdyne/internal/contenturl"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/group"
+	"github.com/kyle-derrick/docdyne/internal/invite"
+	"github.com/kyle-derrick/docdyne/internal/mail"
+	"github.com/kyle-derrick/docdyne/internal/mcp"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/notify"
+	"github.com/kyle-derrick/docdyne/internal/oidc"
+	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
+	"github.com/kyle-derrick/docdyne/internal/realtime"
+	"github.com/kyle-derrick/docdyne/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/tagging"
+	"github.com/kyle-derrick/docdyne/internal/tasks"
+	"github.com/kyle-derrick/docdyne/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/webhook"
+	"github.com/kyle-derrick/docdyne/internal/webpkg"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -90,7 +90,7 @@ func (h *Handler) SetEmailChange(codes auth.EmailChangeStore, account emailChang
 // 同 cost）。用户不存在/非 active 分支对它执行同样的 CompareHashAndPassword，
 // 使响应耗时与「用户存在但密码错误」路径一致，防止通过时间差枚举邮箱。
 var dummyPasswordHash = func() string {
-	hash, err := bcrypt.GenerateFromPassword([]byte("docflow-dummy-password-timing-align"), bcrypt.DefaultCost+2)
+	hash, err := bcrypt.GenerateFromPassword([]byte("docdyne-dummy-password-timing-align"), bcrypt.DefaultCost+2)
 	if err != nil {
 		panic("auth: generate dummy password hash: " + err.Error())
 	}
@@ -532,7 +532,7 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 		authGroup.GET("/oidc/login", authOpsLimiterMW, h.oidcLogin)
 		authGroup.GET("/oidc/callback", authOpsLimiterMW, h.oidcCallback)
 	}
-	// PAT 认证路径挂在中间件上（dfpat_ 前缀走 Service.VerifyPersonalAccessToken）；
+	// PAT 认证路径挂在中间件上（ddpat_ 前缀走 Service.VerifyPersonalAccessToken）；
 	// h.auth 未注入（契约测试）时显式传 nil，中间件对该前缀一律 401。
 	var patVerifier auth.AccessTokenVerifier
 	if h.auth != nil {

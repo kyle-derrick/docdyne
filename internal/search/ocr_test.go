@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // fakeOCR 记录调用参数并返回预设结果（Indexer OCR 注入用 fake）。

@@ -52,9 +52,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'DocFlow',
-        short_name: 'DocFlow',
-        description: 'DocFlow 团队云文档',
+        name: 'DocDyne',
+        short_name: 'DocDyne',
+        description: 'DocDyne 团队云文档',
         theme_color: '#0f1115',
         background_color: '#0f1115',
         display: 'standalone',
@@ -67,7 +67,7 @@ export default defineConfig({
       workbox: {
         navigateFallback: 'index.html',
         // 非SPA路径必须排除在导航兜底外：否则SW会把同源 iframe/直开链接
-        // 劫持成预缓存的 SPA index.html——/oo-plugins/（OnlyOffice DocFlow AI
+        // 劫持成预缓存的 SPA index.html——/oo-plugins/（OnlyOffice DocDyne AI
         // 插件面板，曾致插件打开成"文件页"）与 /raw/（受控原始内容直开）。
         navigateFallbackDenylist: [/^\/api\//, /^\/content\//, /^\/onlyoffice\//, /^\/drawio\//, /^\/s\//, /^\/oo-plugins\//, /^\/raw\//],
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
@@ -94,11 +94,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        // DOCFLOW_DEV_API 可指向完整栈入口（如 http://127.0.0.1 的 caddy），
+        // DOCDYNE_DEV_API 可指向完整栈入口（如 http://127.0.0.1 的 caddy），
         // 便于 dev server 复用真实后端联调；缺省本地 Go 后端 :8080。
         // 注意 changeOrigin 必须为 false：后端 CSRF 校验要求 Origin/Referer
         // 的 host 与请求 Host 一致，改写 Host 会导致 /auth/refresh 被 403。
-        target: process.env.DOCFLOW_DEV_API ?? 'http://localhost:8080',
+        target: process.env.DOCDYNE_DEV_API ?? 'http://localhost:8080',
         changeOrigin: false,
       },
     },

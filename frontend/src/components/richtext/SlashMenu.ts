@@ -212,7 +212,7 @@ function createMenuRenderer(callbacksRef: SlashMenuCallbacksRef) {
 /** slash 菜单扩展（命令绑定 callbacksRef，语言/回调实时读取）。 */
 export function createSlashMenuExtension(callbacksRef: SlashMenuCallbacksRef) {
   return Extension.create({
-    name: 'docflowSlashMenu',
+    name: 'docdyneSlashMenu',
     addProseMirrorPlugins() {
       return [
         Suggestion<SlashItem>({

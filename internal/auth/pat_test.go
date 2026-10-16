@@ -109,7 +109,7 @@ func patTestService(users ...User) (*Service, *fakeTokenStore, *fakeCredentials)
 	return service, store, creds
 }
 
-// 生成格式：dfpat_ + 43 字符 base64url（总长 49）；hash 为 SHA-256 hex（64）；
+// 生成格式：ddpat_ + 43 字符 base64url（总长 49）；hash 为 SHA-256 hex（64）；
 // prefix 为明文前 14 字符；明文与哈希不同、两次生成不重复。
 func TestPersonalAccessTokenFormat(t *testing.T) {
 	user := User{ID: uuid.New(), Username: "alice", Email: "alice@example.com", Status: StatusActive}
@@ -118,8 +118,8 @@ func TestPersonalAccessTokenFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(plaintext, "dfpat_") {
-		t.Fatalf("plaintext = %q, want dfpat_ prefix", plaintext)
+	if !strings.HasPrefix(plaintext, "ddpat_") {
+		t.Fatalf("plaintext = %q, want ddpat_ prefix", plaintext)
 	}
 	if got := len(plaintext); got != len(PATPrefix)+PATBodyLen {
 		t.Fatalf("plaintext length = %d, want %d", got, len(PATPrefix)+PATBodyLen)
@@ -209,7 +209,7 @@ func TestVerifyPersonalAccessTokenMatrix(t *testing.T) {
 	}
 
 	// 未知前缀。
-	if _, err := service.VerifyPersonalAccessToken("dfpat_" + strings.Repeat("A", 43)); !errors.Is(err, ErrInvalidAccessToken) {
+	if _, err := service.VerifyPersonalAccessToken("ddpat_" + strings.Repeat("A", 43)); !errors.Is(err, ErrInvalidAccessToken) {
 		t.Fatalf("unknown prefix error = %v", err)
 	}
 	// 同前缀、哈希不匹配（篡改明文尾部）。
@@ -221,7 +221,7 @@ func TestVerifyPersonalAccessTokenMatrix(t *testing.T) {
 		t.Fatalf("tampered error = %v", err)
 	}
 	// 形态非法：过短 / 无前缀。
-	if _, err := service.VerifyPersonalAccessToken("dfpat_short"); !errors.Is(err, ErrInvalidAccessToken) {
+	if _, err := service.VerifyPersonalAccessToken("ddpat_short"); !errors.Is(err, ErrInvalidAccessToken) {
 		t.Fatalf("short token error = %v", err)
 	}
 	if _, err := service.VerifyPersonalAccessToken(strings.Repeat("A", 49)); !errors.Is(err, ErrInvalidAccessToken) {

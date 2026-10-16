@@ -11,9 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // fakeAIClient 是 aiSummarizer 的可控实现。

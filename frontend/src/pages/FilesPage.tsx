@@ -53,7 +53,7 @@ const PERM_LABEL_KEYS: Record<string, MessageKey> = {
 
 /**
  * 扫描 .dfrt/.dfdoc（Tiptap JSON）内容收集引用的 file-id 集合：
- * docflowEmbed / docflowImage / docflowFileCard 三类引用节点的 attrs.fileId
+ * docdyneEmbed / docdyneImage / docdyneFileCard 三类引用节点的 attrs.fileId
  *（创建分享时经 ref_ids 并入 share grants，公开页按文件名解析引用资源）。
  * 解析失败/无引用返回空数组。
  */
@@ -64,7 +64,7 @@ function collectDfrtRefIds(text: string): string[] {
     const walk = (node: unknown): void => {
       if (!node || typeof node !== 'object') return
       const n = node as { type?: unknown; attrs?: { fileId?: unknown }; content?: unknown[] }
-      if (n.type === 'docflowEmbed' || n.type === 'docflowImage' || n.type === 'docflowFileCard') {
+      if (n.type === 'docdyneEmbed' || n.type === 'docdyneImage' || n.type === 'docdyneFileCard') {
         const id = n.attrs?.fileId
         if (typeof id === 'string' && id) ids.add(id)
       }
@@ -114,13 +114,13 @@ export default function FilesPage() {
   // 请求/树挂载/高亮一步到位，无中间态）。
   const [rememberedSpace, setRememberedSpace] = useState<string>(() => {
     if (spaceIdParam) return ''
-    try { return localStorage.getItem('docflow.lastSpace') ?? '' } catch { return '' }
+    try { return localStorage.getItem('docdyne.lastSpace') ?? '' } catch { return '' }
   })
   // v3.4 保留：显式 ?space= 进入（深链/切换）也写入记忆（与 SpaceSwitcher
   // 用户切换同源），下次无参进入回落到该空间。
   useEffect(() => {
     if (!spaceIdParam) return
-    try { localStorage.setItem('docflow.lastSpace', spaceIdParam) } catch { /* ignore */ }
+    try { localStorage.setItem('docdyne.lastSpace', spaceIdParam) } catch { /* ignore */ }
   }, [spaceIdParam])
   const activeSpaceId = spaceIdParam || rememberedSpace
 
@@ -143,7 +143,7 @@ export default function FilesPage() {
     if (!rememberedSpace || spaces.length === 0) return
     if (!spaces.some((s) => s.id === rememberedSpace)) {
       setRememberedSpace('')
-      try { localStorage.removeItem('docflow.lastSpace') } catch { /* ignore */ }
+      try { localStorage.removeItem('docdyne.lastSpace') } catch { /* ignore */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaces.length])
@@ -872,7 +872,7 @@ export default function FilesPage() {
             </div>
           ) : (
             <div>
-              <p className="hint">私有分享已创建。被授权的用户与空间成员登录 DocFlow 后即可访问，无公开链接。</p>
+              <p className="hint">私有分享已创建。被授权的用户与空间成员登录 DocDyne 后即可访问，无公开链接。</p>
               {shareResult.expires_at && (
                 <p className="hint">过期时间：{formatTime(shareResult.expires_at)}</p>
               )}

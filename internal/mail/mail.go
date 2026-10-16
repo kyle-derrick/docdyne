@@ -88,27 +88,27 @@ func NewSMTPMailer(host string, port int, user, pass, from, tlsMode string) *SMT
 }
 
 func (s *SMTPMailer) SendInvitation(email, link, inviter string) error {
-	body := fmt.Sprintf("您好，\n\n%s 邀请您加入 DocFlow。请在邀请有效期内点击以下链接完成注册（链接仅可使用一次）：\n\n%s\n\n若链接无法点击，请将其复制到浏览器地址栏打开。", inviter, link)
-	return s.send(email, "DocFlow 邀请注册", body)
+	body := fmt.Sprintf("您好，\n\n%s 邀请您加入 DocDyne。请在邀请有效期内点击以下链接完成注册（链接仅可使用一次）：\n\n%s\n\n若链接无法点击，请将其复制到浏览器地址栏打开。", inviter, link)
+	return s.send(email, "DocDyne 邀请注册", body)
 }
 
 func (s *SMTPMailer) SendPasswordReset(email, link string) error {
-	body := fmt.Sprintf("您好，\n\n您（或他人）请求重置 DocFlow 账号密码。以下链接 30 分钟内有效且仅可使用一次：\n\n%s\n\n如非本人操作，请忽略本邮件，您的密码不会被更改。", link)
-	return s.send(email, "DocFlow 密码重置", body)
+	body := fmt.Sprintf("您好，\n\n您（或他人）请求重置 DocDyne 账号密码。以下链接 30 分钟内有效且仅可使用一次：\n\n%s\n\n如非本人操作，请忽略本邮件，您的密码不会被更改。", link)
+	return s.send(email, "DocDyne 密码重置", body)
 }
 
 // SendNotification 发送站内通知事件的邮件副本（纯文本简单格式：
 // 标题 + 正文 + 偏好调整指引）。
 func (s *SMTPMailer) SendNotification(email, title, body string) error {
-	text := fmt.Sprintf("您好，\n\n%s\n\n%s\n\n—— DocFlow（可在「设置 → 通知偏好」中调整各类通知开关）", title, body)
-	return s.send(email, "[DocFlow] "+title, text)
+	text := fmt.Sprintf("您好，\n\n%s\n\n%s\n\n—— DocDyne（可在「设置 → 通知偏好」中调整各类通知开关）", title, body)
+	return s.send(email, "[DocDyne] "+title, text)
 }
 
 // SendEmailChangeCode 发送换绑邮箱验证码（账号安全）：10 分钟内有效，
 // 仅对请求中提交的新邮箱投递（新邮箱归属验证即由本邮件完成）。
 func (s *SMTPMailer) SendEmailChangeCode(email, code, username string) error {
-	body := fmt.Sprintf("您好 %s，\n\n您正在更换 DocFlow 账号的绑定邮箱。验证码：\n\n%s\n\n10 分钟内有效。若非本人操作，请立即检查账号安全（修改密码并撤销活跃会话）。\n\n—— DocFlow", username, code)
-	return s.send(email, "DocFlow 换绑邮箱验证码", body)
+	body := fmt.Sprintf("您好 %s，\n\n您正在更换 DocDyne 账号的绑定邮箱。验证码：\n\n%s\n\n10 分钟内有效。若非本人操作，请立即检查账号安全（修改密码并撤销活跃会话）。\n\n—— DocDyne", username, code)
+	return s.send(email, "DocDyne 换绑邮箱验证码", body)
 }
 
 // send 组装最简 RFC 5322 报文并投递（显式 smtp.Client：按 TLS 模式拨号，

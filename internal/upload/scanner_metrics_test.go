@@ -69,21 +69,21 @@ func TestCountingScannerScanResults(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			before := counterValue(t, "docflow_scan_results_total", map[string]string{"result": tc.wantKind})
+			before := counterValue(t, "docdyne_scan_results_total", map[string]string{"result": tc.wantKind})
 			scanner := NewCountingScanner(tc.inner)
 			err := scanner.Scan(strings.NewReader("payload"))
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("Scan err = %v, want %v", err, tc.wantErr)
 			}
-			after := counterValue(t, "docflow_scan_results_total", map[string]string{"result": tc.wantKind})
+			after := counterValue(t, "docdyne_scan_results_total", map[string]string{"result": tc.wantKind})
 			if after-before != 1 {
-				t.Fatalf("docflow_scan_results_total{result=%q} 差值 = %v, want 1", tc.wantKind, after-before)
+				t.Fatalf("docdyne_scan_results_total{result=%q} 差值 = %v, want 1", tc.wantKind, after-before)
 			}
 		})
 	}
 }
 
-// Start 创建会话计入 docflow_upload_sessions_total{status=created|failed}。
+// Start 创建会话计入 docdyne_upload_sessions_total{status=created|failed}。
 func TestStartCountsSessionMetric(t *testing.T) {
 	store := NewMemoryStore()
 	storage, err := NewLocalStorage(t.TempDir())
@@ -92,8 +92,8 @@ func TestStartCountsSessionMetric(t *testing.T) {
 	}
 	svc := NewService(store, storage, time.Hour, 1<<20, false, nil, nil)
 
-	createdBefore := counterValue(t, "docflow_upload_sessions_total", map[string]string{"status": "created"})
-	failedBefore := counterValue(t, "docflow_upload_sessions_total", map[string]string{"status": "failed"})
+	createdBefore := counterValue(t, "docdyne_upload_sessions_total", map[string]string{"status": "created"})
+	failedBefore := counterValue(t, "docdyne_upload_sessions_total", map[string]string{"status": "failed"})
 
 	if _, err := svc.Start(uuid.New(), uuid.New(), "ok.txt", 3, ""); err != nil {
 		t.Fatalf("Start ok: %v", err)
@@ -102,8 +102,8 @@ func TestStartCountsSessionMetric(t *testing.T) {
 		t.Fatalf("Start oversize: err = %v, want ErrSize", err)
 	}
 
-	createdAfter := counterValue(t, "docflow_upload_sessions_total", map[string]string{"status": "created"})
-	failedAfter := counterValue(t, "docflow_upload_sessions_total", map[string]string{"status": "failed"})
+	createdAfter := counterValue(t, "docdyne_upload_sessions_total", map[string]string{"status": "created"})
+	failedAfter := counterValue(t, "docdyne_upload_sessions_total", map[string]string{"status": "failed"})
 	if createdAfter-createdBefore != 1 {
 		t.Fatalf("created 差值 = %v, want 1", createdAfter-createdBefore)
 	}
@@ -147,23 +147,23 @@ func histogramCount(t *testing.T, name string, labels map[string]string) uint64 
 }
 
 // Complete 全链路：verify 阶段（SHA-256 校验）与 scan 阶段（CountingScanner）
-// 各记一次 docflow_upload_processing_duration_seconds{stage}。
+// 各记一次 docdyne_upload_processing_duration_seconds{stage}。
 func TestCompleteObservesStageDurations(t *testing.T) {
 	svc, store, _, id := testService(t, 3)
 	svc.SetScanner(NewCountingScanner(AllowScanner{}))
 	if _, err := svc.Append(id, 0, strings.NewReader("abc")); err != nil {
 		t.Fatal(err)
 	}
-	verifyBefore := histogramCount(t, "docflow_upload_processing_duration_seconds", map[string]string{"stage": "verify"})
-	scanBefore := histogramCount(t, "docflow_upload_processing_duration_seconds", map[string]string{"stage": "scan"})
+	verifyBefore := histogramCount(t, "docdyne_upload_processing_duration_seconds", map[string]string{"stage": "verify"})
+	scanBefore := histogramCount(t, "docdyne_upload_processing_duration_seconds", map[string]string{"stage": "scan"})
 	if _, err := svc.Complete(id); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
 	if v, _ := store.Get(id); v.Status != StatusAvailable {
 		t.Fatalf("status = %s, want available", v.Status)
 	}
-	verifyAfter := histogramCount(t, "docflow_upload_processing_duration_seconds", map[string]string{"stage": "verify"})
-	scanAfter := histogramCount(t, "docflow_upload_processing_duration_seconds", map[string]string{"stage": "scan"})
+	verifyAfter := histogramCount(t, "docdyne_upload_processing_duration_seconds", map[string]string{"stage": "verify"})
+	scanAfter := histogramCount(t, "docdyne_upload_processing_duration_seconds", map[string]string{"stage": "scan"})
 	if verifyAfter-verifyBefore != 1 {
 		t.Fatalf("verify 观测差值 = %d, want 1", verifyAfter-verifyBefore)
 	}

@@ -76,13 +76,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: docflow
-          POSTGRES_PASSWORD: docflow-e2e
-          POSTGRES_DB: docflow
+          POSTGRES_USER: docdyne
+          POSTGRES_PASSWORD: docdyne-e2e
+          POSTGRES_DB: docdyne
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U docflow"
+          --health-cmd "pg_isready -U docdyne"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
@@ -115,7 +115,7 @@ jobs:
 
       - name: Run E2E
         env:
-          E2E_DATABASE_URL: postgres://docflow:docflow-e2e@localhost:5432/docflow?sslmode=disable
+          E2E_DATABASE_URL: postgres://docdyne:docdyne-e2e@localhost:5432/docdyne?sslmode=disable
           # 种子管理员密码须满足强度（≥12 且含大小写+数字；setup-backend
           # 以环境变量为准幂等 upsert）。
           E2E_SEED_PASSWORD: E2eAdminPassw0rd

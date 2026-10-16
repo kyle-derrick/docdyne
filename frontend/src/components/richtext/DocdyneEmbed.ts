@@ -1,4 +1,4 @@
-// DocFlow 富文本嵌入块节点（自定义 Tiptap node）：
+// DocDyne 富文本嵌入块节点（自定义 Tiptap node）：
 // - atom 块级节点，attrs { kind, fileId, title }，NodeView 渲染实际内容
 //   （见 EmbedView.tsx）；
 // - .dfdoc 为 Tiptap JSON 存储：嵌入块以本节点原生存进文档 JSON，
@@ -8,17 +8,17 @@ import { Node, mergeAttributes, ReactNodeViewRenderer } from '@tiptap/react'
 import EmbedView from './EmbedView'
 import { EmbedKind, EmbedRef } from './markdownRoundtrip'
 
-/** Docs 命令类型扩展：editor.commands.insertDocflowEmbed(ref)。 */
+/** Docs 命令类型扩展：editor.commands.insertDocdyneEmbed(ref)。 */
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
-    docflowEmbed: {
+    docdyneEmbed: {
       /** 在当前选区插入嵌入块（drawio/excalidraw/office/web/file 引用）。 */
-      insertDocflowEmbed: (ref: EmbedRef) => ReturnType
+      insertDocdyneEmbed: (ref: EmbedRef) => ReturnType
     }
   }
 }
 
-export interface DocflowEmbedAttrs {
+export interface DocdyneEmbedAttrs {
   kind: EmbedKind
   fileId: string
   title: string
@@ -28,10 +28,10 @@ export interface DocflowEmbedAttrs {
   height: number
 }
 
-const DEFAULT_ATTRS: DocflowEmbedAttrs = { kind: 'file', fileId: '', title: '', width: 100, height: 0 }
+const DEFAULT_ATTRS: DocdyneEmbedAttrs = { kind: 'file', fileId: '', title: '', width: 100, height: 0 }
 
-export const DocflowEmbed = Node.create({
-  name: 'docflowEmbed',
+export const DocdyneEmbed = Node.create({
+  name: 'docdyneEmbed',
   group: 'block',
   atom: true,
   selectable: true,
@@ -40,8 +40,8 @@ export const DocflowEmbed = Node.create({
     return {
       kind: {
         default: DEFAULT_ATTRS.kind,
-        parseHTML: (element) => element.getAttribute('data-docflow-embed') || DEFAULT_ATTRS.kind,
-        renderHTML: (attributes) => ({ 'data-docflow-embed': attributes.kind }),
+        parseHTML: (element) => element.getAttribute('data-docdyne-embed') || DEFAULT_ATTRS.kind,
+        renderHTML: (attributes) => ({ 'data-docdyne-embed': attributes.kind }),
       },
       fileId: {
         default: DEFAULT_ATTRS.fileId,
@@ -67,7 +67,7 @@ export const DocflowEmbed = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'div[data-docflow-embed]' }]
+    return [{ tag: 'div[data-docdyne-embed]' }]
   },
 
   renderHTML({ HTMLAttributes }) {
@@ -80,7 +80,7 @@ export const DocflowEmbed = Node.create({
 
   addCommands() {
     return {
-      insertDocflowEmbed:
+      insertDocdyneEmbed:
         (ref: EmbedRef) =>
           ({ commands }) =>
             commands.insertContent({ type: this.name, attrs: { kind: ref.kind, fileId: ref.fileId, title: ref.title } }),
@@ -88,4 +88,4 @@ export const DocflowEmbed = Node.create({
   },
 })
 
-export default DocflowEmbed
+export default DocdyneEmbed

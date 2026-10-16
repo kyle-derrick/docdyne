@@ -16,7 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/search"
 )
 
 // RAGTopKDefault 检索增强默认召回条数。
@@ -42,7 +42,7 @@ type HybridSearcher interface {
 }
 
 // ragSystemPrompt 为检索增强的系统提示（引用格式约定）。
-const ragSystemPrompt = `你是 DocFlow 知识库助手。请优先依据下方「参考资料」回答用户问题；资料不足时如实说明，不要编造。
+const ragSystemPrompt = `你是 DocDyne 知识库助手。请优先依据下方「参考资料」回答用户问题；资料不足时如实说明，不要编造。
 回答务必在末尾列出引用的来源文件，格式为：
 来源：
 - 文件名 (/view/{file_id})

@@ -1,4 +1,4 @@
-﻿/* DocFlow 全局样式（v1.1 主题系统）
+﻿/* DocDyne 全局样式（v1.1 主题系统）
    - 暗色为基础（默认，data-mode 缺省即 dark）；
    - data-theme 切换 accent 色系：indigo（默认）|violet|emerald|rose|amber，
      仅覆盖 --primary/--primary-hover，背景/前景不变；
@@ -1414,7 +1414,7 @@ svg.lucide {
 
 /* ---------- 弹窗 ----------
    弹窗容器本体（backdrop/面板/标题）已由 antd Modal 承担（FileBrowser 的
-   Modal 薄封装 + .docflow-modal 自有类适配节）；此处仅保留弹窗内容
+   Modal 薄封装 + .docdyne-modal 自有类适配节）；此处仅保留弹窗内容
    里的辅助排版类。 */
 
 .modal-actions {
@@ -4244,7 +4244,7 @@ kbd {
   color: var(--danger);
 }
 
-/* ---------- 内联文件卡片（docflowFileCard） ---------- */
+/* ---------- 内联文件卡片（docdyneFileCard） ---------- */
 
 .rich-text-filecard {
   display: inline-flex;
@@ -4301,7 +4301,7 @@ kbd {
   font-size: 11px;
 }
 
-/* ---------- 图片块（docflowImage） ---------- */
+/* ---------- 图片块（docdyneImage） ---------- */
 
 .rich-text-dfimg {
   position: relative;
@@ -4944,9 +4944,9 @@ kbd {
    antd 6 起不再命中 antd 内部 DOM（.ant-modal-content 等历史选择器已随
    v6 类名改版失效，随迁移清理）：容器/头部/标题原生样式走 token，body 的
    overflow/maxHeight/定高由 Modal 封装的 styles prop 官方通道注入；仅剩的
-   少量布局定制经官方 classNames prop 注入自有类（.docflow-modal-*）落地。 */
-.docflow-modal .docflow-modal-header { margin-bottom: 14px; }
-.docflow-modal .docflow-modal-title {
+   少量布局定制经官方 classNames prop 注入自有类（.docdyne-modal-*）落地。 */
+.docdyne-modal .docdyne-modal-header { margin-bottom: 14px; }
+.docdyne-modal .docdyne-modal-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4956,21 +4956,21 @@ kbd {
 /* body：内容区自身为纵向 flex（内部滚动由 Modal styles prop 统一注入：
    普通弹窗 maxHeight=calc(94vh-160px)，查看弹窗定高 min(76vh,760px)——
    内嵌查看器高度链自此完整）。 */
-.docflow-modal .docflow-modal-body { padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.docdyne-modal .docdyne-modal-body { padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 /* 关闭按钮：muted 色随明暗主题（CSS 变量主题适配）。 */
-.docflow-modal .docflow-modal-close { color: var(--muted); }
-.docflow-modal-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.docflow-modal-title-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.docflow-modal-head-extra { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-right: 22px; }
+.docdyne-modal .docdyne-modal-close { color: var(--muted); }
+.docdyne-modal-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.docdyne-modal-title-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docdyne-modal-head-extra { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-right: 22px; }
 /* 标题行按钮组内的 AI 摘要（AISummaryInline 展开态为卡片流，收起态为单个
    按钮）：按钮行内保持横向对齐，展开卡片改为绝对定位浮层避免撑爆标题行。 */
-.docflow-modal-head-extra .ai-summary-inline {
+.docdyne-modal-head-extra .ai-summary-inline {
   flex-direction: row;
   align-items: center;
   padding: 0;
   position: relative;
 }
-.docflow-modal-head-extra .ai-summary-inline .ai-summary-card {
+.docdyne-modal-head-extra .ai-summary-inline .ai-summary-card {
   position: absolute;
   top: calc(100% + 10px);
   right: 0;
@@ -4981,18 +4981,18 @@ kbd {
   overflow-y: auto;
 }
 /* closeIcon 组（preClose + 原生 X）：最大化等前置按钮与关闭并排。 */
-.docflow-modal-close-group { display: inline-flex; align-items: center; gap: 2px; }
-.docflow-modal-close-group .ant-btn { padding-inline: 4px; }
+.docdyne-modal-close-group { display: inline-flex; align-items: center; gap: 2px; }
+.docdyne-modal-close-group .ant-btn { padding-inline: 4px; }
 /* 全屏态高度链：此前仅宽度撑满（内联 height:min(76vh,760px) 生效），现
    body/preview-embed 全链路 100vh 视口化（!important 压过内联 styles）。 */
 .modal-viewer-fullscreen .ant-modal,
-.docflow-modal.modal-viewer-fullscreen {
+.docdyne-modal.modal-viewer-fullscreen {
   width: calc(100vw - 24px) !important;
   max-width: calc(100vw - 24px);
   margin: 12px auto;
   top: 12px;
 }
-.modal-viewer-fullscreen .docflow-modal-body,
+.modal-viewer-fullscreen .docdyne-modal-body,
 .modal-viewer-fullscreen .ant-modal-body {
   height: calc(100vh - 140px) !important;
   max-height: calc(100vh - 140px) !important;
@@ -5001,7 +5001,7 @@ kbd {
 .modal-viewer-fullscreen .preview-embed > * { flex: 1; min-height: 0; }
 
 /* 查看弹窗（modal-viewer）标题：字号缩小（宽度/高度由 Modal 封装层注入）。 */
-.docflow-modal.modal-viewer .docflow-modal-title { font-size: 13px; font-weight: 600; }
+.docdyne-modal.modal-viewer .docdyne-modal-title { font-size: 13px; font-weight: 600; }
 
 /* ---------- 右键 / 卡片「⋯」菜单：Win11 风格（容器保留 fixed/absolute 定位） ----------
    .ctx-menu 与 .file-card-menu 提供一级浮层外观：圆角 8px、亚克力感（半透明
@@ -5685,14 +5685,14 @@ kbd {
 }
 
 .modal-viewer-fullscreen .ant-modal,
-.docflow-modal.modal-viewer-fullscreen {
+.docdyne-modal.modal-viewer-fullscreen {
   width: calc(100vw - 24px) !important;
   max-width: calc(100vw - 24px);
   margin: 12px auto;
   top: 12px;
 }
 
-.modal-viewer-fullscreen .docflow-modal-body,
+.modal-viewer-fullscreen .docdyne-modal-body,
 .modal-viewer-fullscreen .ant-modal-body {
   height: calc(100vh - 140px) !important;
   max-height: calc(100vh - 140px);
@@ -6661,7 +6661,7 @@ kbd {
 .ai-attach-filelist { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .ai-attach-item .ai-attach-name { font-weight: 500; flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-attach-item .ai-attach-dir { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 工作目录按钮（df_* 文件工具基准）：显示完整路径「空间名/目录/…」；
+/* 工作目录按钮（dd_* 文件工具基准）：显示完整路径「空间名/目录/…」；
    跟随态（未手选且有文件页位置）路径前加「跟随」Tag 并高亮。 */
 .ai-workdir-btn.ant-btn { gap: 4px; max-width: 224px; }
 .ai-workdir-btn .ai-workdir-name {
@@ -7043,7 +7043,7 @@ kbd {
 
 /* 「工具调用」行（SSE event:tool，外部 MCP 工具执行前逐次下发；
    Wrench 小标签逐条列出，顺序保留；三处对话共用）。 */
-/* df_write_file 条目「已保存（自动留版本）」小字。 */
+/* dd_write_file 条目「已保存（自动留版本）」小字。 */
 /* 记忆面板「自动」小 Tag（kind=auto；不挤压内容列）。 */
 .ai-memory-auto-tag { flex-shrink: 0; margin: 0; line-height: 18px; }
 
@@ -7560,7 +7560,7 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 .ai-pkg-select { min-width: 132px; max-width: 160px; font-size: 12px; }
 
 /* 悬浮窗模式（v7.5）：AIEditChat 以 fixed 浮层使用（可拖动头部 + 原生
-   右下角缩放；偏好记忆 localStorage docflow.ai.edit.floatMode）。 */
+   右下角缩放；偏好记忆 localStorage docdyne.ai.edit.floatMode）。 */
 .ai-edit-chat-panel.floating {
   position: fixed;
   right: 24px;

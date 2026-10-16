@@ -6,8 +6,8 @@ import (
 	"mime/multipart"
 	"net/http"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/caddytls"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/caddytls"
 	"github.com/gin-gonic/gin"
 )
 

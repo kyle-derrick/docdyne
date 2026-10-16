@@ -2,10 +2,10 @@
 //
 // 把平台的 AI 编辑会话（ai_conversations，source=assistant/editor/plugin 按
 // 文件分域）暴露给外部 agent：读列表/读正文（files:read）+ 追加事件
-//（files:write，外部 agent 可把方案/结论灌进会话）；df_platform_skills
+//（files:write，外部 agent 可把方案/结论灌进会话）；dd_platform_skills
 // 返回内置领域知识（drawio XML / excalidraw 骨架 / Office 编辑规范）——
 // 外部 agent 拿到与站内 Agent 同等的提示词知识即可直接产出合法文件内容
-//（配合 df_write_file / df_write_version 落地）。
+//（配合 dd_write_file / dd_write_version 落地）。
 package mcp
 
 import (
@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // ConvoStore 抽象会话存取（生产 *auth.UserStore；HTTP 装配注入）。
@@ -26,9 +26,9 @@ type ConvoStore interface {
 }
 
 // platformSkillsDoc 内置领域知识（与站内 Agent 提示词同源精编，对外开放）。
-const platformSkillsDoc = `DocFlow 内置 AI 领域知识（与站内编辑 Agent 同源）：
+const platformSkillsDoc = `DocDyne 内置 AI 领域知识（与站内编辑 Agent 同源）：
 
-## drawio（.drawio 即 XML，df_write_file/df_write_version 直接写文本即编辑）
+## drawio（.drawio 即 XML，dd_write_file/dd_write_version 直接写文本即编辑）
 - 结构：<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>…cells…</root></mxGraphModel>（完整 <mxfile> 亦可）。
 - 节点：<mxCell id="2" value="标签" style="…" vertex="1" parent="1"><mxGeometry x="40" y="40" width="160" height="60" as="geometry"/></mxCell>——先定义节点再被边引用。
 - 边：<mxCell id="5" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell>。
@@ -50,8 +50,8 @@ const platformSkillsDoc = `DocFlow 内置 AI 领域知识（与站内编辑 Agen
 - PPT：页码 1 基；一页一次成型（标题+要点）；文本框坐标 pt（页约 960×540）。
 
 ## 平台文件操作（配合技能落地）
-- df_write_file 建文件 / df_write_version 覆盖为新版本（drawio/excalidraw/md/mermaid/svg 等文本格式均可直写）。
-- 编辑会话读写：df_list_conversations / df_get_conversation / df_append_conversation（本文件工具集）。`
+- dd_write_file 建文件 / dd_write_version 覆盖为新版本（drawio/excalidraw/md/mermaid/svg 等文本格式均可直写）。
+- 编辑会话读写：dd_list_conversations / dd_get_conversation / dd_append_conversation（本文件工具集）。`
 
 // conversationTools 返回会话外控工具集（userStore 为 nil 时不注册）。
 func conversationTools(userStore ConvoStore) []Tool {
@@ -62,7 +62,7 @@ func conversationTools(userStore ConvoStore) []Tool {
 	prop := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 	return []Tool{
 		{
-			Name:        "df_list_conversations",
+			Name:        "dd_list_conversations",
 			Description: "列出当前用户的 AI 会话（editor/plugin 域按文件；file_id 省略 + source=editor 时列出全部文件的编辑会话）。返回 id/title/source/file_id/message_count/updated_at。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -95,11 +95,11 @@ func conversationTools(userStore ConvoStore) []Tool {
 			},
 		},
 		{
-			Name:        "df_get_conversation",
+			Name:        "dd_get_conversation",
 			Description: "读取一个 AI 会话的完整内容（messages 为事件重放结果——外部 agent 可读取站内编辑会话上下文后接手继续干活）。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
-				"id": prop("会话 id（df_list_conversations 获得）"),
+				"id": prop("会话 id（dd_list_conversations 获得）"),
 			}, "required": []string{"id"}},
 			Available: convosAvailable,
 			Handler: func(ctx context.Context, deps *Deps, id Identity, args json.RawMessage) (any, error) {
@@ -124,7 +124,7 @@ func conversationTools(userStore ConvoStore) []Tool {
 			},
 		},
 		{
-			Name:        "df_append_conversation",
+			Name:        "dd_append_conversation",
 			Description: "向 AI 会话追加事件（kind=turn 增量回合 / snapshot 全量替换）——外部 agent 可把结论/方案写入用户的编辑会话（站内「继续」可接着执行）。",
 			Scope:       ScopeFilesWrite,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
@@ -160,8 +160,8 @@ func conversationTools(userStore ConvoStore) []Tool {
 			},
 		},
 		{
-			Name:        "df_platform_skills",
-			Description: "返回 DocFlow 内置 AI 领域知识（drawio XML / excalidraw 元素骨架 / Office 编辑规范 / 会话与文件工具用法）——外部 agent 依据本知识可直接产出合法的图表/白板/文档内容并经 df_write_file 落地。",
+			Name:        "dd_platform_skills",
+			Description: "返回 DocDyne 内置 AI 领域知识（drawio XML / excalidraw 元素骨架 / Office 编辑规范 / 会话与文件工具用法）——外部 agent 依据本知识可直接产出合法的图表/白板/文档内容并经 dd_write_file 落地。",
 			Scope:       ScopeFilesRead,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 			Handler: func(ctx context.Context, deps *Deps, id Identity, args json.RawMessage) (any, error) {

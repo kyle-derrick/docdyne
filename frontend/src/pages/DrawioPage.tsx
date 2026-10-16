@@ -112,7 +112,7 @@ function enableSelectionPlugin(base: string): void {
     }
     if (origin.origin !== window.location.origin) return // 跨源无法写 drawio 设置
     const KEY = '.drawio-config'
-    const PLUGIN = 'plugins/docflow-selection.js'
+    const PLUGIN = 'plugins/docdyne-selection.js'
     let cfg: Record<string, unknown> = {}
     try {
       cfg = JSON.parse(window.localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>
@@ -129,7 +129,7 @@ function enableSelectionPlugin(base: string): void {
 
 /** draw.io postMessage JSON 协议消息（仅用到的事件/字段；exit 标记保存并退出；
  *  cells 为选区跟踪插件上报的选中单元格 id——官方协议无此事件，见
- *  docker/drawio/plugins/docflow-selection.js）。 */
+ *  docker/drawio/plugins/docdyne-selection.js）。 */
 interface DrawioMessage {
   event?: string
   cells?: unknown[]
@@ -384,7 +384,7 @@ export default function DrawioPage({ mode, fileId: fileIdProp }: { mode?: 'edit'
   const pendingExportRef = useRef<((xml: string) => void) | null>(null)
   // v7.15 D1：当前选中单元格 id——由 vendor 进 drawio webapp 的选区跟踪插件
   // 经 postMessage select 事件上报（官方 embed 协议无 select 事件，见
-  // docker/drawio/plugins/docflow-selection.js）；get_selection 工具与
+  // docker/drawio/plugins/docdyne-selection.js）；get_selection 工具与
   // aiGetTarget 据此感知用户选区。
   const selectedCellIdsRef = useRef<Set<string>>(new Set())
   // v7.15 L2：图表指南是否已在本编辑器会话中读取过（get_reference 置位；

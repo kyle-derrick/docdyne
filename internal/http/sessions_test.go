@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -258,7 +258,7 @@ func TestRevokeAllSessionsIncludesCurrent(t *testing.T) {
 	_ = otherID
 }
 
-// PAT 创建：201 含一次性明文（dfpat_ 前缀、49 字符），库中只存哈希，
+// PAT 创建：201 含一次性明文（ddpat_ 前缀、49 字符），库中只存哈希，
 // 写 token.create 审计；名称/有效期非法 400。
 func TestCreateToken(t *testing.T) {
 	env := newSessionsTestEnv(t)
@@ -268,7 +268,7 @@ func TestCreateToken(t *testing.T) {
 		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, `"token":"dfpat_`) {
+	if !strings.Contains(body, `"token":"ddpat_`) {
 		t.Fatalf("body must carry one-time plaintext: %s", body)
 	}
 	var plaintext string
@@ -333,7 +333,7 @@ func TestTokenListAndRevoke(t *testing.T) {
 		t.Fatalf("list status = %d", w.Code)
 	}
 	body := w.Body.String()
-	if strings.Contains(body, `"token":"dfpat_`) {
+	if strings.Contains(body, `"token":"ddpat_`) {
 		t.Fatalf("list must not carry plaintext: %s", body)
 	}
 	if !strings.Contains(body, `"last_used_at":null`) {

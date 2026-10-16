@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/config"
-	"github.com/docflow/docflow/internal/tasks"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/config"
+	"github.com/kyle-derrick/docdyne/internal/tasks"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 type Checker struct {

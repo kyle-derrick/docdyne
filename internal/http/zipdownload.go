@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/share"
 )
 
 // 目录打包下载（流式 zip）的安全限制：条目数 2000 / 总大小 2GB，超限 413。
@@ -141,7 +141,7 @@ func (h *Handler) publicShareDownloadZip(c *gin.Context) {
 	h.recordPublicAccessEvent(c, r, share.ActionDownload)
 	zipName := r.File.Name
 	if r.Share.IsBundle {
-		zipName = "docflow-bundle"
+		zipName = "docdyne-bundle"
 	}
 	h.writeZipStream(c, zipName, entries)
 }

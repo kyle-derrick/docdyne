@@ -1,13 +1,13 @@
-// Package ai —— platformtools.go：内置平台文件工具集（df_*）声明。
+// Package ai —— platformtools.go：内置平台文件工具集（dd_*）声明。
 //
 // 用户架构决策：对齐 MCP 官方 filesystem server 范式，为平台内 AI 对话
 // 提供直调 service 层的文件工具（不经 MCP HTTP）——/ai/chat 开启 use_files
 // 后由 HTTP 层注入本声明集与执行器回调（见 internal/http/ai_platform_tools.go），
-// chat.go 把 df_* 与外部 MCP 工具合并进同一条工具循环。
+// chat.go 把 dd_* 与外部 MCP 工具合并进同一条工具循环。
 //
 // 安全边界（刻意设计，不提供 delete/move）：
 //   - 工具仅能读写当前用户有权限的空间文件（service 层既有授权链复用）；
-//   - df_write_file 限文本类扩展名白名单（拒绝 exe/bin 等二进制）且 ≤2MB，
+//   - dd_write_file 限文本类扩展名白名单（拒绝 exe/bin 等二进制）且 ≤2MB，
 //     覆盖既有文件走「上传 file_id 覆盖新版本」链路（版本链自动保护，
 //     旧版本可随时回滚）；
 //   - 不提供删除/移动工具——避免模型误删用户数据（不可逆操作交还用户）。
@@ -18,35 +18,35 @@ import (
 	"strings"
 )
 
-// 内置工具名常量（df_ 前缀与 MCP 工具的 mcp_ 前缀天然区分）。
+// 内置工具名常量（dd_ 前缀与 MCP 工具的 mcp_ 前缀天然区分）。
 const (
-	PlatformToolListDir   = "df_list_dir"   // 列目录
-	PlatformToolReadFile  = "df_read_file"  // 读文件文本
-	PlatformToolWriteFile = "df_write_file" // 创建/覆盖文件
-	PlatformToolMkdir     = "df_mkdir"      // 建目录（多级）
-	PlatformToolSearch    = "df_search"     // 平台全文搜索
+	PlatformToolListDir   = "dd_list_dir"   // 列目录
+	PlatformToolReadFile  = "dd_read_file"  // 读文件文本
+	PlatformToolWriteFile = "dd_write_file" // 创建/覆盖文件
+	PlatformToolMkdir     = "dd_mkdir"      // 建目录（多级）
+	PlatformToolSearch    = "dd_search"     // 平台全文搜索
 	// PlatformToolReadMemory/WriteMemory 用户长期记忆读写（v7.15 A7：
 	// include_memory 开启时注入——system 仅带标题列表，详情按需查询）。
-	PlatformToolReadMemory  = "df_read_memory"  // 查记忆详情
-	PlatformToolWriteMemory = "df_write_memory" // 记录新记忆
+	PlatformToolReadMemory  = "dd_read_memory"  // 查记忆详情
+	PlatformToolWriteMemory = "dd_write_memory" // 记录新记忆
 )
 
 // 工具行为边界常量（执行器与声明共同引用）。
 const (
-	// PlatformToolListLimit df_list_dir 返回条目上限（超出截断并标注）。
+	// PlatformToolListLimit dd_list_dir 返回条目上限（超出截断并标注）。
 	PlatformToolListLimit = 50
-	// PlatformToolReadMaxRunes df_read_file 返回内容的字符上限（rune 计）。
+	// PlatformToolReadMaxRunes dd_read_file 返回内容的字符上限（rune 计）。
 	PlatformToolReadMaxRunes = 24000
-	// PlatformToolWriteMaxBytes df_write_file 单文件内容上限（2MB）。
+	// PlatformToolWriteMaxBytes dd_write_file 单文件内容上限（2MB）。
 	PlatformToolWriteMaxBytes = 2 << 20
-	// PlatformToolSearchLimit df_search 返回条目上限。
+	// PlatformToolSearchLimit dd_search 返回条目上限。
 	PlatformToolSearchLimit = 8
-	// PlatformToolHistorySearchLimit df_search_history 返回条目上限
+	// PlatformToolHistorySearchLimit dd_search_history 返回条目上限
 	//（v7.15 A6 索引检索沿用 A3 的 10 条边界）。
 	PlatformToolHistorySearchLimit = 10
 )
 
-// PlatformToolWriteExts df_write_file 允许的扩展名白名单（小写，不含点；
+// PlatformToolWriteExts dd_write_file 允许的扩展名白名单（小写，不含点；
 // 维护点：调整文本类支持范围只改这里）。仅文本/结构化文本/图表源码格式；
 // 二进制扩展（exe/bin/png/docx 等）一律拒绝——AI 生成的二进制无意义且
 // 存在注入风险，office/图片编辑走平台既有编辑器。
@@ -65,7 +65,7 @@ var PlatformToolWriteExts = []string{
 	"svg", "mermaid", "drawio", "excalidraw", "plantuml",
 }
 
-// PlatformToolWriteExtAllowed 判定文件名扩展是否在 df_write_file 白名单内
+// PlatformToolWriteExtAllowed 判定文件名扩展是否在 dd_write_file 白名单内
 // （大小写不敏感；无扩展名/空扩展名返回 false——强制显式文本类型）。
 func PlatformToolWriteExtAllowed(name string) bool {
 	dot := strings.LastIndex(name, ".")
@@ -94,7 +94,7 @@ type PlatformTool struct {
 // platformToolsAll 内置工具声明全集（声明即文档：描述面向模型，说明
 // 相对路径基于工作目录、返回形态与截断边界）。
 // PlatformToolSearchHistory 搜索当前会话历史（含被压缩的早期内容）。
-const PlatformToolSearchHistory = "df_search_history"
+const PlatformToolSearchHistory = "dd_search_history"
 
 var platformToolsAll = []PlatformTool{
 	{
@@ -126,7 +126,7 @@ var platformToolsAll = []PlatformTool{
 	},
 	{
 		Name:        PlatformToolWriteFile,
-		Description: "在平台空间创建文件或用新内容覆盖既有文本文件（覆盖自动保留历史版本，可在版本历史回滚）。path 为相对工作目录的目标路径（父目录须已存在，可用 df_mkdir 先建目录），content 为完整文件内容（UTF-8 文本）。可用于创建 Markdown/代码/配置等文本文件，也可直接创建图表与白板源文件（.drawio 即 draw.io XML、.excalidraw 即白板元素 JSON、.mermaid、.svg、.plantuml——平台编辑器可直接打开继续编辑）。限制：仅允许文本类扩展名（md/txt/代码/json/yaml/html/svg/drawio/excalidraw/mermaid 等，office/图片等二进制不支持），内容 ≤2MB。返回创建的文件 ID 与是否为覆盖。",
+		Description: "在平台空间创建文件或用新内容覆盖既有文本文件（覆盖自动保留历史版本，可在版本历史回滚）。path 为相对工作目录的目标路径（父目录须已存在，可用 dd_mkdir 先建目录），content 为完整文件内容（UTF-8 文本）。可用于创建 Markdown/代码/配置等文本文件，也可直接创建图表与白板源文件（.drawio 即 draw.io XML、.excalidraw 即白板元素 JSON、.mermaid、.svg、.plantuml——平台编辑器可直接打开继续编辑）。限制：仅允许文本类扩展名（md/txt/代码/json/yaml/html/svg/drawio/excalidraw/mermaid 等，office/图片等二进制不支持），内容 ≤2MB。返回创建的文件 ID 与是否为覆盖。",
 		Params: map[string]any{
 			"type":     "object",
 			"required": []string{"path", "content"},
@@ -158,7 +158,7 @@ var platformToolsAll = []PlatformTool{
 	},
 	{
 		Name:        PlatformToolSearch,
-		Description: "在平台全文检索（覆盖当前用户可见空间的文件名与已建索引的文本内容）。返回最相关的 " + itoa(PlatformToolSearchLimit) + " 条结果（名称/类型/命中片段 snippet）。用于不知道文件路径时定位文件，找到后可用 df_read_file 读取。",
+		Description: "在平台全文检索（覆盖当前用户可见空间的文件名与已建索引的文本内容）。返回最相关的 " + itoa(PlatformToolSearchLimit) + " 条结果（名称/类型/命中片段 snippet）。用于不知道文件路径时定位文件，找到后可用 dd_read_file 读取。",
 		Params: map[string]any{
 			"type":     "object",
 			"required": []string{"query"},
@@ -228,9 +228,9 @@ func PlatformTools() []PlatformTool {
 }
 
 // PlatformToolsFor 按开关返回内置工具声明（v7.15 A8）：
-//   - historySearch=false：剔除 df_search_history（管理端「对话历史检索」
+//   - historySearch=false：剔除 dd_search_history（管理端「对话历史检索」
 //     关闭——声明即不可见，模型无从调用）；
-//   - memory=false：剔除 df_read_memory/df_write_memory（include_memory
+//   - memory=false：剔除 dd_read_memory/dd_write_memory（include_memory
 //     未开启或记忆存储未装配时）。
 func PlatformToolsFor(historySearch, memory bool) []PlatformTool {
 	out := make([]PlatformTool, 0, len(platformToolsAll))

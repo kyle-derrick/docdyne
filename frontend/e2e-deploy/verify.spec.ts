@@ -326,7 +326,7 @@ test('7 设置页分区直达：邮件配置/TLS/系统设置不再跳外观', a
 test('8 主题不漂移：emerald 高频导航/弹窗 30 轮后不变', async ({ page }) => {
   await openAuthed(page, '/')
   await page.evaluate(() => {
-    localStorage.setItem('docflow.theme', JSON.stringify({ accent: 'emerald', mode: 'dark' }))
+    localStorage.setItem('docdyne.theme', JSON.stringify({ accent: 'emerald', mode: 'dark' }))
   })
   await page.goto('/')
   await page.waitForLoadState('networkidle')

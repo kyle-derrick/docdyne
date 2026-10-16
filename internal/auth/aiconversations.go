@@ -73,7 +73,7 @@ type AIConvoEvent struct {
 func (AIConvoEvent) TableName() string { return "ai_conversation_events" }
 
 // AIConvoMsg 对应 ai_conversation_msgs 一行（migration 057，v7.15 A6）：
-// 事件写入时同步维护的消息检索索引（df_search_history 的数据源，覆盖
+// 事件写入时同步维护的消息检索索引（dd_search_history 的数据源，覆盖
 // assistant/editor/plugin 全部 source 的跨会话与被压缩早期内容）。derived
 // data——会话删除经 FK CASCADE 同步清理，重放语义与事件表一致（turn 追加
 // 行 / snapshot 重建），索引失败不阻塞会话保存（见 AppendAIConvoEvent）。
@@ -360,7 +360,7 @@ func (s *UserStore) syncConvoMsgIndex(convoID, userID uuid.UUID, kind string, it
 	return s.db.Create(&rows).Error
 }
 
-// SearchAIConversationMsgs 跨会话检索消息行（df_search_history 数据源，
+// SearchAIConversationMsgs 跨会话检索消息行（dd_search_history 数据源，
 // v7.15 A6）：本人维度 + ILIKE 子串匹配（content 上的 pg_trgm GIN 加速），
 // created_at 倒序取 limit 条，片段以 pattern 首次命中位置为中心截取。
 // pattern 中的 %/_ 按字面匹配（转义）；空 pattern 返回空。

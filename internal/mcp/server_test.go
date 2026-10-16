@@ -12,10 +12,10 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/space"
 )
 
 // ---------- 测试替身 ----------
@@ -221,12 +221,12 @@ func TestInitialize(t *testing.T) {
 	if out.Result.ServerInfo.Name != ServerName || out.Result.ServerInfo.Version == "" {
 		t.Fatalf("serverInfo = %+v", out.Result.ServerInfo)
 	}
-	if !strings.Contains(out.Result.Instructions, "DocFlow") {
-		t.Fatalf("instructions = %q, want DocFlow guidance", out.Result.Instructions)
+	if !strings.Contains(out.Result.Instructions, "DocDyne") {
+		t.Fatalf("instructions = %q, want DocDyne guidance", out.Result.Instructions)
 	}
 }
 
-// tools/list：至少 20 个工具；文件工具 df_ 前缀，AI 工具
+// tools/list：至少 20 个工具；文件工具 dd_ 前缀，AI 工具
 // （ask_docs/summarize_file/ai_chat，任务书命名）除外；inputSchema 为 object。
 func TestToolsListAtLeast20(t *testing.T) {
 	h, _, _ := newTestHandler(false)
@@ -252,8 +252,8 @@ func TestToolsListAtLeast20(t *testing.T) {
 	aiToolNames := map[string]bool{"ask_docs": false, "summarize_file": false, "ai_chat": false}
 	seen := map[string]bool{}
 	for _, tool := range out.Result.Tools {
-		if _, isAI := aiToolNames[tool.Name]; !strings.HasPrefix(tool.Name, "df_") && !isAI {
-			t.Fatalf("tool %q unexpected name (df_ prefix or known AI tool required)", tool.Name)
+		if _, isAI := aiToolNames[tool.Name]; !strings.HasPrefix(tool.Name, "dd_") && !isAI {
+			t.Fatalf("tool %q unexpected name (dd_ prefix or known AI tool required)", tool.Name)
 		}
 		if _, isAI := aiToolNames[tool.Name]; isAI {
 			aiToolNames[tool.Name] = true
@@ -270,7 +270,7 @@ func TestToolsListAtLeast20(t *testing.T) {
 		}
 	}
 	// 关键工具在场。
-	for _, name := range []string{"df_list_files", "df_write_file", "df_read_file", "df_resolve_path", "df_create_share", "df_search_files"} {
+	for _, name := range []string{"dd_list_files", "dd_write_file", "dd_read_file", "dd_resolve_path", "dd_create_share", "dd_search_files"} {
 		if !seen[name] {
 			t.Fatalf("tool %q missing from tools/list", name)
 		}
@@ -290,7 +290,7 @@ func TestTransportRejects(t *testing.T) {
 	h, _, _ := newTestHandler(false)
 	for _, tc := range []struct{ name, body string }{
 		{"parse-error", `{"jsonrpc":"2.0","id":1,"method":`},
-		{"unknown-method", `{"jsonrpc":"2.0","id":2,"method":"docflow/custom"}`},
+		{"unknown-method", `{"jsonrpc":"2.0","id":2,"method":"docdyne/custom"}`},
 	} {
 		rec := post(t, h, testIdentity(), tc.body)
 		if rec.Code != http.StatusBadRequest {
@@ -305,7 +305,7 @@ func TestJSONRPCErrorCodes(t *testing.T) {
 	const codeInvalidParams = -32602
 	h, _, _ := newTestHandler(false)
 	for _, tc := range []struct{ name, body string }{
-		{"unknown-tool", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"df_nope"}}`},
+		{"unknown-tool", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"dd_nope"}}`},
 		{"missing-tool-name", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{}}`},
 	} {
 		rec := post(t, h, testIdentity(), tc.body)
@@ -330,7 +330,7 @@ func TestJSONRPCErrorCodes(t *testing.T) {
 // K6 迁移后不再是协议级 -32602。
 func TestBadArgsIsToolError(t *testing.T) {
 	h, _, _ := newTestHandler(false)
-	out := call(t, h, testIdentity(), "df_get_file", `{"file_id":"not-a-uuid"}`)
+	out := call(t, h, testIdentity(), "dd_get_file", `{"file_id":"not-a-uuid"}`)
 	if out["error"] != nil {
 		t.Fatalf("bad args must be a tool-level error, got rpc error: %v", out)
 	}
@@ -382,7 +382,7 @@ func TestPATScopeEnforcement(t *testing.T) {
 	h, ff, _ := newTestHandler(false)
 	readOnly := Identity{UserID: uuid.New(), IsPAT: true, Scopes: []string{"files:read"}}
 	// 写工具被拒。
-	out := call(t, h, readOnly, "df_create_folder", `{"name":"x"}`)
+	out := call(t, h, readOnly, "dd_create_folder", `{"name":"x"}`)
 	if out["error"] != nil {
 		t.Fatalf("scope denial must be a tool-level error, got rpc error: %v", out)
 	}
@@ -398,13 +398,13 @@ func TestPATScopeEnforcement(t *testing.T) {
 		t.Fatalf("scope-denied call must not execute, created = %v", ff.created)
 	}
 	// 读工具走工具执行（isError 源自 fake 的 notFound，但不是 missing scope）。
-	out = call(t, h, readOnly, "df_get_file", `{"file_id":"`+uuid.New().String()+`"}`)
+	out = call(t, h, readOnly, "dd_get_file", `{"file_id":"`+uuid.New().String()+`"}`)
 	if text := toolText(t, toolResult(out)); strings.Contains(text, "missing scope") {
 		t.Fatalf("read tool must not be scope-denied: %v", out)
 	}
 	// 未限定 scope 的 PAT 可写。
 	unscoped := Identity{UserID: ff.root.OwnerID, IsPAT: true}
-	out = call(t, h, unscoped, "df_create_folder", `{"name":"ok"}`)
+	out = call(t, h, unscoped, "dd_create_folder", `{"name":"ok"}`)
 	if out["error"] != nil {
 		t.Fatalf("unscoped PAT write failed: %v", out)
 	}
@@ -413,7 +413,7 @@ func TestPATScopeEnforcement(t *testing.T) {
 	}
 	// JWT 可写。
 	jwtID := Identity{UserID: ff.root.OwnerID}
-	out = call(t, h, jwtID, "df_create_folder", `{"name":"jwt"}`)
+	out = call(t, h, jwtID, "dd_create_folder", `{"name":"jwt"}`)
 	if out["error"] != nil {
 		t.Fatalf("jwt write failed: %v", out)
 	}
@@ -437,18 +437,18 @@ func TestSearchUnavailable(t *testing.T) {
 	}
 	found := false
 	for _, tool := range listing.Result.Tools {
-		if tool.Name == "df_search_files" {
+		if tool.Name == "dd_search_files" {
 			found = true
 			if !strings.Contains(tool.Description, "当前部署未启用") {
-				t.Fatalf("df_search_files description = %q, want unavailable marker", tool.Description)
+				t.Fatalf("dd_search_files description = %q, want unavailable marker", tool.Description)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("df_search_files missing from tools/list")
+		t.Fatal("dd_search_files missing from tools/list")
 	}
 	// 调用返回 isError + 明确错误信息。
-	out := call(t, h, testIdentity(), "df_search_files", `{"query":"合同"}`)
+	out := call(t, h, testIdentity(), "dd_search_files", `{"query":"合同"}`)
 	if out["error"] != nil {
 		t.Fatalf("unavailable tool must be a tool-level error, got rpc error: %v", out)
 	}
@@ -462,10 +462,10 @@ func TestSearchUnavailable(t *testing.T) {
 	}
 }
 
-// 注入 search：df_search_files 正常返回。
+// 注入 search：dd_search_files 正常返回。
 func TestSearchAvailable(t *testing.T) {
 	h, _, fs := newTestHandler(true)
-	out := call(t, h, testIdentity(), "df_search_files", `{"query":"合同"}`)
+	out := call(t, h, testIdentity(), "dd_search_files", `{"query":"合同"}`)
 	result := toolResult(out)
 	if result == nil || result["isError"] == true {
 		t.Fatalf("search call failed: %v", out)

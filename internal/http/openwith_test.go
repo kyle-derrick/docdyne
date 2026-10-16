@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // fakeOpenWithStore 为 openWithStore 的内存实现（多用户隔离由 key 保证）。

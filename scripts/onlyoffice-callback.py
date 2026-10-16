@@ -48,7 +48,7 @@ admin_id = me['id'] if isinstance(me, dict) and 'id' in me else me
 
 # 1) 上传合法的最小 DOCX（版本 1）
 fname = f'oo-test-{uuid.uuid4().hex[:6]}.docx'
-content = minimal_docx('DocFlow OnlyOffice callback test v1')
+content = minimal_docx('DocDyne OnlyOffice callback test v1')
 up = api('POST', '/api/v1/uploads', token, {
     'name': fname, 'size': len(content)}, expect=201)
 req = urllib.request.Request(f"{BASE}/api/v1/uploads/{up['id']}", data=content,
@@ -70,8 +70,8 @@ n_before = len(vers_before.get('versions', vers_before if isinstance(vers_before
 print('versions before =', n_before)
 
 # 4) 把合法 DOCX 放到 DocumentServer 同源临时 HTTP 目录，再模拟保存回调。
-saved_name = f'docflow-callback-{uuid.uuid4().hex}.docx'
-subprocess.run(['docker', 'compose', 'exec', '-T', 'onlyoffice', 'sh', '-c', f'cat > /var/www/onlyoffice/documentserver-example/public/{saved_name}'], input=minimal_docx('DocFlow OnlyOffice callback saved v2'), check=True)
+saved_name = f'docdyne-callback-{uuid.uuid4().hex}.docx'
+subprocess.run(['docker', 'compose', 'exec', '-T', 'onlyoffice', 'sh', '-c', f'cat > /var/www/onlyoffice/documentserver-example/public/{saved_name}'], input=minimal_docx('DocDyne OnlyOffice callback saved v2'), check=True)
 cb_url = f'http://onlyoffice/example/{saved_name}'
 claims = {'key': doc_key, 'status': 2, 'url': cb_url, 'users': [admin_id]}
 jwt = sign(claims)

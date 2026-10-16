@@ -1,4 +1,4 @@
-// 宿主能力注入（K2 依赖倒置）：@docflow/chat 不反向 import 应用层
+// 宿主能力注入（K2 依赖倒置）：@docdyne/chat 不反向 import 应用层
 // （src/api.ts、FileBrowser、i18n），文件浏览/上传/弹窗外壳一律经本注册表
 // 取用；App 在组合根（main.tsx）启动时 registerChatFileApi 一次性注入。
 import type { ComponentType, ReactNode } from 'react'
@@ -17,7 +17,7 @@ export interface ChatSpaceRef {
   is_default?: boolean
 }
 
-/** 宿主弹窗外壳（DocFlow 的 FileBrowser.Modal）：「保存为文件」弹窗复用
+/** 宿主弹窗外壳（DocDyne 的 FileBrowser.Modal）：「保存为文件」弹窗复用
  *  宿主视觉；未注册时 AIMarkdown 回落 antd Modal。 */
 export type ChatModalShell = ComponentType<{ title: string; onClose: () => void; children: ReactNode }>
 
@@ -46,7 +46,7 @@ export function registerChatFileApi(api: ChatFileApi): void {
  *  会转成用户可见提示，独立使用包时缺注入即刻暴露而非静默空转）。 */
 export function getChatFileApi(): ChatFileApi {
   if (!current) {
-    throw new Error('@docflow/chat: host file API not registered (call registerChatFileApi in the app composition root)')
+    throw new Error('@docdyne/chat: host file API not registered (call registerChatFileApi in the app composition root)')
   }
   return current
 }

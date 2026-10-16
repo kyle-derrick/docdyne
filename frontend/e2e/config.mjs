@@ -6,6 +6,6 @@ export const cfg = {
   backendPort: 8080,
   frontendBaseURL: 'http://localhost:5173',
   defaultJWTSecret: 'e2e-insecure-jwt-secret-please-change-32b',
-  defaultSeedEmail: 'e2e-admin@docflow.test',
+  defaultSeedEmail: 'e2e-admin@docdyne.test',
   defaultSeedPassword: 'E2eAdminPassw0rd!',
 }

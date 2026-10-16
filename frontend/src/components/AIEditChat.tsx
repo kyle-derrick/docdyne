@@ -19,8 +19,8 @@ import type { AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
 import { AIChatToggleBar, AISkillButton, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
 import type { AIModelOption } from './AIAssistant'
-import { AIChatShell, aiFriendlyError, normalizeWebSources, useStickyScroll } from '@docflow/chat'
-import type { AIAttachFile, AIToolCallEntry, AIWebSource, ChatMessage, TraceStage, TraceUsage } from '@docflow/chat'
+import { AIChatShell, aiFriendlyError, normalizeWebSources, useStickyScroll } from '@docdyne/chat'
+import type { AIAttachFile, AIToolCallEntry, AIWebSource, ChatMessage, TraceStage, TraceUsage } from '@docdyne/chat'
 import AIModelSelect from './AIModelSelect'
 import { useAIEnabled, aiFeatureStatus } from '../aiFeature'
 import { agentConvoView, calibrateTokRatio, suggestTools } from '../ai/convoView'
@@ -79,7 +79,7 @@ const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
  * - drawio-xml：drawio 页——AI 基于当前 XML 回完整 drawio XML，宿主整体
  *   替换画布内容。两者均无选区概念，统一走 onApply('replace')；
  * - richtext-patch：富文本页——指令式编辑（Cursor/Notion AI 形态）：AI 回
- *   ```docflow-edit 围栏内的 JSON 编辑指令数组（replace/insert/delete/
+ *   ```docdyne-edit 围栏内的 JSON 编辑指令数组（replace/insert/delete/
  *   replaceAll），宿主执行器（DfdocEditorPage.applyRichTextPatch）在
  *   ProseMirror 文档中按定位原文精确匹配逐条执行；围栏缺失时宿主回落
  *   追加。回复原文经 onApply('replace') 透传，解析在宿主侧。 */
@@ -318,7 +318,7 @@ export function AIEditChatButton({
       { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
     ],
     // 富文本编辑页（v7 Agent 工具循环）：快捷指令为自然语言意图，由 AI 经
-    // 工具自主执行（format_text/replace_text 等）；不再引导 docflow-edit 指令。
+    // 工具自主执行（format_text/replace_text 等）；不再引导 docdyne-edit 指令。
     'richtext-patch': [
       { key: 'polish', label: t(locale, 'aiEditPolish'), instruction: zh ? '请润色当前文档：逐句改写需要优化的表述，保持原意；嵌入的图表/图片/文件块保持不动' : 'Polish the document: rewrite sentences that need improvement while keeping the meaning; leave embedded diagrams/images/files untouched', editMode: true },
       { key: 'rewrite', label: zh ? '重构全文' : 'Rewrite all', instruction: zh ? '请重构全文结构与措辞（改动覆盖大半时可整篇重写，但嵌入的图表/图片/文件块必须原样保留）' : 'Restructure the whole document (full rewrite allowed, but embedded diagrams/images/files must be preserved)', editMode: true },
@@ -428,8 +428,8 @@ export default function AIEditChat({
   // ---- 多会话（v7.2：服务端持久化 /ai/conversations，source=editor，
   //      按文件分域；本机 localStorage 仅作首次迁移源）----
   const convoScope = useMemo(() => ({ source: 'editor' as const, fileId }), [fileId])
-  const legacyConvsKey = fileId ? `docflow.ai.edit.convs.${fileId}` : ''
-  const legacyConvKey = fileId ? `docflow.ai.edit.conv.${fileId}` : ''
+  const legacyConvsKey = fileId ? `docdyne.ai.edit.convs.${fileId}` : ''
+  const legacyConvKey = fileId ? `docdyne.ai.edit.conv.${fileId}` : ''
   const [sessions, setSessions] = useState<EditSession[]>([])
   const [activeSessId, setActiveSessId] = useState('')
   // 重命名中条目（Modal 输入新标题；与全局助手同款交互）。
@@ -613,7 +613,7 @@ export default function AIEditChat({
 
   // ---- 谨慎模式（B1）：破坏性工具执行前确认，默认开启（localStorage 记忆）----
   const [cautious, setCautious] = useState(() => {
-    try { return window.localStorage.getItem('docflow.ai.agent.cautious') !== '0' } catch { return true }
+    try { return window.localStorage.getItem('docdyne.ai.agent.cautious') !== '0' } catch { return true }
   })
   const cautiousRef = useRef(cautious)
   cautiousRef.current = cautious
@@ -621,7 +621,7 @@ export default function AIEditChat({
     setCautious((v) => {
       const next = !v
       cautiousRef.current = next
-      try { window.localStorage.setItem('docflow.ai.agent.cautious', next ? '1' : '0') } catch { /* ignore */ }
+      try { window.localStorage.setItem('docdyne.ai.agent.cautious', next ? '1' : '0') } catch { /* ignore */ }
       return next
     })
   }
@@ -727,7 +727,7 @@ export default function AIEditChat({
       const lines: string[] = [
         `# ${zh ? 'AI 会话' : 'AI conversation'}：${title}`,
         '',
-        `> ${stamp.toLocaleString()}${fileName ? ` · ${fileName}` : ''} · DocFlow`,
+        `> ${stamp.toLocaleString()}${fileName ? ` · ${fileName}` : ''} · DocDyne`,
         '',
       ]
       for (const x of list) {
@@ -769,7 +769,7 @@ export default function AIEditChat({
   const [mode, setMode] = useState<ChatMode>('edit')
   const modeRef = useRef<ChatMode>('edit')
   // 联网/思考开关：与全局助手共用 localStorage key 与默认逻辑
-  //（所选模型从 docflow.ai.model 读取，无记忆时回落 default_models.chat；
+  //（所选模型从 docdyne.ai.model 读取，无记忆时回落 default_models.chat；
   //  模型列表仅用于评估思考能力）。
   const [models, setModels] = useState<AIModelOption[]>([])
   // 技能包（C2）：/ai/models.agent_packages（内置 + 平台定义；I1 增
@@ -810,12 +810,12 @@ export default function AIEditChat({
   // 会话历史浮层展开态。
   // 悬浮窗模式（v7.6：拖动/缩放/位置记忆内聚在 AIChatShell，宿主只持布尔）。
   const [floatMode, setFloatMode] = useState(() => {
-    try { return window.localStorage.getItem('docflow.ai.edit.floatMode') === '1' } catch { return false }
+    try { return window.localStorage.getItem('docdyne.ai.edit.floatMode') === '1' } catch { return false }
   })
   const toggleFloatMode = () => {
     setFloatMode((v) => {
       const next = !v
-      try { window.localStorage.setItem('docflow.ai.edit.floatMode', next ? '1' : '0') } catch { /* ignore */ }
+      try { window.localStorage.setItem('docdyne.ai.edit.floatMode', next ? '1' : '0') } catch { /* ignore */ }
       return next
     })
   }
@@ -965,7 +965,7 @@ export default function AIEditChat({
     const pkgExtra = pkg?.system_extra ? `【技能包：${pkg.name}】\n${pkg.system_extra}` : ''
     const list = plan ? tools.filter((t) => READONLY_TOOL_RE.test(t.name)) : tools
     const L = [
-      `你是 DocFlow 内置文档编辑 Agent（宿主：${hostLabel}）。${plan ? '当前为计划模式：只能调用只读工具探查文档现状，不得修改；探查完成后以 FINAL 输出一份可执行的修改计划（分步骤，说明每步将使用的工具与参数要点）。' : '通过调用工具直接操作当前文档，用户只描述意图。'}`,
+      `你是 DocDyne 内置文档编辑 Agent（宿主：${hostLabel}）。${plan ? '当前为计划模式：只能调用只读工具探查文档现状，不得修改；探查完成后以 FINAL 输出一份可执行的修改计划（分步骤，说明每步将使用的工具与参数要点）。' : '通过调用工具直接操作当前文档，用户只描述意图。'}`,
       '',
       `可用工具（每次回复恰好一行 TOOL_CALL {...} 调用一个，或以 FINAL 开头给出最终答复${plan ? '（计划）' : ''}）：`,
       ...list.map((t) => `- ${t.name}：${t.desc}`),
@@ -975,7 +975,7 @@ export default function AIEditChat({
       `禁止输出 "I'll"、"Let me"、"首先"等散文开头。不要解释你要做什么——直接输出 TOOL_CALL 或 FINAL。`,
       '工作方式：先读（read_*/search_*）再改；局部修改用精确工具、不要整篇重写；一次一个工具，根据结果决定下一步；失败读错误换路径（同样的参数重试同一工具通常不会成功）；关键修改后可用读工具校验；完成后 FINAL + 简明中文总结（改了什么、在哪）。',
       zh ? '语言：始终使用中文——思考、过程说明与最终答复全部中文（代码/标识符除外）。' : 'Language: always reply in English (thinking, process notes and final answer).',
-      '【硬性禁止】你只能调用上方列出的工具。禁止调用任何 df_* 开头的工具（df_list_dir/df_read_file/df_write_file/df_search 等）——它们属于全局 AI 助手，本面板一律不可用。注意 deep_search ≠ df_search：deep_search 是本面板的合法子代理工具，df_search 不是。如果出现「未知工具」错误，检查你调用的工具名是否在上方列表中。',
+      '【硬性禁止】你只能调用上方列出的工具。禁止调用任何 dd_* 开头的工具（dd_list_dir/dd_read_file/dd_write_file/dd_search 等）——它们属于全局 AI 助手，本面板一律不可用。注意 deep_search ≠ dd_search：deep_search 是本面板的合法子代理工具，dd_search 不是。如果出现「未知工具」错误，检查你调用的工具名是否在上方列表中。',
       '破坏性操作（删除/清空/整篇替换）可能触发用户确认：被跳过≠失去写入能力，请改用非破坏性方式（逐块替换/插入）继续，不要重复请求同一操作。',
       'TOOL_CALL 示例：TOOL_CALL {"tool":"read_document","args":{}}',
     ]
@@ -1082,7 +1082,7 @@ ${planText}` },
           rows.push({ title: s.title, updatedAt: s.updatedAt, messages: row.messages })
         } catch { /* 单会话失败跳过 */ }
       }
-      const payload = { version: 1, kind: 'docflow-ai-sessions', file_id: fileId, exported_at: new Date().toISOString(), sessions: rows }
+      const payload = { version: 1, kind: 'docdyne-ai-sessions', file_id: fileId, exported_at: new Date().toISOString(), sessions: rows }
       const stamp = new Date()
       const pad = (n: number) => String(n).padStart(2, '0')
       const name = `AI会话备份-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`
@@ -1152,11 +1152,11 @@ ${planText}` },
     const goalText = goal.trim()
     if (!goalText) return { ok: false, error: 'goal 必填：要深查的具体目标（一句话）' }
     const sys = [
-      `你是 DocFlow 只读检索子 Agent。目标：${goalText}`,
+      `你是 DocDyne 只读检索子 Agent。目标：${goalText}`,
       '用只读工具探查，FINAL 输出结构化摘要（发现清单 + 关键事实 + 相关位置/数值），不修改任何内容。',
       '可用工具：',
       ...readonlyTools.map((t) => `- ${t.name}：${t.desc}`),
-      '只能调用上方列出的工具；df_*（df_list_dir/df_read_file 等）是全局助手的平台文件工具，此处不可用，不要尝试。',
+      '只能调用上方列出的工具；dd_*（dd_list_dir/dd_read_file 等）是全局助手的平台文件工具，此处不可用，不要尝试。',
       '输出格式（硬性）：每轮恰好一行 TOOL_CALL {...}；探查完成（或无更多可查）时必须以 FINAL 开头输出摘要，不要以 TOOL_CALL 行收尾。',
     ].join(String.fromCharCode(10))
     const convo: AIMessage[] = [{ role: 'system', content: sys }, { role: 'user', content: goalText }]
@@ -1398,7 +1398,7 @@ ${planText}` },
           // 诊断：完整记录工具集状态（排查 mid-loop 工具丢失问题）
           const allNames = tools.map((t) => t.name).join(', ')
           console.debug('[AgentLoop] 未知工具:', tool, '| 循环工具集:', allNames, '| agentTools:', (agentToolsRef.current ?? []).length, '个', '| pkgId:', pkgIdRef.current, '| round:', round)
-          const dfHint = tool.startsWith('df_') ? '；df_* 是全局 AI 助手的平台文件工具，本面板不可用，不要再尝试' : ''
+          const dfHint = tool.startsWith('dd_') ? '；dd_* 是全局 AI 助手的平台文件工具，本面板不可用，不要再尝试' : ''
           const suggest = suggestTools(tool, tools.map((t) => t.name))
           result = { ok: false, error: `未知工具 ${tool}${suggest}（可用：${allNames}；技能包=${pkgIdRef.current}；宿主工具=${(agentToolsRef.current ?? []).length}个${dfHint}）` }
         } else if (def.destructive && cautiousRef.current) {
@@ -1528,8 +1528,8 @@ ${planText}` },
       .slice(-HISTORY_ROUNDS * 2)
       .map((x) => ({ role: x.role, content: x.content }))
     const system = (zh
-      ? `你是 DocFlow ${agentHostLabel(applyKind)}助手。当前为仅对话模式：回答用户关于当前文档/图表的问题，不要尝试修改文档。`
-      : `You are the DocFlow ${agentHostLabel(applyKind)} assistant in chat-only mode: answer questions about the current document; do not modify it.`)
+      ? `你是 DocDyne ${agentHostLabel(applyKind)}助手。当前为仅对话模式：回答用户关于当前文档/图表的问题，不要尝试修改文档。`
+      : `You are the DocDyne ${agentHostLabel(applyKind)} assistant in chat-only mode: answer questions about the current document; do not modify it.`)
       + (full.trim() ? `\n\n${zh ? '当前内容' : 'Current content'}：\n<text>\n${truncated ? full.slice(0, MAX_CONTEXT_CHARS) : full}\n</text>` : '')
     const selectedModel = modelKey ? models.find((m) => m.id === modelKey) ?? null : null
     try {

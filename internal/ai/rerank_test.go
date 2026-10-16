@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/google/uuid"
 )
 

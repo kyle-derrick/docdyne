@@ -3,8 +3,8 @@
 package search_test
 
 import (
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/search"
 )
 
 // *ai.Service 实现 search.OCRExtractor（main.go 经 Indexer.SetOCR 接线，

@@ -32,9 +32,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/mcpclient"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/mcpclient"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/google/uuid"
 )
 
@@ -139,7 +139,7 @@ type ChatRequest struct {
 	UseMCP bool
 	// PlatformTools 为内置平台文件工具声明（use_files；HTTP 层注入
 	// PlatformTools() 全集）。与 UseMCP 可同开——两类工具合并进同一条
-	// 工具循环（df_ 前缀内置工具 + mcp_ 前缀外部工具）。
+	// 工具循环（dd_ 前缀内置工具 + mcp_ 前缀外部工具）。
 	PlatformTools []PlatformTool
 	// ToolMaxRounds 显式覆盖工具轮次上限（0 = 默认：use_files 场景
 	// FilesToolMaxRounds，其余 MCPToolMaxRounds）。
@@ -1160,7 +1160,7 @@ const (
 )
 
 // toolFailProbe 判定一次工具结果是否失败并给出熔断键（name+args）。
-// df_* 平台工具结果为 JSON（ok:false 即失败）；MCP 工具错误经 execMCPTool
+// dd_* 平台工具结果为 JSON（ok:false 即失败）；MCP 工具错误经 execMCPTool
 // 包装为文本，此处不识别（保守：只对可判定的 JSON 结果熔断）。
 func toolFailProbe(name string, args json.RawMessage, content string) (string, bool) {
 	trimmed := strings.TrimSpace(content)
@@ -1419,7 +1419,7 @@ func (s *Service) execMCPTool(ctx context.Context, ts *mcpToolContext, fn string
 type ToolExecutorFunc func(name string, argsJSON json.RawMessage) (string, error)
 
 // chatToolContext 为一次工具对话聚合的完整工具集：外部 MCP 工具（mcp_*
-// 前缀，可为 nil）+ 内置平台文件工具（df_* 前缀，可为空）。两类工具
+// 前缀，可为 nil）+ 内置平台文件工具（dd_* 前缀，可为空）。两类工具
 // 合并进同一条 openai/anthropic 工具循环，执行时按名称分发（内置优先）。
 type chatToolContext struct {
 	mcp      *mcpToolContext
@@ -1485,7 +1485,7 @@ func (tc *chatToolContext) anthropicTools() []map[string]any {
 // 工具名（PlatformToolNames）走 ToolExecutor 回调，未命中回落 MCP 工具
 // 路径（execMCPTool）。与 MCP 一致的鲁棒性：工具失败不中断对话，错误
 // 文本作为结果回喂模型；结果截 MCPToolResultMaxRunes 字符。notify 收到
-// 执行前（running，内置工具 server 固定 docflow/平台文件）与执行后
+// 执行前（running，内置工具 server 固定 docdyne/平台文件）与执行后
 // （success/error）两阶段事件。
 // H4：平台工具按类型设执行超时（读 30s / 写 60s）——超时不中断对话，
 // 超时文本回喂模型（写类提示「可能已执行，用读工具校验」）；请求上下文
@@ -1493,12 +1493,12 @@ func (tc *chatToolContext) anthropicTools() []map[string]any {
 func (s *Service) execTool(ctx context.Context, tc *chatToolContext, fn string, args json.RawMessage, notify ToolEventNotifier) string {
 	if tc.exec != nil && PlatformToolNames()[fn] {
 		if notify != nil {
-			notify(ToolCallEvent{ServerID: "docflow", ServerName: "平台文件", Tool: fn, Status: ToolStatusRunning, Input: toolEventSummary(string(args))})
+			notify(ToolCallEvent{ServerID: "docdyne", ServerName: "平台文件", Tool: fn, Status: ToolStatusRunning, Input: toolEventSummary(string(args))})
 		}
 		start := time.Now()
 		result, err := execToolWithTimeout(ctx, tc.exec, fn, args)
 		if notify != nil {
-			ev := ToolCallEvent{ServerID: "docflow", ServerName: "平台文件", Tool: fn, DurationMS: time.Since(start).Milliseconds()}
+			ev := ToolCallEvent{ServerID: "docdyne", ServerName: "平台文件", Tool: fn, DurationMS: time.Since(start).Milliseconds()}
 			if err != nil {
 				ev.Status, ev.Error = ToolStatusError, err.Error()
 			} else {
@@ -1602,7 +1602,7 @@ type openAIRound struct {
 }
 
 // chatOpenAITools openai_compatible 工具循环：请求带 tools+tool_choice:
-// auto（MCP 外部工具与内置平台工具 df_* 合并装配）；finish_reason=
+// auto（MCP 外部工具与内置平台工具 dd_* 合并装配）；finish_reason=
 // tool_calls → 逐调用发工具事件、按名称分发执行（内置优先，见 execTool）、
 // 追加 {assistant tool_calls}+{tool 结果} 消息后下一轮（同一请求形状带
 // tools）。流式轮 delta.content 照旧透传（onDelta）、delta.tool_calls 按
@@ -2069,7 +2069,7 @@ type anthropicRound struct {
 }
 
 // chatAnthropicTools anthropic 工具循环（MCP 外部工具与内置平台工具
-// df_* 合并装配）：stop_reason=tool_use → 按名称分发执行（内置优先，
+// dd_* 合并装配）：stop_reason=tool_use → 按名称分发执行（内置优先，
 // 见 execTool）缓冲的 tool_use 块 → messages 追加 assistant 原始 content
 // 块（text+thinking+tool_use——anthropic 要求 thinking 开启时签名块随
 // tool_use 回传）与 user 的 tool_result 块 → 下一轮。think 每轮透传

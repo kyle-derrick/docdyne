@@ -39,7 +39,7 @@ export default function ResetPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1 className="login-title">DocFlow</h1>
+        <h1 className="login-title">DocDyne</h1>
         {done ? (
           <>
             <p className="hint">密码已重置，所有登录会话均已失效。</p>

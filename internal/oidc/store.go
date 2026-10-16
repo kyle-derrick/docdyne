@@ -10,7 +10,7 @@ import (
 )
 
 // Link 对应 oidc_links 表（migrations/021）：以 IdP 的 sub（issuer 内稳定
-// 标识）为主键关联 DocFlow 用户。email 匹配成功后写入关联——后续 IdP 侧
+// 标识）为主键关联 DocDyne 用户。email 匹配成功后写入关联——后续 IdP 侧
 // email 变更仍可凭 sub 登录。
 type Link struct {
 	Sub      string    `gorm:"primaryKey"`

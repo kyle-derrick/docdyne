@@ -11,10 +11,10 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/onlyoffice"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

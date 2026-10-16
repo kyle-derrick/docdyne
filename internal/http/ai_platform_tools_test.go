@@ -17,13 +17,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/settings"
-	"github.com/docflow/docflow/internal/space"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // CurrentBlobs 补齐 rawFakeTree 的 platformFileStore 能力（批量当前版本
@@ -96,14 +96,14 @@ func callTool(t *testing.T, ptc *platformToolCtx, name, args string) (bool, stri
 func TestExecutePlatformToolRoundtrip(t *testing.T) {
 	ptc, tree, storage, rec := newPlatformToolEnv(t)
 
-	// 1. df_mkdir 多级建目录。
-	if ok, msg := callTool(t, ptc, "df_mkdir", `{"path":"项目/文档"}`); !ok {
-		t.Fatalf("df_mkdir 失败: %s", msg)
+	// 1. dd_mkdir 多级建目录。
+	if ok, msg := callTool(t, ptc, "dd_mkdir", `{"path":"项目/文档"}`); !ok {
+		t.Fatalf("dd_mkdir 失败: %s", msg)
 	}
-	// 2. df_write_file 新建文件（经 upload 管线落库）。
-	ok, msg := callTool(t, ptc, "df_write_file", `{"path":"项目/文档/笔记.md","content":"# 标题\n正文内容"}`)
+	// 2. dd_write_file 新建文件（经 upload 管线落库）。
+	ok, msg := callTool(t, ptc, "dd_write_file", `{"path":"项目/文档/笔记.md","content":"# 标题\n正文内容"}`)
 	if !ok {
-		t.Fatalf("df_write_file 新建失败: %s", msg)
+		t.Fatalf("dd_write_file 新建失败: %s", msg)
 	}
 	var fileID uuid.UUID
 	for id, f := range tree.files {
@@ -128,43 +128,43 @@ func TestExecutePlatformToolRoundtrip(t *testing.T) {
 	if string(body) != "# 标题\n正文内容" {
 		t.Fatalf("落库内容 = %q", body)
 	}
-	// 3. df_read_file 读回。
-	ok, msg = callTool(t, ptc, "df_read_file", `{"path":"项目/文档/笔记.md"}`)
+	// 3. dd_read_file 读回。
+	ok, msg = callTool(t, ptc, "dd_read_file", `{"path":"项目/文档/笔记.md"}`)
 	if !ok {
-		t.Fatalf("df_read_file 失败: %s", msg)
+		t.Fatalf("dd_read_file 失败: %s", msg)
 	}
-	out, _ := ptc.executePlatformTool("df_read_file", json.RawMessage(`{"path":"项目/文档/笔记.md"}`))
+	out, _ := ptc.executePlatformTool("dd_read_file", json.RawMessage(`{"path":"项目/文档/笔记.md"}`))
 	if !strings.Contains(out, "# 标题\\n正文内容") {
 		t.Fatalf("读回内容缺失: %s", out)
 	}
-	// 4. df_write_file 覆盖（版本链：版本号 1→2）。
-	if ok, msg := callTool(t, ptc, "df_write_file", `{"path":"项目/文档/笔记.md","content":"改写后的内容"}`); !ok {
-		t.Fatalf("df_write_file 覆盖失败: %s", msg)
+	// 4. dd_write_file 覆盖（版本链：版本号 1→2）。
+	if ok, msg := callTool(t, ptc, "dd_write_file", `{"path":"项目/文档/笔记.md","content":"改写后的内容"}`); !ok {
+		t.Fatalf("dd_write_file 覆盖失败: %s", msg)
 	}
 	if v := tree.versions[fileID]; v.Version != 2 {
 		t.Fatalf("覆盖后版本 = %d, want 2（版本链保护）", v.Version)
 	}
-	// 5. df_list_dir 列目录（含子目录与大小）。
-	if ok, msg := callTool(t, ptc, "df_list_dir", `{"path":"项目"}`); !ok {
-		t.Fatalf("df_list_dir 失败: %s", msg)
+	// 5. dd_list_dir 列目录（含子目录与大小）。
+	if ok, msg := callTool(t, ptc, "dd_list_dir", `{"path":"项目"}`); !ok {
+		t.Fatalf("dd_list_dir 失败: %s", msg)
 	}
-	out, _ = ptc.executePlatformTool("df_list_dir", json.RawMessage(`{"path":"项目"}`))
+	out, _ = ptc.executePlatformTool("dd_list_dir", json.RawMessage(`{"path":"项目"}`))
 	if !strings.Contains(out, `"name":"文档"`) || !strings.Contains(out, `"type":"folder"`) {
 		t.Fatalf("list_dir 结果异常: %s", out)
 	}
 	// 根目录列举（path 省略）。
-	if ok, msg := callTool(t, ptc, "df_list_dir", `{}`); !ok {
-		t.Fatalf("df_list_dir 根目录失败: %s", msg)
+	if ok, msg := callTool(t, ptc, "dd_list_dir", `{}`); !ok {
+		t.Fatalf("dd_list_dir 根目录失败: %s", msg)
 	}
-	// 6. 审计：df_write_file 的成功记录（metadata 含工具名+参数摘要）。
+	// 6. 审计：dd_write_file 的成功记录（metadata 含工具名+参数摘要）。
 	var writeAudit *audit.Entry = nil
 	for i := range rec.entries {
-		if rec.entries[i].Action == "ai.tool" && strings.Contains(rec.entries[i].Metadata, `"tool":"df_write_file"`) {
+		if rec.entries[i].Action == "ai.tool" && strings.Contains(rec.entries[i].Metadata, `"tool":"dd_write_file"`) {
 			writeAudit = &rec.entries[i]
 		}
 	}
 	if writeAudit == nil {
-		t.Fatal("缺少 df_write_file 的 ai.tool 审计记录")
+		t.Fatal("缺少 dd_write_file 的 ai.tool 审计记录")
 	}
 	if writeAudit.Status != "success" || !strings.Contains(writeAudit.Metadata, "content_bytes=") {
 		t.Fatalf("ai.tool 审计 = %+v meta=%s", *writeAudit, writeAudit.Metadata)
@@ -177,34 +177,34 @@ func TestExecutePlatformToolRejections(t *testing.T) {
 	ptc, _, _, rec := newPlatformToolEnv(t)
 
 	// 扩展名白名单：exe 拒绝、无扩展名拒绝。
-	if ok, msg := callTool(t, ptc, "df_write_file", `{"path":"evil.exe","content":"x"}`); ok || !strings.Contains(msg, "白名单") {
+	if ok, msg := callTool(t, ptc, "dd_write_file", `{"path":"evil.exe","content":"x"}`); ok || !strings.Contains(msg, "白名单") {
 		t.Fatalf("exe 应被白名单拒绝: ok=%v msg=%s", ok, msg)
 	}
-	if ok, _ := callTool(t, ptc, "df_write_file", `{"path":"noext","content":"x"}`); ok {
+	if ok, _ := callTool(t, ptc, "dd_write_file", `{"path":"noext","content":"x"}`); ok {
 		t.Fatal("无扩展名应被拒绝")
 	}
 	// 内容超 2MB。
 	big := strings.Repeat("a", ai.PlatformToolWriteMaxBytes+1)
-	if ok, msg := callTool(t, ptc, "df_write_file", fmt.Sprintf(`{"path":"big.md","content":%q}`, big)); ok || !strings.Contains(msg, "上限") {
+	if ok, msg := callTool(t, ptc, "dd_write_file", fmt.Sprintf(`{"path":"big.md","content":%q}`, big)); ok || !strings.Contains(msg, "上限") {
 		t.Fatalf("超限内容应被拒绝: ok=%v msg=%s", ok, msg)
 	}
 	// 父目录不存在。
-	if ok, msg := callTool(t, ptc, "df_write_file", `{"path":"不存在的目录/a.md","content":"x"}`); ok || !strings.Contains(msg, "父目录不存在") {
+	if ok, msg := callTool(t, ptc, "dd_write_file", `{"path":"不存在的目录/a.md","content":"x"}`); ok || !strings.Contains(msg, "父目录不存在") {
 		t.Fatalf("父目录缺失应被拒绝: ok=%v msg=%s", ok, msg)
 	}
 	// 读不存在的文件。
-	if ok, msg := callTool(t, ptc, "df_read_file", `{"path":"不存在.md"}`); ok || !strings.Contains(msg, "不存在") {
+	if ok, msg := callTool(t, ptc, "dd_read_file", `{"path":"不存在.md"}`); ok || !strings.Contains(msg, "不存在") {
 		t.Fatalf("读不存在文件应报错: ok=%v msg=%s", ok, msg)
 	}
 	// 必填参数缺失。
-	if ok, _ := callTool(t, ptc, "df_read_file", `{}`); ok {
-		t.Fatal("df_read_file 缺 path 应报错")
+	if ok, _ := callTool(t, ptc, "dd_read_file", `{}`); ok {
+		t.Fatal("dd_read_file 缺 path 应报错")
 	}
-	if ok, _ := callTool(t, ptc, "df_search", `{}`); ok {
-		t.Fatal("df_search 缺 query 应报错")
+	if ok, _ := callTool(t, ptc, "dd_search", `{}`); ok {
+		t.Fatal("dd_search 缺 query 应报错")
 	}
 	// 未知工具返回 Go 错误（chat 层转为「工具调用失败」）。
-	if _, err := ptc.executePlatformTool("df_chmod", json.RawMessage(`{}`)); err == nil {
+	if _, err := ptc.executePlatformTool("dd_chmod", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("未知工具应返回错误")
 	}
 	// 失败也写审计。
@@ -226,22 +226,22 @@ func TestPlatformToolSandboxPaths(t *testing.T) {
 	ptc, _, _, _ := newPlatformToolEnv(t)
 
 	for _, path := range []string{"..", "../上级", "a/../..", ".", "./当前", "目录/."} {
-		if ok, msg := callTool(t, ptc, "df_read_file", fmt.Sprintf(`{"path":%q}`, path)); ok {
+		if ok, msg := callTool(t, ptc, "dd_read_file", fmt.Sprintf(`{"path":%q}`, path)); ok {
 			t.Fatalf("路径 %q 含 . 或 .. 段应被拒绝", path)
 		} else if !strings.Contains(msg, "路径不合法") {
 			t.Fatalf("路径 %q 应报路径不合法, got %q", path, msg)
 		}
 	}
 	// mkdir 同样拒绝。
-	if ok, _ := callTool(t, ptc, "df_mkdir", `{"path":"../逃逸"}`); ok {
+	if ok, _ := callTool(t, ptc, "dd_mkdir", `{"path":"../逃逸"}`); ok {
 		t.Fatal("mkdir 的 .. 段应被拒绝")
 	}
 	// write 同样拒绝。
-	if ok, _ := callTool(t, ptc, "df_write_file", `{"path":"../逃逸.md","content":"x"}`); ok {
+	if ok, _ := callTool(t, ptc, "dd_write_file", `{"path":"../逃逸.md","content":"x"}`); ok {
 		t.Fatal("write 的 .. 段应被拒绝")
 	}
 	// 前导斜杠按相对路径处理（Trim 后从工作目录根解析）。
-	if ok, msg := callTool(t, ptc, "df_mkdir", `{"path":"/斜杠目录"}`); !ok {
+	if ok, msg := callTool(t, ptc, "dd_mkdir", `{"path":"/斜杠目录"}`); !ok {
 		t.Fatalf("前导 / 应视为相对路径: %s", msg)
 	}
 }
@@ -251,21 +251,21 @@ func TestPlatformToolSandboxPaths(t *testing.T) {
 func TestPlatformToolAuditWriteDetails(t *testing.T) {
 	ptc, _, _, rec := newPlatformToolEnv(t)
 
-	if ok, msg := callTool(t, ptc, "df_mkdir", `{"path":"审计目录"}`); !ok {
-		t.Fatalf("df_mkdir 失败: %s", msg)
+	if ok, msg := callTool(t, ptc, "dd_mkdir", `{"path":"审计目录"}`); !ok {
+		t.Fatalf("dd_mkdir 失败: %s", msg)
 	}
-	if ok, msg := callTool(t, ptc, "df_write_file", `{"path":"审计目录/文件.md","content":"内容"}`); !ok {
-		t.Fatalf("df_write_file 失败: %s", msg)
+	if ok, msg := callTool(t, ptc, "dd_write_file", `{"path":"审计目录/文件.md","content":"内容"}`); !ok {
+		t.Fatalf("dd_write_file 失败: %s", msg)
 	}
 	// 失败写（父目录不存在）→ error 原文入审计。
-	if ok, _ := callTool(t, ptc, "df_write_file", `{"path":"不存在的父/a.md","content":"x"}`); ok {
+	if ok, _ := callTool(t, ptc, "dd_write_file", `{"path":"不存在的父/a.md","content":"x"}`); ok {
 		t.Fatal("父目录缺失应失败")
 	}
 
 	var success, failure *audit.Entry
 	for i := range rec.entries {
 		e := rec.entries[i]
-		if e.Action != "ai.tool" || !strings.Contains(e.Metadata, `"tool":"df_write_file"`) {
+		if e.Action != "ai.tool" || !strings.Contains(e.Metadata, `"tool":"dd_write_file"`) {
 			continue
 		}
 		if e.Status == "success" && success == nil {
@@ -276,39 +276,39 @@ func TestPlatformToolAuditWriteDetails(t *testing.T) {
 		}
 	}
 	if success == nil {
-		t.Fatal("缺少 df_write_file 成功审计")
+		t.Fatal("缺少 dd_write_file 成功审计")
 	}
 	if !strings.Contains(success.Metadata, `"file_id"`) || !strings.Contains(success.Metadata, `"created":true`) {
 		t.Fatalf("成功审计应含 file_id/created（J3）: %s", success.Metadata)
 	}
 	if failure == nil {
-		t.Fatal("缺少 df_write_file 失败审计")
+		t.Fatal("缺少 dd_write_file 失败审计")
 	}
 	if !strings.Contains(failure.Metadata, `"error"`) || !strings.Contains(failure.Metadata, "父目录不存在") {
 		t.Fatalf("失败审计应含 error 原文（J3）: %s", failure.Metadata)
 	}
 }
 
-// TestExecutePlatformToolSearch df_search：未装配检索服务时报错不中断。
+// TestExecutePlatformToolSearch dd_search：未装配检索服务时报错不中断。
 func TestExecutePlatformToolSearch(t *testing.T) {
 	ptc, _, _, _ := newPlatformToolEnv(t)
-	if ok, _ := callTool(t, ptc, "df_search", `{"query":"笔记"}`); ok {
-		t.Fatal("未装配 search 时 df_search 应报 ok:false")
+	if ok, _ := callTool(t, ptc, "dd_search", `{"query":"笔记"}`); ok {
+		t.Fatal("未装配 search 时 dd_search 应报 ok:false")
 	}
 	ptc.svc.search = &fakeMCPSearch{}
-	if ok, msg := callTool(t, ptc, "df_search", `{"query":"笔记"}`); !ok {
-		t.Fatalf("df_search 失败: %s", msg)
+	if ok, msg := callTool(t, ptc, "dd_search", `{"query":"笔记"}`); !ok {
+		t.Fatalf("dd_search 失败: %s", msg)
 	}
-	out, _ := ptc.executePlatformTool("df_search", json.RawMessage(`{"query":"笔记"}`))
+	out, _ := ptc.executePlatformTool("dd_search", json.RawMessage(`{"query":"笔记"}`))
 	if !strings.Contains(out, `"snippet"`) && !strings.Contains(out, `"name"`) {
-		t.Fatalf("df_search 结果异常: %s", out)
+		t.Fatalf("dd_search 结果异常: %s", out)
 	}
 }
 
 // ---------- /ai/chat use_files 端到端 ----------
 
 // newUseFilesChatEnv 组装 aiChat 测试路由：fake openai 兼容上游（第 1 轮
-// tool_calls df_write_file、第 2 轮文本）+ 平台工具依赖（同
+// tool_calls dd_write_file、第 2 轮文本）+ 平台工具依赖（同
 // newPlatformToolEnv）。返回 router、tree、上游请求体捕获。
 func newUseFilesChatEnv(t *testing.T, toolRound bool) (*gin.Engine, *rawFakeTree, *[]map[string]any) {
 	t.Helper()
@@ -346,8 +346,8 @@ func newUseFilesChatEnv(t *testing.T, toolRound bool) (*gin.Engine, *rawFakeTree
 		sse := func(payload string) { _, _ = w.Write([]byte("data: " + payload + "\n\n")) }
 		if toolRound && rounds == 1 {
 			// 并行工具调用：先建目录再写文件（一轮两个 tool_calls）。
-			sse(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_f0","function":{"name":"df_mkdir","arguments":"{\"path\":\"ai\"}"}}]}}]}`)
-			sse(`{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_f1","function":{"name":"df_write_file","arguments":"{\"path\":\"ai/草稿.md\",\"content\":\"AI 写入的内容\"}"}}]}}]}`)
+			sse(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_f0","function":{"name":"dd_mkdir","arguments":"{\"path\":\"ai\"}"}}]}}]}`)
+			sse(`{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_f1","function":{"name":"dd_write_file","arguments":"{\"path\":\"ai/草稿.md\",\"content\":\"AI 写入的内容\"}"}}]}}]}`)
 			sse(`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`)
 			sse(`{"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":9}}`)
 			sse(`[DONE]`)
@@ -393,7 +393,7 @@ func toolsNames(t *testing.T, body map[string]any) []string {
 }
 
 // TestAIChatUseFilesToolsInjected use_files 缺省（默认 true，用户有空间）：
-// 上游请求 tools 含全部 df_*；use_files=false 时不注入。
+// 上游请求 tools 含全部 dd_*；use_files=false 时不注入。
 func TestAIChatUseFilesToolsInjected(t *testing.T) {
 	r, _, bodies := newUseFilesChatEnv(t, false)
 	w := postAI(r, "/api/v1/ai/chat", `{"messages":[{"role":"user","content":"看下我的文件"}]}`)
@@ -404,7 +404,7 @@ func TestAIChatUseFilesToolsInjected(t *testing.T) {
 		t.Fatal("上游未收到请求")
 	}
 	got := toolsNames(t, (*bodies)[0])
-	want := map[string]bool{"df_list_dir": false, "df_read_file": false, "df_write_file": false, "df_mkdir": false, "df_search": false}
+	want := map[string]bool{"dd_list_dir": false, "dd_read_file": false, "dd_write_file": false, "dd_mkdir": false, "dd_search": false}
 	for _, n := range got {
 		if _, ok := want[n]; ok {
 			want[n] = true
@@ -426,7 +426,7 @@ func TestAIChatUseFilesToolsInjected(t *testing.T) {
 	}
 }
 
-// TestAIChatUseFilesToolLoop 全链路：模型请求 df_write_file → 执行器经
+// TestAIChatUseFilesToolLoop 全链路：模型请求 dd_write_file → 执行器经
 // upload 管线落库 → 工具结果回喂 → 最终文本经 SSE 完成（tool 事件可见）。
 func TestAIChatUseFilesToolLoop(t *testing.T) {
 	r, tree, _ := newUseFilesChatEnv(t, true)
@@ -436,7 +436,7 @@ func TestAIChatUseFilesToolLoop(t *testing.T) {
 	}
 	body := w.Body.String()
 	// SSE tool 事件（执行前下发，tool 字段按名透传）。
-	if !strings.Contains(body, "event: tool") || !strings.Contains(body, `"tool":"df_write_file"`) || !strings.Contains(body, `"server":"docflow"`) {
+	if !strings.Contains(body, "event: tool") || !strings.Contains(body, `"tool":"dd_write_file"`) || !strings.Contains(body, `"server":"docdyne"`) {
 		t.Fatalf("tool 事件缺失: %s", body)
 	}
 	events, joined := sseDeltas(body)
@@ -462,7 +462,7 @@ func TestAIChatUseFilesToolLoop(t *testing.T) {
 		}
 	}
 	if draft == uuid.Nil {
-		t.Fatal("df_write_file 未落库（草稿.md 不存在）")
+		t.Fatal("dd_write_file 未落库（草稿.md 不存在）")
 	}
 	if tree.versions[draft].Version != 1 {
 		t.Fatalf("版本 = %d, want 1", tree.versions[draft].Version)
@@ -474,6 +474,6 @@ func TestAIChatUseFilesToolLoop(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("df_mkdir 未落库（目录 ai 不存在）")
+		t.Fatal("dd_mkdir 未落库（目录 ai 不存在）")
 	}
 }

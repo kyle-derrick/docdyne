@@ -254,15 +254,15 @@ export default function DirPickerModal({
       okButtonProps={{ disabled: !selectedNode || busy, loading: busy }}
       onOk={handleConfirm}
       onCancel={onCancel}
-      className="docflow-modal dir-picker-modal"
+      className="docdyne-modal dir-picker-modal"
       styles={{ body: { overflow: 'auto', maxHeight: 'calc(80vh - 160px)' } }}
       /* 弹窗内部布局定制经官方 classNames 通道注入自有类（styles.css
          「antd Modal 薄封装」节），不再钩 .ant-modal-* 内部结构。 */
       classNames={{
-        header: 'docflow-modal-header',
-        title: 'docflow-modal-title',
-        body: 'docflow-modal-body',
-        close: 'docflow-modal-close',
+        header: 'docdyne-modal-header',
+        title: 'docdyne-modal-title',
+        body: 'docdyne-modal-body',
+        close: 'docdyne-modal-close',
       }}
     >
       <div className="dir-picker">

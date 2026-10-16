@@ -1,4 +1,4 @@
-// DocFlow 富文本「文件卡片」内联节点（自定义 Tiptap node）：
+// DocDyne 富文本「文件卡片」内联节点（自定义 Tiptap node）：
 // - inline + atom：嵌在段落文字流中的引用芯片（图标 + 文件名 + 大小），
 //   attrs { fileId, title, size }，data-file-id 属性序列化进 HTML 导出；
 // - 点击行为：认证态弹出文件查看弹窗（FileViewerDispatch 懒加载，与文件
@@ -9,7 +9,7 @@
 import { Node, mergeAttributes, ReactNodeViewRenderer } from '@tiptap/react'
 import FileCardView from './FileCardView'
 
-export interface DocflowFileCardAttrs {
+export interface DocdyneFileCardAttrs {
   fileId: string
   title: string
   size: number
@@ -17,8 +17,8 @@ export interface DocflowFileCardAttrs {
   width: number
 }
 
-export const DocflowFileCard = Node.create({
-  name: 'docflowFileCard',
+export const DocdyneFileCard = Node.create({
+  name: 'docdyneFileCard',
   group: 'inline',
   inline: true,
   atom: true,
@@ -50,11 +50,11 @@ export const DocflowFileCard = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-docflow-file]' }]
+    return [{ tag: 'span[data-docdyne-file]' }]
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes({ 'data-docflow-file': '1' }, HTMLAttributes)]
+    return ['span', mergeAttributes({ 'data-docdyne-file': '1' }, HTMLAttributes)]
   },
 
   addNodeView() {
@@ -62,4 +62,4 @@ export const DocflowFileCard = Node.create({
   },
 })
 
-export default DocflowFileCard
+export default DocdyneFileCard

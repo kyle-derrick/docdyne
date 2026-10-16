@@ -4,13 +4,13 @@
 // 宿主（ChatThread/ViewerAIWidget 摘要页等）仍在使用的展示组件：
 // - AIChatThinking：思考过程折叠区（流式展开跟随、完成自动收起 + 用时）；
 // - AIToolChain：工具调用链（ThoughtChain：running 旋转 → success/error
-//   终态，可展开参数/结果摘要；df_write_file 附「已保存（自动留版本）」）；
+//   终态，可展开参数/结果摘要；dd_write_file 附「已保存（自动留版本）」）；
 // - AIWebSourcesView：网络来源折叠列表（编号 + 标题超链接）。
 import { useEffect, useMemo, useState } from 'react'
 import { ThoughtChain } from '@ant-design/x'
 import { Brain, Globe, Wrench } from 'lucide-react'
 import {
-  dfToolLabel, isWriteTool, thinkingTitle,
+  ddToolLabel, isWriteTool, thinkingTitle,
 } from './turns'
 import type { AIToolCallEntry, AIWebSource } from './turns'
 
@@ -67,7 +67,7 @@ function ToolDetail({ entry, zh }: { entry: AIToolCallEntry; zh: boolean }) {
 }
 
 /** 工具调用链（ThoughtChain 封装）：running 旋转 → success/error 终态；
- *  有参数/结果摘要的条目可展开。df_write_file 附「已保存（自动留版本）」。 */
+ *  有参数/结果摘要的条目可展开。dd_write_file 附「已保存（自动留版本）」。 */
 export function AIToolChain({ toolCalls, zh }: { toolCalls: AIToolCallEntry[] | undefined; zh: boolean }) {
   const items = useMemo(() => (toolCalls ?? []).map((tc, i) => {
     const hasDetail = !!(tc.input || tc.output || tc.errorText)
@@ -76,7 +76,7 @@ export function AIToolChain({ toolCalls, zh }: { toolCalls: AIToolCallEntry[] | 
       : ''
     const title = (
       <span className="aic-tool-title">
-        {dfToolLabel(tc, zh)}
+        {ddToolLabel(tc, zh)}
         {isWriteTool(tc) && <span className="aic-tool-saved">{zh ? ' · 已保存（自动留版本）' : ' · saved (auto versioned)'}</span>}
         {dur && <span className="aic-tool-dur"> · {dur}</span>}
       </span>

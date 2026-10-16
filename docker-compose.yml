@@ -1,4 +1,4 @@
-# DocFlow 生产部署编排（设计文档 §12 部署架构）。
+# DocDyne 生产部署编排（设计文档 §12 部署架构）。
 #
 # 端口边界：caddy 是唯一映射宿主端口的服务（80/443）；backend / postgres /
 # redis / onlyoffice / clamav 均仅 compose 内网可达，不做任何宿主映射。
@@ -22,8 +22,8 @@
 # 本地开发不经本文件的 caddy：后端 `make run` 直接监听宿主 :8080，前端
 # `cd frontend && npm run dev`（vite 将 /api 代理到 localhost:8080）。
 # 本机无 postgres 时可临时起一个：
-#   docker run -d --name docflow-pg -p 5432:5432 \
-#     -e POSTGRES_DB=docflow -e POSTGRES_USER=docflow \
+#   docker run -d --name docdyne-pg -p 5432:5432 \
+#     -e POSTGRES_DB=docdyne -e POSTGRES_USER=docdyne \
 #     -e POSTGRES_PASSWORD=change-me postgres:16-alpine
 services:
   # 统一入口：TLS 终止 + 前端静态产物 + API/内容/ONLYOFFICE 反代。
@@ -35,7 +35,7 @@ services:
       dockerfile: Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
-    image: docflow/caddy:${DOCFLOW_IMAGE_TAG:-1.0.0}
+    image: docdyne/caddy:${DOCDYNE_IMAGE_TAG:-1.0.0}
     restart: unless-stopped
     ports:
       - "80:80"
@@ -78,10 +78,10 @@ services:
       args:
         # 国内网络构建加速（.env 里 GOPROXY=https://goproxy.cn）。
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: docflow/backend:${DOCFLOW_IMAGE_TAG:-1.0.0}
+    image: docdyne/backend:${DOCDYNE_IMAGE_TAG:-1.0.0}
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://docflow:change-me@postgres:5432/docflow?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://docdyne:change-me@postgres:5432/docdyne?sslmode=disable}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       PORT: 8080
       # 生产 HTTPS 默认 true；本地 HTTP 访问需在 .env 显式设 false。
@@ -129,7 +129,7 @@ services:
       # REDIS_ADDR 指向 redis 服务；QUEUE_DRIVER=redis 时启动 ping 失败即退出）。
       # 多实例横向扩展（backend 副本 >1）必须 QUEUE_DRIVER=redis：除任务
       # 队列外，WebSocket 站内通知的跨实例广播也复用同一 Redis
-      #（docflow:notify Pub/Sub 扇出到全部实例的本地连接）；inprocess 下
+      #（docdyne:notify Pub/Sub 扇出到全部实例的本地连接）；inprocess 下
       # 通知仅达本实例连接（跨实例用户收不到实时推送）。
       QUEUE_DRIVER: ${QUEUE_DRIVER:-inprocess}
       REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
@@ -201,7 +201,7 @@ services:
       AI_RAG_MODE: ${AI_RAG_MODE:-keyword}
       AI_RAG_VECTOR_ENABLED: ${AI_RAG_VECTOR_ENABLED:-false}
       AI_RAG_QDRANT_URL: ${AI_RAG_QDRANT_URL:-http://qdrant:6333}
-      AI_RAG_COLLECTION_PREFIX: ${AI_RAG_COLLECTION_PREFIX:-docflow_}
+      AI_RAG_COLLECTION_PREFIX: ${AI_RAG_COLLECTION_PREFIX:-docdyne_}
       AI_RAG_EMBEDDING_PROVIDER: ${AI_RAG_EMBEDDING_PROVIDER:-mock}
       AI_RAG_EMBEDDING_MODEL: ${AI_RAG_EMBEDDING_MODEL:-text-embedding-3-small}
       AI_RAG_TOP_K: ${AI_RAG_TOP_K:-8}
@@ -229,13 +229,13 @@ services:
       context: .
       args:
         GOPROXY: ${GOPROXY:-}
-    image: docflow/backend:${DOCFLOW_IMAGE_TAG:-1.0.0}
+    image: docdyne/backend:${DOCDYNE_IMAGE_TAG:-1.0.0}
     restart: "no"
-    # 镜像 ENTRYPOINT 为 /docflow，须用 entrypoint 覆盖（command 只覆盖 CMD）。
+    # 镜像 ENTRYPOINT 为 /docdyne，须用 entrypoint 覆盖（command 只覆盖 CMD）。
     entrypoint: ["/migrate"]
     command: ["-dir", "/migrations"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://docflow:change-me@postgres:5432/docflow?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://docdyne:change-me@postgres:5432/docdyne?sslmode=disable}
     depends_on:
       postgres:
         condition: service_healthy
@@ -248,11 +248,11 @@ services:
       context: .
       args:
         GOPROXY: ${GOPROXY:-}
-    image: docflow/backend:${DOCFLOW_IMAGE_TAG:-1.0.0}
+    image: docdyne/backend:${DOCDYNE_IMAGE_TAG:-1.0.0}
     restart: "no"
     entrypoint: ["/seed"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://docflow:change-me@postgres:5432/docflow?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://docdyne:change-me@postgres:5432/docdyne?sslmode=disable}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD in .env}
@@ -266,8 +266,8 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-docflow}
-      POSTGRES_USER: ${POSTGRES_USER:-docflow}
+      POSTGRES_DB: ${POSTGRES_DB:-docdyne}
+      POSTGRES_USER: ${POSTGRES_USER:-docdyne}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     # 保留 initdb 挂载仅为全新空卷兼容兜底；增量迁移由 migrate 服务每次启动执行，
     # 因此已有数据库升级不依赖 postgres entrypoint。
@@ -280,7 +280,7 @@ services:
   # Redis（full profile）：后台任务队列的后端存储——QUEUE_DRIVER=redis 时
   # backend 经 asynq（hibiken/asynq）把上传补完/网页包解包任务写入 Redis，
   # 多实例部署下任意实例的 worker 均可消费（无本地状态，横向扩展安全）；
-  # 同一 Redis 还承载 WebSocket 站内通知的跨实例广播（docflow:notify
+  # 同一 Redis 还承载 WebSocket 站内通知的跨实例广播（docdyne:notify
   # Pub/Sub 频道，QUEUE_DRIVER=redis 时启用），多实例 backend 共享。
   # 默认 QUEUE_DRIVER=inprocess 时本服务不被使用。进程内限流仍为内存实现，
   # 多实例下各实例独立计数。归入 full profile：minimal 栈保持零 Redis 依赖，
@@ -327,7 +327,7 @@ services:
     # 中文文档渲染为方块乱码。镜像内容与 8.2.3 完全一致，仅叠加 fonts-noto-cjk。
     build:
       context: ./deploy/onlyoffice
-    image: docflow/onlyoffice:8.2.3-cjk
+    image: docdyne/onlyoffice:8.2.3-cjk
     profiles: ["full"]
     environment:
       - JWT_ENABLED=true
@@ -348,7 +348,7 @@ services:
   # MinIO S3 兼容对象存储（storage profile，可与 full 叠加）。
   # local 是默认存储驱动，不会自动启用此服务；启用 S3 时配置 STORAGE_DRIVER=s3。
   # 对应 .env：STORAGE_DRIVER=s3、S3_ENDPOINT=http://minio:9000、
-  # S3_BUCKET=docflow（需提前创建，见下）、S3_ACCESS_KEY/S3_SECRET_KEY 同
+  # S3_BUCKET=docdyne（需提前创建，见下）、S3_ACCESS_KEY/S3_SECRET_KEY 同
   # MINIO_ROOT_USER/PASSWORD、S3_PATH_STYLE=true。
   # 说明：曾用 chrislusf/seaweedfs:3.80，真实联动验证中其 S3 网关 DELETE
   # 间歇性 500（含存在的 key），导致上传 complete 失败，故切换 MinIO。
@@ -358,8 +358,8 @@ services:
     image: quay.io/minio/minio:RELEASE.2024-09-13T20-26-02Z
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docflow}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-docflow-secret}
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docdyne}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-docdyne-secret}
     restart: unless-stopped
     expose:
       - "9000"
@@ -371,7 +371,7 @@ services:
   # docker compose --profile search up -d 启动。对应 .env 联动：
   # SEARCH_DRIVER=meili、MEILI_URL=http://meilisearch:7700；启用 MASTER_KEY
   # 时 MEILI_API_KEY 取同值（可空 = 无认证实例，仅内网暴露）。
-  # backend 启动即创建索引 docflow-files（主键 file_id），不可达时拒绝启动；
+  # backend 启动即创建索引 docdyne-files（主键 file_id），不可达时拒绝启动；
   # 不声明 depends_on，保持按需启用（pg 驱动时不拖入本服务）。
   # 端口仅 compose 内网（不映射宿主 7700）。
   meilisearch:
@@ -431,7 +431,7 @@ services:
   #   command: server -s3 -dir=/data -master.volumeSizeLimitMB=1024
   #   volumes: [seaweedfs_data:/data]
   #   # 对应 .env：STORAGE_DRIVER=s3、S3_ENDPOINT=http://seaweedfs:8333、
-  #   # S3_BUCKET=docflow（需提前创建）、S3_PATH_STYLE=true
+  #   # S3_BUCKET=docdyne（需提前创建）、S3_PATH_STYLE=true
 volumes:
   postgres_data:
   backend_storage:

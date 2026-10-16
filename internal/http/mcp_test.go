@@ -12,13 +12,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/mcp"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/space"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/mcp"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // ---------- rawFakeTree 补齐 mcp.FileStore / share.FileSource ----------
@@ -554,12 +554,12 @@ func TestMCPInitialize(t *testing.T) {
 		t.Fatalf("capabilities.tools missing: %v", caps)
 	}
 	info, _ := result["serverInfo"].(map[string]any)
-	if info["name"] != "docflow" {
+	if info["name"] != "docdyne" {
 		t.Fatalf("serverInfo = %v", info)
 	}
 }
 
-// tools/list：≥20 个 df_ 工具。
+// tools/list：≥20 个 dd_ 工具。
 func TestMCPToolsList(t *testing.T) {
 	env := newMCPTestEnv(t, false)
 	_, out := env.callMCP(t, env.jwt(), "tools/list", nil)
@@ -576,8 +576,8 @@ func TestMCPToolsList(t *testing.T) {
 			aiTools[name] = true
 			continue
 		}
-		if !strings.HasPrefix(name, "df_") {
-			t.Fatalf("tool %v missing df_ prefix", name)
+		if !strings.HasPrefix(name, "dd_") {
+			t.Fatalf("tool %v missing dd_ prefix", name)
 		}
 	}
 	for name, present := range aiTools {
@@ -590,7 +590,7 @@ func TestMCPToolsList(t *testing.T) {
 // PAT 鉴权失败：缺失/伪造凭证 → 401 + JSON-RPC -32001。
 func TestMCPAuthFailures(t *testing.T) {
 	env := newMCPTestEnv(t, false)
-	cases := []string{"", "Bearer dfpat_invalidinvalidinvalidinvalidinvalidin", "Bearer not-a-jwt"}
+	cases := []string{"", "Bearer ddpat_invalidinvalidinvalidinvalidinvalidin", "Bearer not-a-jwt"}
 	for _, authHeader := range cases {
 		code, out := env.callMCP(t, authHeader, "tools/list", nil)
 		if code != http.StatusUnauthorized {
@@ -610,7 +610,7 @@ func TestMCPPATScopes(t *testing.T) {
 	unscoped := env.newPAT(t, nil)
 
 	// 只读 PAT 调写工具 → isError + missing scope，且未建目录。
-	_, out := env.callMCP(t, readOnly, "tools/call", map[string]any{"name": "df_create_folder", "arguments": map[string]any{"name": "x"}})
+	_, out := env.callMCP(t, readOnly, "tools/call", map[string]any{"name": "dd_create_folder", "arguments": map[string]any{"name": "x"}})
 	if got := rpcError(t, out); got != 0 {
 		t.Fatalf("unexpected rpc error %d: %v", got, out)
 	}
@@ -623,12 +623,12 @@ func TestMCPPATScopes(t *testing.T) {
 		}
 	}
 	// 只读 PAT 调读工具正常。
-	_, out = env.callMCP(t, readOnly, "tools/call", map[string]any{"name": "df_list_files", "arguments": map[string]any{}})
+	_, out = env.callMCP(t, readOnly, "tools/call", map[string]any{"name": "dd_list_files", "arguments": map[string]any{}})
 	if got := rpcError(t, out); got != 0 {
 		t.Fatalf("read tool denied: %v", out)
 	}
 	// 未限定 scope 的 PAT 可写。
-	_, out = env.callMCP(t, unscoped, "tools/call", map[string]any{"name": "df_create_folder", "arguments": map[string]any{"name": "patdir"}})
+	_, out = env.callMCP(t, unscoped, "tools/call", map[string]any{"name": "dd_create_folder", "arguments": map[string]any{"name": "patdir"}})
 	if got := rpcError(t, out); got != 0 {
 		t.Fatalf("unscoped PAT write denied: %v", out)
 	}
@@ -640,47 +640,47 @@ func TestMCPCreateWriteReadResolveDeleteChain(t *testing.T) {
 	authHeader := env.jwt()
 
 	// 1. 建目录。
-	folder := toolPayload(t, env.callTool(t, authHeader, "df_create_folder", map[string]any{"name": "AI 工作区"}))
+	folder := toolPayload(t, env.callTool(t, authHeader, "dd_create_folder", map[string]any{"name": "AI 工作区"}))
 	folderID, _ := folder["id"].(string)
 	if folderID == "" || folder["type"] != "folder" {
-		t.Fatalf("df_create_folder result = %v", folder)
+		t.Fatalf("dd_create_folder result = %v", folder)
 	}
 
 	// 2. 写文件（走 UploadBytes 管线：内存存储 + blob + 版本落库）。
-	created := toolPayload(t, env.callTool(t, authHeader, "df_write_file", map[string]any{
-		"name": "note.md", "parent_id": folderID, "content_text": "# hello DocFlow",
+	created := toolPayload(t, env.callTool(t, authHeader, "dd_write_file", map[string]any{
+		"name": "note.md", "parent_id": folderID, "content_text": "# hello DocDyne",
 	}))
 	fileID, _ := created["id"].(string)
 	if fileID == "" || created["name"] != "note.md" {
-		t.Fatalf("df_write_file result = %v", created)
+		t.Fatalf("dd_write_file result = %v", created)
 	}
 	if cv, _ := created["current_version"].(map[string]any); cv == nil {
-		t.Fatalf("df_write_file missing current_version: %v", created)
+		t.Fatalf("dd_write_file missing current_version: %v", created)
 	}
 
 	// 3. 读回（文本直读，mime 由扩展名推断为 text/markdown）。
-	read := toolPayload(t, env.callTool(t, authHeader, "df_read_file", map[string]any{"file_id": fileID}))
-	if read["content"] != "# hello DocFlow" || read["encoding"] != "text" {
-		t.Fatalf("df_read_file result = %v", read)
+	read := toolPayload(t, env.callTool(t, authHeader, "dd_read_file", map[string]any{"file_id": fileID}))
+	if read["content"] != "# hello DocDyne" || read["encoding"] != "text" {
+		t.Fatalf("dd_read_file result = %v", read)
 	}
 	if mime, _ := read["mime_type"].(string); !strings.HasPrefix(mime, "text/markdown") {
 		t.Fatalf("mime_type = %v", read["mime_type"])
 	}
 
 	// 4. 路径定位（默认空间根下相对路径，space_id 缺省）。
-	resolved := toolPayload(t, env.callTool(t, authHeader, "df_resolve_path", map[string]any{"path": "AI 工作区/note.md"}))
+	resolved := toolPayload(t, env.callTool(t, authHeader, "dd_resolve_path", map[string]any{"path": "AI 工作区/note.md"}))
 	if resolved["file_id"] != fileID || resolved["canonical_path"] != "AI 工作区/note.md" {
-		t.Fatalf("df_resolve_path result = %v", resolved)
+		t.Fatalf("dd_resolve_path result = %v", resolved)
 	}
 
 	// 5. 删除（软删除）→ 再取元数据应报 not found。
-	deleted := toolPayload(t, env.callTool(t, authHeader, "df_delete_file", map[string]any{"file_id": fileID}))
+	deleted := toolPayload(t, env.callTool(t, authHeader, "dd_delete_file", map[string]any{"file_id": fileID}))
 	if deleted["deleted"] != true {
-		t.Fatalf("df_delete_file result = %v", deleted)
+		t.Fatalf("dd_delete_file result = %v", deleted)
 	}
-	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "df_get_file", "arguments": map[string]any{"file_id": fileID}})
+	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "dd_get_file", "arguments": map[string]any{"file_id": fileID}})
 	if text := toolErrorText(t, out); !strings.Contains(text, "not found") {
-		t.Fatalf("df_get_file after delete = %q, want not-found error (%v)", text, out)
+		t.Fatalf("dd_get_file after delete = %q, want not-found error (%v)", text, out)
 	}
 }
 
@@ -688,36 +688,36 @@ func TestMCPCreateWriteReadResolveDeleteChain(t *testing.T) {
 func TestMCPVersionOps(t *testing.T) {
 	env := newMCPTestEnv(t, false)
 	authHeader := env.jwt()
-	created := toolPayload(t, env.callTool(t, authHeader, "df_write_file", map[string]any{"name": "log.txt", "content_text": "v1"}))
+	created := toolPayload(t, env.callTool(t, authHeader, "dd_write_file", map[string]any{"name": "log.txt", "content_text": "v1"}))
 	fileID, _ := created["id"].(string)
 
 	// 覆盖为新版本（StartReplace 管线，fake ReplaceFileVersion 落 v2）。
-	overwritten := toolPayload(t, env.callTool(t, authHeader, "df_write_version", map[string]any{"file_id": fileID, "content_text": "v2-content"}))
+	overwritten := toolPayload(t, env.callTool(t, authHeader, "dd_write_version", map[string]any{"file_id": fileID, "content_text": "v2-content"}))
 	if cv, _ := overwritten["current_version"].(map[string]any); cv == nil {
-		t.Fatalf("df_write_version missing current_version: %v", overwritten)
+		t.Fatalf("dd_write_version missing current_version: %v", overwritten)
 	}
 	// 读回新内容。
-	read := toolPayload(t, env.callTool(t, authHeader, "df_read_file", map[string]any{"file_id": fileID}))
+	read := toolPayload(t, env.callTool(t, authHeader, "dd_read_file", map[string]any{"file_id": fileID}))
 	if read["content"] != "v2-content" {
 		t.Fatalf("after overwrite content = %v", read["content"])
 	}
 	// base64 读取。
-	b64 := toolPayload(t, env.callTool(t, authHeader, "df_read_file", map[string]any{"file_id": fileID, "as": "base64"}))
+	b64 := toolPayload(t, env.callTool(t, authHeader, "dd_read_file", map[string]any{"file_id": fileID, "as": "base64"}))
 	if b64["encoding"] != "base64" || b64["content"] == "" {
-		t.Fatalf("df_read_file base64 = %v", b64)
+		t.Fatalf("dd_read_file base64 = %v", b64)
 	}
 
 	// 版本列表 → 回滚到该版本（fake 单版本语义，版本行即当前 v2）。
-	versions := toolPayload(t, env.callTool(t, authHeader, "df_list_versions", map[string]any{"file_id": fileID}))
+	versions := toolPayload(t, env.callTool(t, authHeader, "dd_list_versions", map[string]any{"file_id": fileID}))
 	list, _ := versions["versions"].([]any)
 	if len(list) == 0 {
-		t.Fatalf("df_list_versions = %v", versions)
+		t.Fatalf("dd_list_versions = %v", versions)
 	}
 	first, _ := list[0].(map[string]any)
 	versionID, _ := first["id"].(string)
-	restored := toolPayload(t, env.callTool(t, authHeader, "df_restore_version", map[string]any{"file_id": fileID, "version_id": versionID}))
+	restored := toolPayload(t, env.callTool(t, authHeader, "dd_restore_version", map[string]any{"file_id": fileID, "version_id": versionID}))
 	if restored["id"] != fileID {
-		t.Fatalf("df_restore_version = %v", restored)
+		t.Fatalf("dd_restore_version = %v", restored)
 	}
 }
 
@@ -726,36 +726,36 @@ func TestMCPSharesAndSpaces(t *testing.T) {
 	env := newMCPTestEnv(t, false)
 	authHeader := env.jwt()
 
-	// df_list_spaces：注册默认空间 + 新建空间后可见（space.Service + MemoryStore）。
+	// dd_list_spaces：注册默认空间 + 新建空间后可见（space.Service + MemoryStore）。
 	if _, _, err := env.spaceSvc.CreateSpace(env.owner, "平台组", ""); err != nil {
 		t.Fatal(err)
 	}
-	spaces := toolPayload(t, env.callTool(t, authHeader, "df_list_spaces", map[string]any{}))
+	spaces := toolPayload(t, env.callTool(t, authHeader, "dd_list_spaces", map[string]any{}))
 	if list, _ := spaces["spaces"].([]any); len(list) != 2 {
-		t.Fatalf("df_list_spaces = %v, want default + created", spaces)
+		t.Fatalf("dd_list_spaces = %v, want default + created", spaces)
 	}
 
-	// df_create_share（公开，带密码）→ df_list_shares → df_revoke_share。
-	file := toolPayload(t, env.callTool(t, authHeader, "df_write_file", map[string]any{"name": "share.md", "content_text": "s"}))
+	// dd_create_share（公开，带密码）→ dd_list_shares → dd_revoke_share。
+	file := toolPayload(t, env.callTool(t, authHeader, "dd_write_file", map[string]any{"name": "share.md", "content_text": "s"}))
 	fileID, _ := file["id"].(string)
-	shared := toolPayload(t, env.callTool(t, authHeader, "df_create_share", map[string]any{
+	shared := toolPayload(t, env.callTool(t, authHeader, "dd_create_share", map[string]any{
 		"file_id": fileID, "permission": "view", "expires_in_days": 7, "password": "pass1234",
 	}))
 	token, _ := shared["token"].(string)
 	if token == "" || shared["has_password"] != true {
-		t.Fatalf("df_create_share = %v", shared)
+		t.Fatalf("dd_create_share = %v", shared)
 	}
 	if !strings.HasPrefix(shared["share_url"].(string), "/api/v1/public/shares/") {
 		t.Fatalf("share_url = %v", shared["share_url"])
 	}
-	listing := toolPayload(t, env.callTool(t, authHeader, "df_list_shares", map[string]any{}))
+	listing := toolPayload(t, env.callTool(t, authHeader, "dd_list_shares", map[string]any{}))
 	if shares, _ := listing["shares"].([]any); len(shares) != 1 {
-		t.Fatalf("df_list_shares = %v", listing)
+		t.Fatalf("dd_list_shares = %v", listing)
 	}
 	shareID, _ := shared["share_id"].(string)
-	revoked := toolPayload(t, env.callTool(t, authHeader, "df_revoke_share", map[string]any{"share_id": shareID}))
+	revoked := toolPayload(t, env.callTool(t, authHeader, "dd_revoke_share", map[string]any{"share_id": shareID}))
 	if revoked["revoked"] != true {
-		t.Fatalf("df_revoke_share = %v", revoked)
+		t.Fatalf("dd_revoke_share = %v", revoked)
 	}
 }
 
@@ -787,12 +787,12 @@ func TestMCPHTTPErrors(t *testing.T) {
 	if w := post(`{"jsonrpc":"2.0"`); w.Code != http.StatusBadRequest {
 		t.Fatalf("parse error = %d %q, want 400", w.Code, w.Body.String())
 	}
-	if code, out := env.callMCP(t, authHeader, "docflow/custom", nil); code != http.StatusBadRequest {
+	if code, out := env.callMCP(t, authHeader, "docdyne/custom", nil); code != http.StatusBadRequest {
 		t.Fatalf("unknown method = %d (%v), want 400", code, out)
 	}
 
 	// 入参非法（file_id 非 UUID）→ isError 工具结果（agent 可读）。
-	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "df_get_file", "arguments": map[string]any{"file_id": "zzz"}})
+	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "dd_get_file", "arguments": map[string]any{"file_id": "zzz"}})
 	if got := rpcError(t, out); got != 0 {
 		t.Fatalf("invalid params = rpc error %d, want tool-level error (%v)", got, out)
 	}
@@ -806,10 +806,10 @@ func TestMCPHTTPErrors(t *testing.T) {
 	}
 }
 
-// 未启用 search：df_search_files 返回明确错误（isError + not available）。
+// 未启用 search：dd_search_files 返回明确错误（isError + not available）。
 func TestMCPSearchDisabled(t *testing.T) {
 	env := newMCPTestEnv(t, false)
-	_, out := env.callMCP(t, env.jwt(), "tools/call", map[string]any{"name": "df_search_files", "arguments": map[string]any{"query": "合同"}})
+	_, out := env.callMCP(t, env.jwt(), "tools/call", map[string]any{"name": "dd_search_files", "arguments": map[string]any{"query": "合同"}})
 	if got := rpcError(t, out); got != 0 {
 		t.Fatalf("unexpected rpc error %d: %v", got, out)
 	}
@@ -818,12 +818,12 @@ func TestMCPSearchDisabled(t *testing.T) {
 	}
 }
 
-// 启用 search：df_search_files 正常返回。
+// 启用 search：dd_search_files 正常返回。
 func TestMCPSearchEnabled(t *testing.T) {
 	env := newMCPTestEnv(t, true)
-	payload := toolPayload(t, env.callTool(t, env.jwt(), "df_search_files", map[string]any{"query": "合同"}))
+	payload := toolPayload(t, env.callTool(t, env.jwt(), "dd_search_files", map[string]any{"query": "合同"}))
 	if results, _ := payload["results"].([]any); len(results) != 1 {
-		t.Fatalf("df_search_files = %v", payload)
+		t.Fatalf("dd_search_files = %v", payload)
 	}
 	if len(env.searchOn.queries) != 1 || env.searchOn.queries[0] != "合同" {
 		t.Fatalf("queries = %v", env.searchOn.queries)
@@ -844,7 +844,7 @@ func TestMCPReadFileTooLarge(t *testing.T) {
 			bigID = f.ID
 		}
 	}
-	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "df_read_file", "arguments": map[string]any{"file_id": bigID.String()}})
+	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "dd_read_file", "arguments": map[string]any{"file_id": bigID.String()}})
 	text := toolErrorText(t, out)
 	if !strings.Contains(text, "download") {
 		t.Fatalf("oversized read error = %q, want download hint (%v)", text, out)
@@ -860,12 +860,12 @@ func TestMCPReadBinaryHint(t *testing.T) {
 	env.tree.add(files.File{ID: binID, Name: "image.png", ParentID: &root.ID, OwnerID: env.owner, SpaceID: root.SpaceID, Type: "file"}, 8, "image/png", files.BlobStatusAvailable)
 	env.tree.contents[binID] = "PNGDATA "
 	_ = env.storage.Put(env.tree.blobs[binID].StorageKey, strings.NewReader("PNGDATA "))
-	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "df_read_file", "arguments": map[string]any{"file_id": binID.String()}})
+	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "dd_read_file", "arguments": map[string]any{"file_id": binID.String()}})
 	if text := toolErrorText(t, out); !strings.Contains(text, "as=base64") {
 		t.Fatalf("binary hint = %q (%v)", text, out)
 	}
 	// base64 模式成功。
-	payload := toolPayload(t, env.callTool(t, authHeader, "df_read_file", map[string]any{"file_id": binID.String(), "as": "base64"}))
+	payload := toolPayload(t, env.callTool(t, authHeader, "dd_read_file", map[string]any{"file_id": binID.String(), "as": "base64"}))
 	if payload["encoding"] != "base64" || payload["content"] == "" {
 		t.Fatalf("base64 read = %v", payload)
 	}

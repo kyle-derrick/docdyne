@@ -1,8 +1,8 @@
 {
-  "name": "@docflow/chat",
+  "name": "@docdyne/chat",
   "version": "0.1.0",
   "private": true,
-  "description": "DocFlow AI 对话共享组件族（ChatThread/ChatInput/AIChatShell/AIMarkdown 等）；源码分发，宿主经 registerChatFileApi 注入文件能力",
+  "description": "DocDyne AI 对话共享组件族（ChatThread/ChatInput/AIChatShell/AIMarkdown 等）；源码分发，宿主经 registerChatFileApi 注入文件能力",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

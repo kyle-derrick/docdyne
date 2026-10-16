@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // ErrTreeUnavailable 表示目录分享树能力未接线（SetTreeSource 未注入），

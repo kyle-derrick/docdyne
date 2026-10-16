@@ -1,5 +1,5 @@
 // 包内自治的对话领域类型（自 api.ts 迁入，K2）：SSE 契约形状 + 语言标识。
-// api.ts 经 `export type { ... } from '@docflow/chat'` 保持应用侧导入兼容。
+// api.ts 经 `export type { ... } from '@docdyne/chat'` 保持应用侧导入兼容。
 
 /** 界面语言（与宿主 i18n.Locale 同集合；包内自持避免反向依赖）。 */
 export type ChatLocale = 'zh-CN' | 'en-US'

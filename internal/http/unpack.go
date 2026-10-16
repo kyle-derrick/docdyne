@@ -14,9 +14,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/webpkg"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/webpkg"
 )
 
 // zip 解包导入的安全限制（计划约定：条目数 500 / 展开总量 500MB）。
@@ -171,7 +171,7 @@ func readZipEntries(h *Handler, blob files.ObjectBlob) ([]*zip.File, func(), err
 		return nil, nil, fmt.Errorf("unable to read zip: %w", err)
 	}
 	defer rc.Close()
-	tmp, err := os.CreateTemp("", "docflow-unpack-*.zip")
+	tmp, err := os.CreateTemp("", "docdyne-unpack-*.zip")
 	if err != nil {
 		return nil, nil, err
 	}

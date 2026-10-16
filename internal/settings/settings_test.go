@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/google/uuid"
 )
 
@@ -126,7 +126,7 @@ func TestStoreSetTypeValidation(t *testing.T) {
 	// string 键校验（site.name 已移除，string 归一化经 normalizeValue 直测）：
 	// 接受字符串、拒绝数字。
 	strDef := Definition{Key: "test.string", Type: TypeString}
-	if _, err := normalizeValue(strDef, "DocFlow 站点"); err != nil {
+	if _, err := normalizeValue(strDef, "DocDyne 站点"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := normalizeValue(strDef, 42); !errors.Is(err, ErrInvalidType) {

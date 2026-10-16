@@ -1,4 +1,4 @@
-# DocFlow HTTP API 契约（OpenAPI 3.1）。
+# DocDyne HTTP API 契约（OpenAPI 3.1）。
 # 本文件以 internal/http 实际实现为准（handler.go / uploads.go / tus.go / shares.go /
 # spaces.go / trash.go / preview.go / download.go / ratelimit.go / webpkg.go / tags.go /
 # batch.go / dashboard.go / webhooks.go / resolve.go / sharetree.go / unpack.go），由
@@ -23,10 +23,10 @@
 #     根存在、路径在子树内（404）与 blob 可用；不消耗 download_count。
 openapi: 3.1.0
 info:
-  title: DocFlow API
+  title: DocDyne API
   version: 1.0.0
   description: |
-    DocFlow 文档管理服务 API。
+    DocDyne 文档管理服务 API。
 
     ## 认证
     - 业务端点要求 `Authorization: Bearer <access_token>`（HS256 JWT，subject 为用户 UUID）。
@@ -48,7 +48,7 @@ tags:
       登录、刷新、登出、会话管理、两步验证（TOTP）、OIDC 单点登录
       （/auth/oidc/*，启用时可用）、邀请注册与密码管理（忘记/重置/修改）
   - name: Tokens
-    description: 个人访问令牌（PAT，dfpat_ 前缀 Bearer 凭证）：创建（明文仅返回一次）、列表与撤销
+    description: 个人访问令牌（PAT，ddpat_ 前缀 Bearer 凭证）：创建（明文仅返回一次）、列表与撤销
   - name: Notifications
     description: 站内通知与通知偏好（本人维度）：列表/未读数/已读、各事件类型开关
   - name: Webhooks
@@ -321,7 +321,7 @@ paths:
         登录密码、审计 oidc.provision，根目录延迟创建）。关闭自动开户且
         无匹配时 403（SSO_NOT_PROVISIONED，引导联系管理员）。安全取舍：
         SSO 信任 IdP 认证强度，跳过本地 TOTP 二验（密码登录的 TOTP 拦截
-        不变）。成功后签发 DocFlow 会话：refresh_token 经 HttpOnly Cookie，
+        不变）。成功后签发 DocDyne 会话：refresh_token 经 HttpOnly Cookie，
         access_token 经 URL fragment 跳转前端落地页——fragment 不随请求
         发送、不进日志与 Referer。按 IP 独立轻限流。
       security: []
@@ -700,7 +700,7 @@ paths:
       operationId: createToken
       summary: 创建个人访问令牌
       description: >-
-        创建 PAT：明文 token（dfpat_ + 43 字符 URL-safe base64）仅在本 201
+        创建 PAT：明文 token（ddpat_ + 43 字符 URL-safe base64）仅在本 201
         响应返回一次，服务端只存 SHA-256 哈希；prefix 为明文前 14 字符
         （UI 展示用）。name 去空白后限 1-100 字符；expires_in_days 缺省或 0
         表示永久，1-3650 天。写 token.create 审计（PAT 认证本身不审计）。
@@ -936,7 +936,7 @@ paths:
       summary: 注册 Webhook
       description: >-
         注册出站回调 URL：事件发生时（与站内通知同一偏好开关，偏好关闭则
-        不投递）POST {event,timestamp,data} JSON 并附 X-DocFlow-Signature:
+        不投递）POST {event,timestamp,data} JSON 并附 X-DocDyne-Signature:
         sha256=<hex(HMAC-SHA256(secret, body))> 签名头（接收方用下发的
         secret 验签）。URL 须为 http(s) 且无 userinfo（localhost/内网允许，
         自托管场景；SSRF 经签名 secret、有限重试与自动禁用缓解）；events
@@ -3188,7 +3188,7 @@ paths:
         按 token 匹配（库中只存哈希）；无认证、按 IP 独立限流。
         仅暴露安全字段。未启用则 404；过期/撤销/达下载上限 410。
         密码保护分享须先经 POST /public/shares/{token}/verify 取得会话
-        cookie（docflow_sa_<token前8>，HttpOnly、SameSite=Lax、Path=
+        cookie（docdyne_sa_<token前8>，HttpOnly、SameSite=Lax、Path=
         /api/v1/public、1 小时），否则 401 code=PASSWORD_REQUIRED。
         附带水印信息：watermark_enabled 与 watermark_text（模板已按访问者
         渲染：{email}/{ip} → 脱敏 IP 前缀、{date} → 当天日期、{name} → 文件名）。
@@ -3226,7 +3226,7 @@ paths:
       summary: 校验公开分享密码（无认证）
       description: >-
         密码正确时创建 1 小时有效的访问会话，经 HttpOnly cookie
-        （docflow_sa_<token前8>，Path=/api/v1/public，SameSite=Lax）下发，
+        （docdyne_sa_<token前8>，Path=/api/v1/public，SameSite=Lax）下发，
         此后 info/download/preview 携带该 cookie 即可访问。密码错误 401；
         按 IP+token 每分钟限流 5 次（防暴力猜测）；未设密码 400；不存在 404、
         失效 410。库中只存 SHA-256(password||share_id)，明文密码不落库。
@@ -4497,13 +4497,13 @@ paths:
                   description: >-
                     开启内置平台文件工具（默认 true，用户至少有一个空间即
                     可用；显式 false 关闭）：AI 可调用平台文件工具在工作
-                    目录（用户默认空间根）内读写文件——df_list_dir（列目录，
-                    50 条截断）/df_read_file（读文本，PDF/office/drawio 等
-                    自动抽取，24000 字符截断）/df_write_file（创建或覆盖
+                    目录（用户默认空间根）内读写文件——dd_list_dir（列目录，
+                    50 条截断）/dd_read_file（读文本，PDF/office/drawio 等
+                    自动抽取，24000 字符截断）/dd_write_file（创建或覆盖
                     文本文件，扩展名白名单、≤2MB，覆盖自动保留历史版本）/
-                    df_mkdir（多级建目录）/df_search（全文搜索 top 8）；不
+                    dd_mkdir（多级建目录）/dd_search（全文搜索 top 8）；不
                     提供删除/移动。每次执行经 SSE event: tool 下发（server
-                    固定 docflow）并写 ai.tool 审计；文件依赖未装配/无空间
+                    固定 docdyne）并写 ai.tool 审计；文件依赖未装配/无空间
                     时静默跳过。与 use_mcp 可同开（合并进同一工具循环）；
                     与 context.query 的 RAG 模式互斥。
                 include_docs:
@@ -5759,7 +5759,7 @@ paths:
                   history_search:
                     type: string
                     enum: [keyword, off]
-                    description: 对话历史检索（ai.history_search 键，v7.15 A8）——keyword=df_search_history 工具注入（消息行表 pg_trgm 子串检索，跨会话）；off=不注入。默认 keyword。
+                    description: 对话历史检索（ai.history_search 键，v7.15 A8）——keyword=dd_search_history 工具注入（消息行表 pg_trgm 子串检索，跨会话）；off=不注入。默认 keyword。
                   ocr:
                     type: object
                     description: 图片 OCR 配置（ai.ocr 键整体块）
@@ -6776,7 +6776,7 @@ paths:
     post:
       tags: [onlyoffice]
       operationId: onlyofficeCallback
-      summary: 保存回调（DocumentServer → DocFlow，无 Bearer）
+      summary: 保存回调（DocumentServer → DocDyne，无 Bearer）
       description: >-
         DocumentServer command service 回调。JWT 校验取 body.token 或
         Authorization: Bearer 头（HS256，ONLYOFFICE_JWT_SECRET）。token 用途
@@ -7351,7 +7351,7 @@ paths:
       operationId: adminBackupStatus
       summary: 备份状态（仅 admin）
       description: >-
-        读取 BACKUP_DIR 下最近的 manifest.json（v2 目录布局 docflow-backup-<ts>/，
+        读取 BACKUP_DIR 下最近的 manifest.json（v2 目录布局 docdyne-backup-<ts>/，
         兼容 v1 顶层散落清单），返回结构化状态：enabled（BACKUP_DIR 是否配置）、
         last_backup（最近备份的组件/对象存储模式/总大小/时间）、verified（读取
         备份目录内 verify.json 校验标记；从未校验为 null）、files（清单内每文件
@@ -7410,8 +7410,8 @@ paths:
         postgres 组件存在性检查）；只读备份文件，不执行脚本、不触达数据库、
         不执行恢复。结果尽力写回备份目录 verify.json 标记（目录只读时忽略，
         status 端点保持「未验证」），并写审计 backup.verify（成功/失败均记录）
-        与指标 docflow_backup_verification_total{result=success|failed}；
-        校验通过时刷新 docflow_backup_last_success_timestamp。
+        与指标 docdyne_backup_verification_total{result=success|failed}；
+        校验通过时刷新 docdyne_backup_last_success_timestamp。
       responses:
         '200':
           description: 校验通过
@@ -7881,7 +7881,7 @@ components:
       description: >-
         Authorization: Bearer <token>，两类凭证等价可用：
         ① HS256 JWT（subject 为用户 UUID，过期时间以服务配置为准）；
-        ② PAT 个人访问令牌：dfpat_ + 43 字符 URL-safe base64（经
+        ② PAT 个人访问令牌：ddpat_ + 43 字符 URL-safe base64（经
         POST /tokens 创建，撤销/过期即失效；无 refresh 语义）。
 
   responses:
@@ -7945,7 +7945,7 @@ components:
         name: { type: string, description: 1..64 字符 }
         description: { type: string, description: ≤200 字符 }
         system_extra: { type: string, description: 追加到 Agent system 提示（≤4000 字符） }
-        tools: { type: array, items: { type: string }, description: 工具白名单（空=不限制；df_* 平台工具名） }
+        tools: { type: array, items: { type: string }, description: 工具白名单（空=不限制；dd_* 平台工具名） }
         kinds: { type: array, items: { type: string }, description: 适用 applyKind（text/excalidraw-json/drawio-xml/richtext-patch/office-*；空=全部） }
         version: { type: integer, minimum: 0, description: 版本号（0=未版本化；实质修改时递增） }
         changelog:

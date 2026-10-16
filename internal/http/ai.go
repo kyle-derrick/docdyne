@@ -16,12 +16,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/settings"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // aiSummarizer 抽象 AI 摘要客户端（SetAI 注入；生产实现 *ai.Client）：
@@ -160,7 +160,7 @@ type aiChatRequest struct {
 	//（互不干扰：搜索结果照旧注入首轮 system）；RAG 模式忽略本参数。
 	UseMCP *bool `json:"use_mcp"`
 	// UseFiles 开启内置平台文件工具（默认 true——用户至少有一个空间即
-	// 可用；显式 false 关闭）：注入 df_* 工具（列目录/读/写/建目录/搜索，
+	// 可用；显式 false 关闭）：注入 dd_* 工具（列目录/读/写/建目录/搜索，
 	// 相对路径基于用户默认空间根=工作目录），与 use_mcp 工具合并进同一
 	// 工具循环；每次执行经 SSE tool 事件回传并写 ai.tool 审计。依赖
 	//（文件源/上传/存储/空间服务）未装配时静默跳过。RAG 模式忽略本参数。
@@ -361,7 +361,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	useMCP := req.UseMCP != nil && *req.UseMCP && !ragQuery
 	user := userID(c)
 	// 内置平台文件工具（use_files，默认 true；用户至少有一个空间即可用，
-	// 前端可显式关闭）：装配 df_* 声明与执行器（依赖未装配/无空间时
+	// 前端可显式关闭）：装配 dd_* 声明与执行器（依赖未装配/无空间时
 	// ptc 为 nil，静默跳过）。RAG 模式忽略（与 use_mcp 同语义）。
 	useFiles := (req.UseFiles == nil || *req.UseFiles) && !ragQuery
 	var platformTools []ai.PlatformTool
@@ -381,7 +381,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 		}
 	}
 	// 用户长期记忆（include_memory，默认 false）：system 只注入标题列表
-	//（v7.15 A7，aiMemoryContextBlock），详情经 df_read_memory 按需读取；
+	//（v7.15 A7，aiMemoryContextBlock），详情经 dd_read_memory 按需读取；
 	// 记忆工具执行器独立于文件栈（use_files 关闭时仍可用）。
 	memoryOn := req.IncludeMemory != nil && *req.IncludeMemory
 	var memExec ai.ToolExecutorFunc
@@ -394,7 +394,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 		}
 	}
 	// 声明集按可执行能力裁剪（v7.15 A7/A8）：文件工具仅在文件栈可用时
-	// 声明（历史检索关再剔 df_search_history）；记忆工具随 include_memory。
+	// 声明（历史检索关再剔 dd_search_history）；记忆工具随 include_memory。
 	// 执行器合并分发——记忆名走 memExec，其余走 fileExec。
 	filesToolsOn := fileExec != nil
 	historySearchOn := filesToolsOn && h.aiHistorySearchEnabled()
@@ -598,7 +598,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	// 工具事件（use_mcp 外部 MCP 工具与 use_files 内置平台工具共用）：
 	// 执行前 event:tool（含参数摘要 input，前端思考链接为运行中状态）；
 	// 执行后 event:tool_result（ok/duration_ms/output|error，前端标记
-	// 成功/失败）。内置工具 server 固定 docflow，tool 字段按名透传：
+	// 成功/失败）。内置工具 server 固定 docdyne，tool 字段按名透传：
 	//   event: tool        / data: {"type":"tool","label":"<服务Name> / <工具name>","server":"<服务ID>","tool":"<工具name>","input":"{...}"}
 	//   event: tool_result / data: {"server":"<服务ID>","tool":"<工具name>","ok":true,"duration_ms":12,"output":"..."}
 	onTool := func(ev ai.ToolCallEvent) {
@@ -749,7 +749,7 @@ func aiUsageJSON(res ai.ChatResult) gin.H {
 }
 
 // aiHistorySearchEnabled 对话历史检索开关（v7.15 A8，ai.history_search 键，
-// 热读取）：off = df_search_history 不注入；keyword/空（默认）= 开启。
+// 热读取）：off = dd_search_history 不注入；keyword/空（默认）= 开启。
 // settings 未装配/读取失败按默认开启处理（管理面为增强项，故障不降级）。
 func (h *Handler) aiHistorySearchEnabled() bool {
 	if h.settings == nil {
@@ -1179,7 +1179,7 @@ func (h *Handler) testAIRAG(c *gin.Context) {
 		}
 		embedding = ai.NewOpenAIEmbeddingProvider(provider.BaseURL, provider.APIKey, modelID, nil)
 	}
-	vectors, err := embedding.Embed(ctx, []string{"DocFlow connection test"})
+	vectors, err := embedding.Embed(ctx, []string{"DocDyne connection test"})
 	if err == nil && len(vectors) > 0 && len(vectors[0]) > 0 {
 		qdrant := ai.NewQdrantClient(cfg.RAG.QdrantURL, cfg.RAG.CollectionPrefix+"global", 10*time.Second)
 		err = qdrant.EnsureCollection(ctx, len(vectors[0]))
@@ -1444,7 +1444,7 @@ func (l *dynamicRateLimiter) DailyUsed(key string) int {
 // aiQuotaWarningCtxKey 为 gin Context 键：日配额接近上限时由限流检查
 // 写入，chat 响应（meta 事件 / JSON）读取后随流下发（H3 提前预警，
 // 非到限后 429 才知道）。
-const aiQuotaWarningCtxKey = "docflow.ai.quota_warning"
+const aiQuotaWarningCtxKey = "docdyne.ai.quota_warning"
 
 // aiQuotaWarnThreshold 日配额预警阈值（已用占比 ≥80% 提示）。
 const aiQuotaWarnThreshold = 0.8

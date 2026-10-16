@@ -7,13 +7,13 @@ import { Button, Tooltip } from 'antd'
 import { Trash2 } from 'lucide-react'
 import { fetchPreview } from '../../api'
 import { useLocale } from '../../i18n'
-import type { DocflowImageAttrs } from './DocflowImage'
-import { IMAGE_WIDTHS } from './DocflowImage'
+import type { DocdyneImageAttrs } from './DocdyneImage'
+import { IMAGE_WIDTHS } from './DocdyneImage'
 import { useRichTextPublic } from './RichTextPublicContext'
 import { resolvePublicUrl } from './publicResource'
 
-export default function DocflowImageView({ node, editor, selected, deleteNode, getPos }: NodeViewProps) {
-  const attrs = node.attrs as DocflowImageAttrs
+export default function DocdyneImageView({ node, editor, selected, deleteNode, getPos }: NodeViewProps) {
+  const attrs = node.attrs as DocdyneImageAttrs
   const publicBase = useRichTextPublic()
   const locale = useLocale()
   const zh = locale === 'zh-CN'
@@ -27,7 +27,7 @@ export default function DocflowImageView({ node, editor, selected, deleteNode, g
     if (!Number.isFinite(pos) || pos < 0) return
     const view = editor.view
     const target = view.state.doc.nodeAt(pos)
-    if (!target || target.type.name !== 'docflowImage') return
+    if (!target || target.type.name !== 'docdyneImage') return
     view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...target.attrs, width }))
   }
 

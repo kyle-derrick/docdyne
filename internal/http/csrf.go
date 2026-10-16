@@ -32,14 +32,14 @@ func (h *Handler) setCSRFCookie(c *gin.Context) {
 	if token := newCSRFToken(); token != "" {
 		// 删除旧版本曾下发的 Path=/api/v1 cookie。若不删除，浏览器请求 refresh
 		// 时会同时发送两个同名 cookie，并把更长路径的旧值排在前面。
-		http.SetCookie(c.Writer, &http.Cookie{Name: "docflow_csrf", Value: "", Path: "/api/v1", Domain: h.cookieDomain, MaxAge: -1, HttpOnly: false, Secure: h.cookieSecure, SameSite: http.SameSiteLaxMode})
-		http.SetCookie(c.Writer, &http.Cookie{Name: "docflow_csrf", Value: token, Path: "/", Domain: h.cookieDomain, MaxAge: int(h.refreshTokenTTL.Seconds()), HttpOnly: false, Secure: h.cookieSecure, SameSite: http.SameSiteLaxMode})
+		http.SetCookie(c.Writer, &http.Cookie{Name: "docdyne_csrf", Value: "", Path: "/api/v1", Domain: h.cookieDomain, MaxAge: -1, HttpOnly: false, Secure: h.cookieSecure, SameSite: http.SameSiteLaxMode})
+		http.SetCookie(c.Writer, &http.Cookie{Name: "docdyne_csrf", Value: token, Path: "/", Domain: h.cookieDomain, MaxAge: int(h.refreshTokenTTL.Seconds()), HttpOnly: false, Secure: h.cookieSecure, SameSite: http.SameSiteLaxMode})
 	}
 }
 
 func clearCSRFCookies(c *gin.Context, domain string, secure bool) {
 	for _, path := range []string{"/", "/api/v1"} {
-		http.SetCookie(c.Writer, &http.Cookie{Name: "docflow_csrf", Value: "", Path: path, Domain: domain, MaxAge: -1, HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode})
+		http.SetCookie(c.Writer, &http.Cookie{Name: "docdyne_csrf", Value: "", Path: path, Domain: domain, MaxAge: -1, HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode})
 	}
 }
 
@@ -72,7 +72,7 @@ func applyCSRF(strict bool) gin.HandlerFunc {
 			token := c.GetHeader("X-CSRF-Token")
 			matched := false
 			for _, cookie := range c.Request.Cookies() {
-				if cookie.Name == "docflow_csrf" && token != "" && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(token)) == 1 {
+				if cookie.Name == "docdyne_csrf" && token != "" && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(token)) == 1 {
 					matched = true
 					break
 				}

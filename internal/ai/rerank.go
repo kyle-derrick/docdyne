@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // RerankTimeout 单次重排请求超时（超时即降级原序）。

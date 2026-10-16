@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // fakeMCPEcho 构造假 MCP 服务器（单工具 echo，返回 "echo:<city>"），

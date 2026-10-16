@@ -4,8 +4,8 @@
 set -e
 PD="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
-C="docker compose --env-file $PD/.env -f $PD/docker-compose.yml -f $PD/scripts/compose-scale.yml -p docflow"
-PG="docker exec docflow-postgres-1 psql -U docflow -d docflow -t -A"
+C="docker compose --env-file $PD/.env -f $PD/docker-compose.yml -f $PD/scripts/compose-scale.yml -p docdyne"
+PG="docker exec docdyne-postgres-1 psql -U docdyne -d docdyne -t -A"
 PASS=$(grep '^SEED_ADMIN_PASSWORD=' $PD/.env | cut -d= -f2-)
 # 当前生效协议自适应：上次运行可能停在 internal/acme（80 → 308），登录与
 # 切换请求须与现状同协议；tls_state 为后端持久化表（无记录时按 http）。

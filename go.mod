@@ -1,4 +1,4 @@
-module github.com/docflow/docflow
+module github.com/kyle-derrick/docdyne
 
 go 1.25.0
 

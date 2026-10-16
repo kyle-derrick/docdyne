@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/docflow/docflow/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 )
 
 // 本文件实现管理端空间管理（仅 admin，统一空间模型）：

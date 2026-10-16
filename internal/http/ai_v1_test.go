@@ -15,10 +15,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // newAIv1Service 构造含 mock Provider 的 AI 服务。
@@ -112,7 +112,7 @@ func sseDeltas(body string) (events []string, joined string) {
 func TestAIChatSSEMock(t *testing.T) {
 	actor := uuid.New()
 	r := newAIv1Router(newAIv1Service(100), actor, nil, "")
-	w := postAI(r, "/api/v1/ai/chat", `{"messages":[{"role":"user","content":"介绍 DocFlow"}]}`)
+	w := postAI(r, "/api/v1/ai/chat", `{"messages":[{"role":"user","content":"介绍 DocDyne"}]}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body %s", w.Code, w.Body.String())
 	}
@@ -133,7 +133,7 @@ func TestAIChatSSEMock(t *testing.T) {
 			t.Fatalf("SSE 缺 %q 事件: %v", want, events)
 		}
 	}
-	if !strings.Contains(joined, "介绍 DocFlow") || !strings.Contains(joined, "Mock") {
+	if !strings.Contains(joined, "介绍 DocDyne") || !strings.Contains(joined, "Mock") {
 		t.Fatalf("delta 拼接 = %q", joined)
 	}
 }
@@ -204,7 +204,7 @@ func TestAIStatusAndEnabledGate(t *testing.T) {
 func TestAIChatRAGEmptyHistory(t *testing.T) {
 	actor := uuid.New()
 	r := newAIv1Router(newAIv1Service(100), actor, nil, "")
-	w := postAI(r, "/api/v1/ai/chat", `{"stream":false,"messages":[],"context":{"query":"DocFlow 是什么"}}`)
+	w := postAI(r, "/api/v1/ai/chat", `{"stream":false,"messages":[],"context":{"query":"DocDyne 是什么"}}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("rag empty history: status = %d body %s", w.Code, w.Body.String())
 	}
@@ -672,7 +672,7 @@ func TestAIMemoryContextBlock(t *testing.T) {
 	if !strings.HasPrefix(block, "以下是用户的长期偏好记忆标题列表") {
 		t.Fatalf("应以标题列表头部说明开头: %q", block)
 	}
-	if !strings.Contains(block, "df_read_memory") || !strings.Contains(block, "df_write_memory") {
+	if !strings.Contains(block, "dd_read_memory") || !strings.Contains(block, "dd_write_memory") {
 		t.Fatalf("头部说明应含工具用法提示: %q", block)
 	}
 	// 条数上限：最近 20 条（记忆05..记忆24），更旧的（记忆00..记忆04）不注入。

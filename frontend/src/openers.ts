@@ -98,7 +98,7 @@ const TEXT_EDITABLE_EXTS = new Set([
 /** Office 文档扩展名（内置 view/edit=office；OnlyOffice 查看与编辑）。 */
 const OFFICE_DOC_EXTS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'])
 
-/** 富文本文档扩展名（DocFlow 专属 .dfrt 主后缀 + 旧 .dfdoc 别名：Tiptap JSON 存储，查看/编辑均富文本）。 */
+/** 富文本文档扩展名（DocDyne 专属 .dfrt 主后缀 + 旧 .dfdoc 别名：Tiptap JSON 存储，查看/编辑均富文本）。 */
 const RICH_DOC_EXTS = new Set(['dfrt', 'dfdoc'])
 
 /** 文本类文件（可进文本/代码编辑器安全编辑，非二进制）。 */
@@ -132,7 +132,7 @@ export function textEditorKindFor(name: string): TextEditorKind | null {
  * 内置默认打开方式（v1.7 md/富文本分离后）：
  * - md,markdown：richtext / text —— .md 回归纯 Markdown：查看 = md 渲染，
  *   编辑 = Monaco 源码（不再用富文本编辑器编辑 .md）；
- * - dfrt,dfdoc：richtext / richtext —— DocFlow 富文本文档（Tiptap JSON
+ * - dfrt,dfdoc：richtext / richtext —— DocDyne 富文本文档（Tiptap JSON
  *   存储；.dfrt 为主后缀，.dfdoc 为兼容别名）；
  * - doc,docx,xls,xlsx,ppt,pptx（含 odt/ods/odp）：office / office；
  * - drawio：drawio / drawio；excalidraw：excalidraw / excalidraw；

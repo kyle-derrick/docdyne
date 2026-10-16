@@ -111,7 +111,7 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	_, hdrs, err := c.rpc(ctx, &id, "initialize", map[string]any{
 		"protocolVersion": ProtocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "docflow", "version": "1.0"},
+		"clientInfo":      map[string]any{"name": "docdyne", "version": "1.0"},
 	}, true)
 	var sid string
 	if err == nil {

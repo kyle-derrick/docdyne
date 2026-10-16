@@ -6,7 +6,7 @@
 //   以 placeholder「默认（Provider / 模型）」提示（modelKey 实际仍为默认键，
 //   发送/思考开关评估照常生效）；
 // - 选中回调 onSelect(id)：宿主负责 setModelKey + 显式记忆
-//   （localStorage docflow.ai.model，由 AI_MODEL_STORAGE_KEY 统一）。
+//   （localStorage docdyne.ai.model，由 AI_MODEL_STORAGE_KEY 统一）。
 import { Select } from 'antd'
 import { AI_MODEL_STORAGE_KEY, defaultAIModelKey } from './AIAssistant'
 import type { AIModelOption } from './AIAssistant'
@@ -23,7 +23,7 @@ export default function AIModelSelect({
   modelKey: string
   /** 用户是否显式选过模型（localStorage 有记忆）。 */
   modelExplicit: boolean
-  /** 选中模型 id（宿主持久化到 docflow.ai.model 并置 explicit）。 */
+  /** 选中模型 id（宿主持久化到 docdyne.ai.model 并置 explicit）。 */
   onSelect: (id: string) => void
   zh: boolean
   size?: 'small' | 'middle'

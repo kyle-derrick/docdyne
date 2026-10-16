@@ -5,7 +5,7 @@ import { autoAcceptDialogs, fileRow, loginViaUI, logoutViaUI } from './helpers'
 
 const stamp = Date.now().toString(36)
 const fileName = `e2eS_${stamp}.txt`
-const fileBody = `DocFlow E2E share ${stamp}\n`
+const fileBody = `DocDyne E2E share ${stamp}\n`
 
 // token 仅在创建响应返回一次，serial 用例间经模块状态传递。
 let shareToken = ''
@@ -54,7 +54,7 @@ test.describe.serial('公开分享', () => {
   test('未登录访问分享页：直接内容与悬浮下载', async ({ page }) => {
     // v7.11 直接内容模式：无标题卡片，文本内容全幅呈现 + 右下悬浮下载。
     await page.goto(`/s/${shareToken}`)
-    await expect(page.locator('.preview-text')).toContainText(`DocFlow E2E share ${stamp}`)
+    await expect(page.locator('.preview-text')).toContainText(`DocDyne E2E share ${stamp}`)
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),

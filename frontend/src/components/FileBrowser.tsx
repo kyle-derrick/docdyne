@@ -135,7 +135,7 @@ import { useAIEnabled } from '../aiFeature'
 export type ViewMode = 'list' | 'grid'
 
 /** 视图偏好持久化 key（默认空间与空间视图共用，见设计 6.3.7）。 */
-const VIEW_MODE_KEY = 'docflow.viewMode'
+const VIEW_MODE_KEY = 'docdyne.viewMode'
 
 function loadViewMode(): ViewMode {
   return window.localStorage.getItem(VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list'
@@ -244,7 +244,7 @@ export function installModalSweepAutoheal(): () => void {
         ? root.querySelector('.ant-modal-wrap') != null
         : root.querySelector('.ant-drawer') != null
       if (hasWrap) return
-      console.warn('[docflow] removing orphan antd mask (no paired wrap):', mask)
+      console.warn('[docdyne] removing orphan antd mask (no paired wrap):', mask)
       mask.remove()
       sweepModalLayer()
     })
@@ -342,28 +342,28 @@ export function Modal({
       /* 弹窗内部布局定制经官方 classNames 通道注入自有类（styles.css
          「antd Modal 薄封装」节），不再钩 .ant-modal-* 内部结构。 */
       classNames={{
-        header: 'docflow-modal-header',
-        title: 'docflow-modal-title',
-        body: 'docflow-modal-body',
-        close: 'docflow-modal-close',
+        header: 'docdyne-modal-header',
+        title: 'docdyne-modal-title',
+        body: 'docdyne-modal-body',
+        close: 'docdyne-modal-close',
       }}
       /* preClose：自定义 closeIcon 组（preClose 内容 + 原生关闭 X）——antd
        * closeIcon 为整体渲染，组内按钮各自 stopPropagation 防误触关闭。 */
       closeIcon={preClose ? (
-        <span className="docflow-modal-close-group">{preClose}<CloseOutlined aria-hidden="true" /></span>
+        <span className="docdyne-modal-close-group">{preClose}<CloseOutlined aria-hidden="true" /></span>
       ) : undefined}
       onCancel={handleClose}
       title={
         headExtra ? (
-          <div className="docflow-modal-title-row">
-            <span className="docflow-modal-title-text">{title}</span>
-            <span className="docflow-modal-head-extra">{headExtra}</span>
+          <div className="docdyne-modal-title-row">
+            <span className="docdyne-modal-title-text">{title}</span>
+            <span className="docdyne-modal-head-extra">{headExtra}</span>
           </div>
         ) : (
           title
         )
       }
-      className={className ? `docflow-modal ${className}` : 'docflow-modal'}
+      className={className ? `docdyne-modal ${className}` : 'docdyne-modal'}
     >
       {children}
     </AntdModal>

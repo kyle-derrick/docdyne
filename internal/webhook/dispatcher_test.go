@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/notify"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 )
 
 // Sign 与 RFC 4231 Test Case 1 的已知向量一致（HMAC-SHA256，Key=0x0b*20，

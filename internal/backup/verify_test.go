@@ -90,7 +90,7 @@ func TestManifestParse(t *testing.T) {
 
 func TestVerifyOK(t *testing.T) {
 	dir := t.TempDir()
-	writeBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	writeBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql":  "-- dump\n",
 		"objects.tar":   "tar-bytes",
 		"env.sanitized": "PORT=8080\n",
@@ -102,14 +102,14 @@ func TestVerifyOK(t *testing.T) {
 	if !r.Verified || r.Files != 3 {
 		t.Fatalf("result = %+v, want verified 3 files", r)
 	}
-	if r.Timestamp != "2026-09-15T00:00:00Z" || !strings.HasSuffix(filepath.ToSlash(r.Backup), "docflow-backup-20260915T000000Z") {
+	if r.Timestamp != "2026-09-15T00:00:00Z" || !strings.HasSuffix(filepath.ToSlash(r.Backup), "docdyne-backup-20260915T000000Z") {
 		t.Fatalf("result header mismatch: %+v", r)
 	}
 }
 
 func TestVerifySha256Mismatch(t *testing.T) {
 	dir := t.TempDir()
-	backupDir := writeBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	backupDir := writeBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql":  "-- dump\n",
 		"env.sanitized": "PORT=8080\n",
 	}, true)
@@ -131,7 +131,7 @@ func TestVerifySha256Mismatch(t *testing.T) {
 
 func TestVerifySizeMismatch(t *testing.T) {
 	dir := t.TempDir()
-	backupDir := writeBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	backupDir := writeBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql": "-- dump\n",
 	}, true)
 	// 与真实大小不符（sha256 正确、size 错误）。
@@ -156,7 +156,7 @@ func TestVerifySizeMismatch(t *testing.T) {
 
 func TestVerifyMissingPostgres(t *testing.T) {
 	dir := t.TempDir()
-	writeBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{
+	writeBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{
 		"postgres.sql":  "-- dump\n",
 		"objects.tar":   "tar-bytes",
 		"env.sanitized": "PORT=8080\n",
@@ -188,11 +188,11 @@ func TestVerifyNoBackup(t *testing.T) {
 }
 
 // TestLatestPicksMostRecent 校验候选发现按 manifest 修改时间取最近，
-// 并兼容 v1 顶层散落清单（docflow-*.manifest.json）。
+// 并兼容 v1 顶层散落清单（docdyne-*.manifest.json）。
 func TestLatestPicksMostRecent(t *testing.T) {
 	dir := t.TempDir()
-	old := writeBackup(t, dir, "docflow-backup-20260101T000000Z", map[string]string{"postgres.sql": "-- old\n"}, true)
-	newer := writeBackup(t, dir, "docflow-backup-20260915T000000Z", map[string]string{"postgres.sql": "-- new\n"}, true)
+	old := writeBackup(t, dir, "docdyne-backup-20260101T000000Z", map[string]string{"postgres.sql": "-- old\n"}, true)
+	newer := writeBackup(t, dir, "docdyne-backup-20260915T000000Z", map[string]string{"postgres.sql": "-- new\n"}, true)
 	past := time.Now().Add(-48 * time.Hour)
 	if err := os.Chtimes(filepath.Join(old, "manifest.json"), past, past); err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestLatestPicksMostRecent(t *testing.T) {
 		t.Fatalf("latest = %s / %s, want %s", manifestPath, backupDir, newer)
 	}
 	// v1 兼容：顶层散落清单按 mtime 参与竞选。
-	v1 := filepath.Join(dir, "docflow-20261001T000000Z.manifest.json")
+	v1 := filepath.Join(dir, "docdyne-20261001T000000Z.manifest.json")
 	if err := os.WriteFile(v1, []byte(`{"version":1,"entries":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

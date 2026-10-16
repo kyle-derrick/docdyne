@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // 个人 Provider 类型（AIPersonalProvider.Kind 取值）：与平台一致的

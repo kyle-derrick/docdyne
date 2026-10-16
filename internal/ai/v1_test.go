@@ -15,8 +15,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // mockConfig 返回含单个 mock Provider 的配置读取器。
@@ -42,7 +42,7 @@ func TestChatMockEchoStream(t *testing.T) {
 	svc := NewService(mockConfig())
 	deltas, onDelta := captureDeltas()
 	res, err := svc.Chat(context.Background(), ChatRequest{
-		Messages: []Message{{Role: "user", Content: "你好，DocFlow"}},
+		Messages: []Message{{Role: "user", Content: "你好，DocDyne"}},
 		Stream:   true,
 	}, onDelta)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestChatMockEchoStream(t *testing.T) {
 	if joined != res.Content {
 		t.Fatalf("deltas (%d chunks) 拼装与 Content 不一致", len(*deltas))
 	}
-	if !strings.Contains(res.Content, "你好，DocFlow") {
+	if !strings.Contains(res.Content, "你好，DocDyne") {
 		t.Fatalf("echo 内容缺失: %q", res.Content)
 	}
 	if len(*deltas) < 2 {

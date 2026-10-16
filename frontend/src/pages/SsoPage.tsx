@@ -25,7 +25,7 @@ export default function SsoPage() {
   return (
     <div className="login-wrap">
       <div className="login-card">
-        <h1 className="login-title">DocFlow</h1>
+        <h1 className="login-title">DocDyne</h1>
         {error ? (
           <>
             <div className="error-text">{error}</div>

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- DocFlow AI OnlyOffice 插件宿主（v8）：面板 UI 由平台 SPA 的 /office-ai
+<!-- DocDyne AI OnlyOffice 插件宿主（v8）：面板 UI 由平台 SPA 的 /office-ai
      路由承载（与站内 AI 对话同一套 AIChatShell/AIEditChat 组件——真正统一）；
      本页仅保留 DS 文档沙箱的工具运行时与 postMessage 桥（plugin.js v8）：
      - iframe → /office-ai（同源，登录态/会话/技能包/谨慎模式全复用平台）
@@ -10,7 +10,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>DocFlow AI</title>
+<title>DocDyne AI</title>
 <script src="/onlyoffice/sdkjs-plugins/v1/plugins.js?v=6"
         onerror="var fb=document.createElement('script');fb.src='https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js';document.head.appendChild(fb);"></script>
 <style>
@@ -20,7 +20,7 @@
 </style>
 </head>
 <body>
-  <iframe id="spa" src="/office-ai" title="DocFlow AI"></iframe>
+  <iframe id="spa" src="/office-ai" title="DocDyne AI"></iframe>
   <script src="plugin.js?v=21"></script>
 </body>
 </html>

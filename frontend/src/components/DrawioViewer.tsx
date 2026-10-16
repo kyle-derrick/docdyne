@@ -53,7 +53,7 @@ function loadViewerScript(baseURL: string, lang: string): Promise<void> {
     const script = document.createElement('script')
     script.src = `${base}/js/viewer-static.min.js`
     script.async = true
-    script.dataset.docflowDrawioViewer = 'true'
+    script.dataset.docdyneDrawioViewer = 'true'
     script.onload = () => resolve()
     script.onerror = () => {
       viewerScriptPromise = null

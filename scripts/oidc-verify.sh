@@ -19,25 +19,25 @@ done
 echo '=== [3] kcadm: realm + client + user ==='
 KCC="$C exec -T keycloak /opt/keycloak/bin/kcadm.sh"
 $C exec -T keycloak /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password admin >/dev/null
-$C exec -T keycloak /opt/keycloak/bin/kcadm.sh create realms -s realm=docflow -s enabled=true 2>/dev/null || echo 'realm exists'
-CLIENT_SECRET=$($C exec -T keycloak /opt/keycloak/bin/kcadm.sh create clients -r docflow \
-  -s clientId=docflow -s enabled=true -s 'redirectUris=["http://127.0.0.1/api/v1/auth/oidc/callback"]' \
+$C exec -T keycloak /opt/keycloak/bin/kcadm.sh create realms -s realm=docdyne -s enabled=true 2>/dev/null || echo 'realm exists'
+CLIENT_SECRET=$($C exec -T keycloak /opt/keycloak/bin/kcadm.sh create clients -r docdyne \
+  -s clientId=docdyne -s enabled=true -s 'redirectUris=["http://127.0.0.1/api/v1/auth/oidc/callback"]' \
   -s secret=verify-oidc-client-secret -s publicClient=false -i 2>/dev/null && echo created || true)
-$C exec -T keycloak /opt/keycloak/bin/kcadm.sh create clients -r docflow \
-  -s clientId=docflow -s enabled=true -s 'redirectUris=["http://127.0.0.1/api/v1/auth/oidc/callback"]' \
+$C exec -T keycloak /opt/keycloak/bin/kcadm.sh create clients -r docdyne \
+  -s clientId=docdyne -s enabled=true -s 'redirectUris=["http://127.0.0.1/api/v1/auth/oidc/callback"]' \
   -s secret=verify-oidc-client-secret -s publicClient=false 2>/dev/null || echo 'client exists'
-$C exec -T keycloak /opt/keycloak/bin/kcadm.sh create users -r docflow \
+$C exec -T keycloak /opt/keycloak/bin/kcadm.sh create users -r docdyne \
   -s username=oidcuser -s enabled=true -s email=oidcuser@example.com \
   -s firstName=Oidc -s lastName=User -s emailVerified=true 2>/dev/null || echo 'user exists'
-$C exec -T keycloak /opt/keycloak/bin/kcadm.sh set-password -r docflow \
+$C exec -T keycloak /opt/keycloak/bin/kcadm.sh set-password -r docdyne \
   --username oidcuser --new-password OidcPass123 2>/dev/null || true
 echo 'keycloak configured'
 
 echo '=== [4] backend OIDC on ==='
 grep -q '^OIDC_ENABLED=' .env || cat >> .env <<'EOF'
 OIDC_ENABLED=true
-OIDC_ISSUER=http://docflow-idp.local:18090/realms/docflow
-OIDC_CLIENT_ID=docflow
+OIDC_ISSUER=http://docdyne-idp.local:18090/realms/docdyne
+OIDC_CLIENT_ID=docdyne
 OIDC_CLIENT_SECRET=verify-oidc-client-secret
 PUBLIC_BASE_URL=http://127.0.0.1
 EOF
@@ -47,7 +47,7 @@ curl -sf http://127.0.0.1/ready; echo ' (oidc backend ready)'
 $C up -d caddy 2>&1 | tail -1
 
 echo '=== [5] discovery check (backend -> issuer) ==='
-$C exec -T backend wget -qO- http://docflow-idp.local:18090/realms/docflow/.well-known/openid-configuration | head -c 120; echo
+$C exec -T backend wget -qO- http://docdyne-idp.local:18090/realms/docdyne/.well-known/openid-configuration | head -c 120; echo
 
 echo '=== [6] authorization code flow ==='
 python3 scripts/oidc-flow.py

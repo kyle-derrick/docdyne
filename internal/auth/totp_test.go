@@ -179,8 +179,8 @@ func TestTOTPBeginSetupSecretAndURL(t *testing.T) {
 	if _, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret); err != nil {
 		t.Fatalf("secret %q must be base32: %v", secret, err)
 	}
-	// otpauth URL 含 issuer（DocFlow）与账号（用户邮箱）。
-	for _, want := range []string{"otpauth://totp/", "DocFlow", "alice@example.com"} {
+	// otpauth URL 含 issuer（DocDyne）与账号（用户邮箱）。
+	for _, want := range []string{"otpauth://totp/", "DocDyne", "alice@example.com"} {
 		if !strings.Contains(url, want) {
 			t.Fatalf("otpauth url %q must contain %q", url, want)
 		}

@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/ai"
 )
 
 // ScopeAIChat 为 AI 工具的 PAT scope（与 auth.ScopeAIChat 同值）。
@@ -37,7 +37,7 @@ type AIAssistant interface {
 
 func aiAvailable(d *Deps) bool { return d.AI != nil && d.AI.Enabled() }
 
-// aiTools 返回 AI 工具清单（名称无 df_ 前缀——与任务书一致，便于 agent
+// aiTools 返回 AI 工具清单（名称无 dd_ 前缀——与任务书一致，便于 agent
 // 按通用语义发现；scope 均为 ai:chat）。
 func aiTools() []Tool {
 	return []Tool{

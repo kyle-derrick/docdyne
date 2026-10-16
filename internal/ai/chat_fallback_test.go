@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // fakeUpstream500 恒定 500 的假上游（模拟首选 Provider 故障）。

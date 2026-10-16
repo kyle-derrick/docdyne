@@ -3,8 +3,8 @@ package janitor
 import (
 	"time"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

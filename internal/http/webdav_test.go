@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 func TestDavPathRejectsTraversalAndOutsideRoot(t *testing.T) {

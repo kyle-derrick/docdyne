@@ -1,6 +1,6 @@
 // Package http —— ai_platform_tools.go：内置平台文件工具执行桥（use_files）。
 //
-// /ai/chat 开启 use_files 后，HTTP 层把 internal/ai 声明的 df_* 工具
+// /ai/chat 开启 use_files 后，HTTP 层把 internal/ai 声明的 dd_* 工具
 // （PlatformTools）注入 ChatRequest 并挂接本文件的 executePlatformTool
 // 回调——ai 包不依赖 http/service 层（回调注入解耦）。执行全部直调
 // service 层既有链路（对齐 MCP 官方 filesystem server 范式，不经 MCP HTTP）：
@@ -28,13 +28,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/space"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/space"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // aiToolAuditAction 内置平台文件工具执行的审计动作（action "ai.tool"，
@@ -70,7 +70,7 @@ type platformToolServices struct {
 	uploads *upload.Service   // 上传管线（写文件；生产 h.uploads）
 	storage upload.Storage    // 对象存储（读文件内容；生产 h.storage）
 	spaces  *space.Service    // 默认空间解析（生产 h.spaces）
-	search  searchService     // 全文检索（df_search；可 nil = 未启用）
+	search  searchService     // 全文检索（dd_search；可 nil = 未启用）
 }
 
 // platformToolCtx 为一次 use_files 对话的执行上下文（aiChat 每请求构造；
@@ -102,7 +102,7 @@ func (h *Handler) platformFileStore() platformFileStore {
 
 // newPlatformToolCtx 构造执行上下文：依赖（文件源/上传/存储/空间服务）
 // 未装配或用户无默认空间（= 无任何空间）时返回 nil——调用方静默不注入
-// df_* 工具（对话不中断）。
+// dd_* 工具（对话不中断）。
 func (h *Handler) newPlatformToolCtx(c *gin.Context, user, workRoot uuid.UUID) *platformToolCtx {
 	store := h.platformFileStore()
 	if store == nil || h.uploads == nil || h.storage == nil || h.spaces == nil {
@@ -178,7 +178,7 @@ type aiConvoMsgSearcher interface {
 
 var _ aiConvoMsgSearcher = (*auth.UserStore)(nil)
 
-// toolSearchHistory df_search_history：搜索当前用户的会话历史消息
+// toolSearchHistory dd_search_history：搜索当前用户的会话历史消息
 // （v7.15 A3 落地、A6 升级为索引检索）。优先走消息检索索引
 // （ai_conversation_msgs，migration 057：跨会话、覆盖 assistant/editor/
 // plugin 全部 source、含被压缩的早期内容，ILIKE 经 pg_trgm GIN 加速）；
@@ -287,7 +287,7 @@ func extractFragment(content, query string, width int) string {
 	return frag
 }
 
-// toolListDir df_list_dir：列目录（名称/类型/大小/updated_at，目录 size=0），
+// toolListDir dd_list_dir：列目录（名称/类型/大小/updated_at，目录 size=0），
 // 上限 ai.PlatformToolListLimit 条，超出标注 truncated。
 func (p *platformToolCtx) toolListDir(path string) (any, error) {
 	base, err := p.base()
@@ -338,7 +338,7 @@ func (p *platformToolCtx) toolListDir(path string) (any, error) {
 	return gin.H{"path": display, "entries": entries, "count": len(entries), "truncated": len(items) >= ai.PlatformToolListLimit}, nil
 }
 
-// toolReadFile df_read_file：读文件文本（复用 ai.ExtractText 抽取链路：
+// toolReadFile dd_read_file：读文件文本（复用 ai.ExtractText 抽取链路：
 // 文本直读，pdf/docx/xlsx/pptx/drawio/excalidraw/dfdoc 转文本），截
 // ai.PlatformToolReadMaxRunes 字符。
 func (p *platformToolCtx) toolReadFile(path string) (any, error) {
@@ -405,8 +405,8 @@ func (p *platformToolCtx) replaceBytes(fileID uuid.UUID, data []byte) error {
 	return nil
 }
 
-// toolWriteFile df_write_file：创建或覆盖文本文件（扩展名白名单 + ≤2MB；
-// 覆盖自动留版本；父目录须已存在，建议先 df_mkdir）。
+// toolWriteFile dd_write_file：创建或覆盖文本文件（扩展名白名单 + ≤2MB；
+// 覆盖自动留版本；父目录须已存在，建议先 dd_mkdir）。
 func (p *platformToolCtx) toolWriteFile(path, content string) (any, error) {
 	segments, err := segmentsOf(path)
 	if err != nil {
@@ -429,7 +429,7 @@ func (p *platformToolCtx) toolWriteFile(path, content string) (any, error) {
 	}
 	parent, werr := p.walk(base, segments[:len(segments)-1])
 	if werr != nil || parent.Type != "folder" {
-		return nil, fmt.Errorf("父目录不存在（可先用 df_mkdir 创建）")
+		return nil, fmt.Errorf("父目录不存在（可先用 dd_mkdir 创建）")
 	}
 	created := false
 	var fileID uuid.UUID
@@ -454,7 +454,7 @@ func (p *platformToolCtx) toolWriteFile(path, content string) (any, error) {
 	return gin.H{"path": strings.Join(segments, "/"), "file_id": fileID, "created": created}, nil
 }
 
-// toolMkdir df_mkdir：多级建目录（已存在的中间目录跳过；同名文件报错）。
+// toolMkdir dd_mkdir：多级建目录（已存在的中间目录跳过；同名文件报错）。
 func (p *platformToolCtx) toolMkdir(path string) (any, error) {
 	segments, err := segmentsOf(path)
 	if err != nil {
@@ -495,7 +495,7 @@ func (p *platformToolCtx) toolMkdir(path string) (any, error) {
 	return gin.H{"path": strings.Join(segments, "/")}, nil
 }
 
-// toolSearch df_search：平台全文检索 top ai.PlatformToolSearchLimit
+// toolSearch dd_search：平台全文检索 top ai.PlatformToolSearchLimit
 // （名称 + 内容命中片段）。
 func (p *platformToolCtx) toolSearch(query string) (any, error) {
 	if p.svc.search == nil {

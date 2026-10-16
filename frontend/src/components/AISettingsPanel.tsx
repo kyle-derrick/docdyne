@@ -217,10 +217,10 @@ const PACKAGE_KIND_OPTIONS: { value: string; label: string }[] = [
   { value: 'office-pdf', label: 'office-pdf' },
 ]
 
-/** 技能包工具白名单候选（df_* 平台工具；空 = 不限制）。 */
+/** 技能包工具白名单候选（dd_* 平台工具；空 = 不限制）。 */
 const PACKAGE_TOOL_OPTIONS = [
-  'df_list_dir', 'df_read_file', 'df_write_file', 'df_mkdir', 'df_search',
-  'df_read_memory', 'df_write_memory', 'df_search_history',
+  'dd_list_dir', 'dd_read_file', 'dd_write_file', 'dd_mkdir', 'dd_search',
+  'dd_read_memory', 'dd_write_memory', 'dd_search_history',
 ]
 
 /** 测试连接结果（按 provider id 记录）。 */
@@ -302,7 +302,7 @@ export default function AISettingsPanel({
   const [perUserPerMin, setPerUserPerMin] = useState(20)
   // 总开关（ai.enabled 生效值；保存时显式写入）。
   const [aiEnabled, setAIEnabled] = useState(false)
-  const [rag, setRag] = useState<AIRAGSettings>({ mode: 'keyword', vector_enabled: false, qdrant_url: 'http://qdrant:6333', collection_prefix: 'docflow_', embedding_provider: 'mock', embedding_model: 'text-embedding-3-small', rerank_provider: '', rerank_model: '', top_k: 8, chunk_size: 1000, chunk_overlap: 100 })
+  const [rag, setRag] = useState<AIRAGSettings>({ mode: 'keyword', vector_enabled: false, qdrant_url: 'http://qdrant:6333', collection_prefix: 'docdyne_', embedding_provider: 'mock', embedding_model: 'text-embedding-3-small', rerank_provider: '', rerank_model: '', top_k: 8, chunk_size: 1000, chunk_overlap: 100 })
   // 图片 OCR（随 ai 主设置一并 PUT；旧后端无 ocr 块时保持缺省值）。
   const [ocr, setOcr] = useState<AIOCRSettings>({ enabled: false, provider_id: '', model_id: '', max_image_bytes: 8 * 1024 * 1024 })
   // 联网搜索（随 ai 主设置一并 PUT；旧后端无 search 块时保持缺省值；
@@ -743,7 +743,7 @@ export default function AISettingsPanel({
     }
   }
 
-  /** 导出技能包（触发浏览器下载 docflow-agent-packages.{json|yaml}）。 */
+  /** 导出技能包（触发浏览器下载 docdyne-agent-packages.{json|yaml}）。 */
   const exportPackages = async (format: 'json' | 'yaml', scope: 'platform' | 'builtin' | 'all') => {
     if (pkgExporting) return
     setPkgExporting(true)
@@ -753,7 +753,7 @@ export default function AISettingsPanel({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `docflow-agent-packages.${format}`
+      a.download = `docdyne-agent-packages.${format}`
       a.click()
       URL.revokeObjectURL(url)
       onNotice(zh ? '已导出技能包文件' : 'Agent packages exported')
@@ -1363,13 +1363,13 @@ export default function AISettingsPanel({
         </div>
       </Card>
 
-      {/* 对话历史检索（v7.15 A8）：df_search_history 工具开关，随 ai 主设置保存。 */}
+      {/* 对话历史检索（v7.15 A8）：dd_search_history 工具开关，随 ai 主设置保存。 */}
       <Card size="small" title={zh ? '对话历史检索（AI 工具）' : 'Conversation history search (AI tool)'} style={{ marginTop: 12 }}>
         {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；该配置将保留，启用 AI 后生效。' : 'AI is off; this setting is retained until AI is enabled.'}</p>}
         <p className="hint">
           {zh
-            ? '控制 AI 对话中的 df_search_history 工具：开启后模型可跨会话检索历史消息（含被上下文压缩掉的早期内容）；关闭则不注入该工具。检索为关键词子串匹配（中文有效），索引随会话写入自动维护。'
-            : 'Controls the df_search_history tool in AI chats: when on, the model can search conversation history across sessions (including early content compressed out of context); off removes the tool. Keyword substring matching (Chinese-friendly), indexed as conversations are saved.'}
+            ? '控制 AI 对话中的 dd_search_history 工具：开启后模型可跨会话检索历史消息（含被上下文压缩掉的早期内容）；关闭则不注入该工具。检索为关键词子串匹配（中文有效），索引随会话写入自动维护。'
+            : 'Controls the dd_search_history tool in AI chats: when on, the model can search conversation history across sessions (including early content compressed out of context); off removes the tool. Keyword substring matching (Chinese-friendly), indexed as conversations are saved.'}
         </p>
         <div className="ai-defaults-form">
           <label className="field">
@@ -1935,7 +1935,7 @@ export default function AISettingsPanel({
               <Input.TextArea rows={6} maxLength={4000} value={pkgEditing.system_extra} onChange={(e) => setPkgEditing({ ...pkgEditing, system_extra: e.target.value })} />
             </label>
             <label className="field">
-              <span>{zh ? '工具白名单（空 = 不限制；df_* 平台工具）' : 'Tool allowlist (empty = unrestricted; df_* platform tools)'}</span>
+              <span>{zh ? '工具白名单（空 = 不限制；dd_* 平台工具）' : 'Tool allowlist (empty = unrestricted; dd_* platform tools)'}</span>
               <Select
                 mode="tags" size="small" allowClear
                 value={pkgEditing.tools}

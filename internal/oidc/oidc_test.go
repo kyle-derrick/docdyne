@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )

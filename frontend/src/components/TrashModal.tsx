@@ -178,15 +178,15 @@ export default function TrashModal({
       footer={null}
       title={msg('trash')}
       width="min(920px, 92vw)"
-      className="docflow-modal trash-modal"
+      className="docdyne-modal trash-modal"
       styles={{ body: { height: '70vh', maxHeight: '70vh', overflow: 'auto', paddingTop: 12 } }}
       /* 弹窗内部布局定制经官方 classNames 通道注入自有类（styles.css
          「antd Modal 薄封装」节），不再钩 .ant-modal-* 内部结构。 */
       classNames={{
-        header: 'docflow-modal-header',
-        title: 'docflow-modal-title',
-        body: 'docflow-modal-body',
-        close: 'docflow-modal-close',
+        header: 'docdyne-modal-header',
+        title: 'docdyne-modal-title',
+        body: 'docdyne-modal-body',
+        close: 'docdyne-modal-close',
       }}
     >
       <div className="trash-modal-toolbar toolbar-mini">

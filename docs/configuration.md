@@ -2,7 +2,7 @@
 
 > 系统架构与设计取舍见 [architecture.md](architecture.md)；本文只讲配置项本身。
 
-DocFlow 采用**两级配置模型**：
+DocDyne 采用**两级配置模型**：
 
 | 级别 | 载体 | 修改方式 | 生效方式 |
 | --- | --- | --- | --- |
@@ -38,7 +38,7 @@ DocFlow 采用**两级配置模型**：
 | `TRUSTED_PROXIES` | 空 = 不信任任何代理 | 可信代理 CIDR/IP（逗号分隔）；控制是否采信 `X-Forwarded-For` | 经 caddy/nginx 反代部署须设代理网段（compose 内通常 `172.16.0.0/12`），否则按 IP 限流取直连地址 |
 | `ALLOWED_ORIGINS` | 空 | WebSocket 允许的跨域 Origin 列表（逗号分隔） | |
 | `CSRF_STRICT` | `true` | refresh/logout 同源严格校验（缺失 Origin/Referer 一律拒绝） | `false` 供 curl 等非浏览器客户端使用 |
-| `PUBLIC_BASE_URL` | 空 | 站点对外基地址（如 `https://docflow.example.com`）：邮件邀请/重置链接、分享链接、OIDC 回调的前缀 | 为空时邮件/日志输出相对路径 |
+| `PUBLIC_BASE_URL` | 空 | 站点对外基地址（如 `https://docdyne.example.com`）：邮件邀请/重置链接、分享链接、OIDC 回调的前缀 | 为空时邮件/日志输出相对路径 |
 | `CONTENT_PUBLIC_BASE_URL` | 空 | 受控原始内容（`/raw/*`）的对外基地址（跨 origin 内容域场景） | 设置时须为绝对 http(s) URL |
 | `METRICS_ENABLED` | `true` | 启用 `GET /metrics`（Prometheus） | 端点无认证且不经 caddy 暴露，仅 compose 内网抓取 |
 | `BACKUP_DIR` | 空 | 备份目录（`cmd/backup-verify` 校验工具读取） | 配合 `make backup` / `backup-verify` |
@@ -47,7 +47,7 @@ DocFlow 采用**两级配置模型**：
 
 | 变量 | 默认值 | 说明 | 备注 |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | （必填） | PostgreSQL 连接串（`postgres://user:pass@host:5432/db?sslmode=disable`） | compose 默认 `postgres://docflow:...@postgres:5432/docflow` |
+| `DATABASE_URL` | （必填） | PostgreSQL 连接串（`postgres://user:pass@host:5432/db?sslmode=disable`） | compose 默认 `postgres://docdyne:...@postgres:5432/docdyne` |
 | `QUEUE_DRIVER` | `inprocess` | 后台任务队列驱动：`inprocess`（进程内 goroutine，零依赖）\| `redis`（asynq，多实例横向扩展） | **多实例部署必须 `redis`**；redis 同时承载 WebSocket 跨实例通知广播 |
 | `REDIS_ADDR` | `localhost:6379` | Redis 地址（`QUEUE_DRIVER=redis` 时使用；compose 内为 `redis:6379`） | redis 驱动下启动 ping 失败即退出 |
 | `REDIS_PASSWORD` | 空 | Redis 密码 | 无认证留空 |
@@ -87,7 +87,7 @@ DocFlow 采用**两级配置模型**：
 | `AI_RAG_MODE` | `keyword` | RAG 检索模式引导值：`keyword` \| `hybrid` | 运行时可被 `ai.rag.mode` 覆盖（AI 设置面板，热生效） |
 | `AI_RAG_VECTOR_ENABLED` | `false` | 启用向量 RAG（hybrid 模式） | 运行时键 `ai.rag.vector_enabled`；需 `--profile ai-vector` 的 Qdrant |
 | `AI_RAG_QDRANT_URL` | `http://qdrant:6333` | Qdrant 地址 | 运行时键 `ai.rag.qdrant_url`（改后需重启装配） |
-| `AI_RAG_COLLECTION_PREFIX` | `docflow_` | Qdrant collection 前缀 | 运行时键 `ai.rag.collection_prefix` |
+| `AI_RAG_COLLECTION_PREFIX` | `docdyne_` | Qdrant collection 前缀 | 运行时键 `ai.rag.collection_prefix` |
 | `AI_RAG_EMBEDDING_PROVIDER` | `mock` | embedding Provider（Provider ID 或 `mock`） | 运行时键 `ai.rag.embedding_provider` |
 | `AI_RAG_EMBEDDING_MODEL` | `text-embedding-3-small` | embedding 模型 | 运行时键 `ai.rag.embedding_model` |
 | `AI_RAG_TOP_K` | `8` | 向量检索召回条数（1–100） | 运行时键 `ai.rag.top_k`（热生效） |
@@ -170,9 +170,9 @@ DocFlow 采用**两级配置模型**：
 
 | 变量 | 使用方 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `DOCFLOW_IMAGE_TAG` | compose 镜像标签 | `1.0.0` | backend / migrate / seed / caddy 共用 |
+| `DOCDYNE_IMAGE_TAG` | compose 镜像标签 | `1.0.0` | backend / migrate / seed / caddy 共用 |
 | `NPM_REGISTRY` / `GOPROXY` | 镜像构建 | 官方源 | 国内网络构建加速 |
-| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | postgres 服务 | `docflow` / `docflow` / `change-me` | 密码须与 `DATABASE_URL` 一致 |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | postgres 服务 | `docdyne` / `docdyne` / `change-me` | 密码须与 `DATABASE_URL` 一致 |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` / `SEED_ADMIN_ROLE` | seed 服务（幂等） | `admin@example.com` / `admin` / **必填** / `admin` | 初始管理员引导；密码 ≥12 字符含大小写与数字，首次登录后立即改密 |
 | `APP_DOMAIN` | caddy 站点地址 | `:80`（无 TLS） | 设为对外域名后自动签发 HTTPS（ACME） |
 | `CONTENT_DOMAIN` / `CONTENT_UPSTREAM` | caddy 独立内容 origin | `content.localhost` / `backend:8080` | 网页包预览 `/content` 域；生产建议独立域名 |
@@ -209,7 +209,7 @@ DocFlow 采用**两级配置模型**：
 | `ai.rag.mode` | `keyword` | 即时 | RAG 模式：`keyword` \| `hybrid`（关键词+向量） |
 | `ai.rag.vector_enabled` | `false` | 即时 | 启用向量检索（hybrid 下生效；需 Qdrant） |
 | `ai.rag.qdrant_url` | `http://qdrant:6333` | 重启 | Qdrant 地址 |
-| `ai.rag.collection_prefix` | `docflow_` | 重启 | collection 前缀（按 provider+模型派生，切换 embedding 后需「重建向量索引」） |
+| `ai.rag.collection_prefix` | `docdyne_` | 重启 | collection 前缀（按 provider+模型派生，切换 embedding 后需「重建向量索引」） |
 | `ai.rag.embedding_provider` | `mock` | 重启 | embedding Provider（Provider ID；旧值 `openai_compatible` 按模型名直连默认 Provider） |
 | `ai.rag.embedding_model` | `text-embedding-3-small` | 重启 | embedding 模型（须勾选 embedding 能力） |
 | `ai.rag.rerank_provider` / `ai.rag.rerank_model` | 空 = 不重排 | 即时 | 重排序目标（Cohere / Jina 兼容 `/rerank` 协议；两者须成对配置，失败静默保持原序） |
@@ -224,9 +224,9 @@ DocFlow 采用**两级配置模型**：
 | `ai.personas` | `[]` | 即时 | 平台人设模板（≤50 条）：`id/name/system_prompt`（≤4000 字符），全员对话可选 |
 | `ai.skills` | `[]` | 即时 | 平台技能/快捷指令模板（≤50 条）：`id/name/description(≤200)/prompt(≤4000)`，prompt 支持 `{selection}`（编辑器选区）/ `{file}`（当前文件名）占位符 |
 | `ai.mcp` | `[]` | 即时 | 外部 MCP 服务器（≤8 条，Streamable HTTP）：`id/name/url/auth_header/enabled`；auth_header 只写不读；对话开启「MCP 工具」后聚合调用（单次对话 ≤5 轮） |
-| `ai.agent_packages` | `[]` | 即时 | Agent 技能包（≤50 条）：`id/name/description/system_extra(≤4000)/tools/kinds/version/changelog`——限定编辑页 Agent 的附加指令与 df_* 工具白名单、applyKind 适用范围；`builtin-` 前缀 id 为编译期内置包不可覆盖。管理端支持 JSON/YAML 导入导出（交换格式见 `docs/schema/agent-packages.schema.json`），调用统计见管理端「AI 设置 → 使用统计」 |
+| `ai.agent_packages` | `[]` | 即时 | Agent 技能包（≤50 条）：`id/name/description/system_extra(≤4000)/tools/kinds/version/changelog`——限定编辑页 Agent 的附加指令与 dd_* 工具白名单、applyKind 适用范围；`builtin-` 前缀 id 为编译期内置包不可覆盖。管理端支持 JSON/YAML 导入导出（交换格式见 `docs/schema/agent-packages.schema.json`），调用统计见管理端「AI 设置 → 使用统计」 |
 
-另见 [docs/mcp.md](mcp.md)（DocFlow 自身作为 MCP Server 对外暴露文档工具）。
+另见 [docs/mcp.md](mcp.md)（DocDyne 自身作为 MCP Server 对外暴露文档工具）。
 
 ### 系统设置（平台管理 → 系统设置）
 
@@ -363,7 +363,7 @@ TRUSTED_PROXIES=172.16.0.0/12
 
 ```bash
 # .env —— 指向外部实例，compose 的 postgres/migrate/seed 仍用同一连接串
-DATABASE_URL=postgres://docflow:密码@db.internal:5432/docflow?sslmode=disable
+DATABASE_URL=postgres://docdyne:密码@db.internal:5432/docdyne?sslmode=disable
 ```
 
 仅需 `migrate`/`seed` 服务能访问该库（首次启动自动迁移与引导管理员）；如完全弃用内置 postgres 服务，可用 `docker compose run --rm migrate` / `seed` 单独执行。改后重启。
@@ -389,7 +389,7 @@ Qdrant 地址默认 `http://qdrant:6333`（compose 内网），如外部实例�
 # .env
 ONLYOFFICE_ENABLED=true
 ONLYOFFICE_SERVER_URL=http://onlyoffice:80                 # 内网 SSRF 基准，保持不变
-ONLYOFFICE_PUBLIC_URL=https://docflow.example.com/onlyoffice  # 浏览器经 caddy 反代的地址
+ONLYOFFICE_PUBLIC_URL=https://docdyne.example.com/onlyoffice  # 浏览器经 caddy 反代的地址
 ONLYOFFICE_JWT_SECRET=<openssl rand -hex 32>               # 与 onlyoffice 服务共享
 ONLYOFFICE_DOWNLOAD_URL_BASE=http://backend:8080           # DS 回源后端
 ONLYOFFICE_UPSTREAM=onlyoffice:80                          # make up-full 自动注入

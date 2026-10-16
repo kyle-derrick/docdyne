@@ -72,10 +72,10 @@ function ErrorCard({ title, detail }: { title: string; detail?: string }) {
   )
 }
 
-/** 水印覆盖层：repeat 斜排文字（服务端渲染的模板结果 + 「DocFlow」），
+/** 水印覆盖层：repeat 斜排文字（服务端渲染的模板结果 + 「DocDyne」），
  * pointer-events:none 不拦截任何交互。 */
 function WatermarkOverlay({ text }: { text: string }) {
-  const line = `${text} · DocFlow`
+  const line = `${text} · DocDyne`
   const items = Array.from({ length: 24 }, (_, i) => i)
   return (
     <div className="watermark-overlay" aria-hidden="true">
@@ -396,12 +396,12 @@ function ShareEntryModal({
       title={<span className="share-entry-modal-title">查看「{entry.name}」</span>}
       styles={{ body: { overflow: 'auto', height: 'min(76vh, 760px)', maxHeight: 'min(76vh, 760px)' } }}
       classNames={{
-        header: 'docflow-modal-header',
-        title: 'docflow-modal-title',
-        body: 'docflow-modal-body',
-        close: 'docflow-modal-close',
+        header: 'docdyne-modal-header',
+        title: 'docdyne-modal-title',
+        body: 'docdyne-modal-body',
+        close: 'docdyne-modal-close',
       }}
-      className="docflow-modal modal-viewer"
+      className="docdyne-modal modal-viewer"
       onCancel={onClose}
     >
       <div className="preview-embed">

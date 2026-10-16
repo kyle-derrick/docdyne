@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/webpkg"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/webpkg"
 )
 
 // webpkgCSP 为 /content 端点的严格 CSP：

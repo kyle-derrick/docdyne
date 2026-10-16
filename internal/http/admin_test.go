@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

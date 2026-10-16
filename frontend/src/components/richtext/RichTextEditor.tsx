@@ -1,12 +1,12 @@
-// DocFlow 富文本编辑器（Tiptap v2，.dfrt 专属格式：Tiptap JSON 存储）：
+// DocDyne 富文本编辑器（Tiptap v2，.dfrt 专属格式：Tiptap JSON 存储）：
 // - 受控语义：initialJSON 仅装载期生效（父组件用 key 重挂载换内容），
 //   用户编辑经 onChange(json) 全量回吐最新文档 JSON（JSON.stringify(getJSON())）；
 // - readonly 态复用同一渲染（editable=false，隐藏工具栏/菜单）；公开分享
 //   态经 publicBase 提供分享树 raw 基址，引用节点改走 raw/share 解析；
 // - 引用节点体系（均存 file-id 引用，编辑源文件后引用处刷新即可实时更新）：
-//   docflowEmbed（drawio/excalidraw/office/web/file 块级嵌入，见 DocflowEmbed.ts）、
-//   docflowImage（图片块：渲染时换 blob/raw URL + 宽度 25/50/75/100%）、
-//   docflowFileCard（内联文件卡片：图标+名称+大小，点击查看）；
+//   docdyneEmbed（drawio/excalidraw/office/web/file 块级嵌入，见 DocdyneEmbed.ts）、
+//   docdyneImage（图片块：渲染时换 blob/raw URL + 宽度 25/50/75/100%）、
+//   docdyneFileCard（内联文件卡片：图标+名称+大小，点击查看）；
 // - 粘贴/拖入：图片自动上传到文档所在目录 assets/ 插图片块；其他文件上传
 //   插文件卡片；富文本 HTML 清理样式保留结构，远程图片尝试重上传；
 // - 选中浮动工具条（BubbleMenu）：文字格式（加粗/斜体/高亮/链接/代码）+
@@ -84,15 +84,15 @@ import { getFileMeta, resolveNamespaceOf, uploadFile, ApiError, createDocumentCo
 import type { DocumentComment } from '../../api'
 import { useLocale } from '../../i18n'
 import { clampFixedMenu, promptViaModal } from '../FileBrowser'
-import DocflowEmbed from './DocflowEmbed'
-import DocflowFileCard from './DocflowFileCard'
-import DocflowImage from './DocflowImage'
+import DocdyneEmbed from './DocdyneEmbed'
+import DocdyneFileCard from './DocdyneFileCard'
+import DocdyneImage from './DocdyneImage'
 import { OPEN_FILE_CARD_EVENT, CARD_CONTEXT_EVENT } from './FileCardView'
 import { REPLACE_EMBED_EVENT } from './EmbedView'
 import { resolveFileById } from '../../api'
 import { editorRouteFor } from '../../openers'
 import { EmbedKind } from './markdownRoundtrip'
-import type { DocflowEmbedAttrs } from './DocflowEmbed'
+import type { DocdyneEmbedAttrs } from './DocdyneEmbed'
 import FilePickerModal, { PickerFilter, ensureAssetsFolder } from './FilePickerModal'
 import type { PickedFile } from './FilePickerModal'
 import { RichTextPublicProvider } from './RichTextPublicContext'
@@ -348,7 +348,7 @@ export default function RichTextEditor({
   }
 
   /** 图片上传：assets 目录定位/创建 → 上传 → 在粘贴/拖入时的选区位置插入
-   * docflowImage 图片块（上传耗时数秒，期间用户可能移动光标——按捕获的
+   * docdyneImage 图片块（上传耗时数秒，期间用户可能移动光标——按捕获的
    * 位置插入，保证「光标处立即显示」语义）。 */
   const uploadImages = async (files: File[], at?: { from: number; to: number }) => {
     const editor = editorRef.current
@@ -419,7 +419,7 @@ export default function RichTextEditor({
       ?.chain()
       .focus()
       .insertContent([
-        { type: 'docflowEmbed', attrs: { kind, fileId: id, title } },
+        { type: 'docdyneEmbed', attrs: { kind, fileId: id, title } },
         { type: 'paragraph' },
       ])
       .run()
@@ -431,7 +431,7 @@ export default function RichTextEditor({
     const editor = editorRef.current
     if (!editor) return
     const content = [
-      { type: 'docflowImage', attrs: { fileId: id, title, width: 100 } },
+      { type: 'docdyneImage', attrs: { fileId: id, title, width: 100 } },
       { type: 'paragraph' },
     ]
     if (at) {
@@ -450,7 +450,7 @@ export default function RichTextEditor({
     editorRef.current
       ?.chain()
       .focus()
-      .insertContent({ type: 'docflowFileCard', attrs: { fileId: id, title, size } })
+      .insertContent({ type: 'docdyneFileCard', attrs: { fileId: id, title, size } })
       .run()
   }
 
@@ -484,9 +484,9 @@ export default function RichTextEditor({
         placeholder: zh ? '输入 / 唤起插入菜单…' : 'Type / for commands…',
         showOnlyWhenEditable: true,
       }),
-      DocflowEmbed,
-      DocflowFileCard,
-      DocflowImage,
+      DocdyneEmbed,
+      DocdyneFileCard,
+      DocdyneImage,
       CommentMark,
       createSlashMenuExtension(callbacksRef),
       ...(collabExtension ? [collabExtension] : []),
@@ -1001,20 +1001,20 @@ export default function RichTextEditor({
     let pos = -1
     if (target.pos >= 0) {
       const at = editor.state.doc.nodeAt(Math.min(target.pos, editor.state.doc.content.size - 1))
-      if (at && at.type.name === 'docflowEmbed' && (at.attrs as DocflowEmbedAttrs).fileId === target.fileId) {
+      if (at && at.type.name === 'docdyneEmbed' && (at.attrs as DocdyneEmbedAttrs).fileId === target.fileId) {
         pos = Math.min(target.pos, editor.state.doc.content.size - 1)
       }
     }
     if (pos < 0) {
       editor.state.doc.descendants((node, p) => {
-        if (pos >= 0 || node.type.name !== 'docflowEmbed') return
-        const a = node.attrs as DocflowEmbedAttrs
+        if (pos >= 0 || node.type.name !== 'docdyneEmbed') return
+        const a = node.attrs as DocdyneEmbedAttrs
         if (a.fileId !== target.fileId) return
         pos = p
       })
     }
     if (pos < 0) return
-    const prev = editor.state.doc.nodeAt(pos)?.attrs as DocflowEmbedAttrs | undefined
+    const prev = editor.state.doc.nodeAt(pos)?.attrs as DocdyneEmbedAttrs | undefined
     if (!prev) return
     const finalPos = pos
     editor
@@ -1027,11 +1027,11 @@ export default function RichTextEditor({
       .run()
     // 断言替换生效（attrs 已指向新 file-id）；未生效（NodeView 复用竞态等）
     // 时按新 file-id 再定位补写一次。
-    const after = editor.state.doc.nodeAt(finalPos)?.attrs as DocflowEmbedAttrs | undefined
+    const after = editor.state.doc.nodeAt(finalPos)?.attrs as DocdyneEmbedAttrs | undefined
     if (after && after.fileId !== file.id) {
       editor.state.doc.descendants((node, p) => {
-        if (node.type.name !== 'docflowEmbed') return
-        const a = node.attrs as DocflowEmbedAttrs
+        if (node.type.name !== 'docdyneEmbed') return
+        const a = node.attrs as DocdyneEmbedAttrs
         if (a.fileId === target.fileId) {
           editor
             .chain()
@@ -1108,7 +1108,7 @@ export default function RichTextEditor({
     const selection = ed.state.selection
     if (selection instanceof NodeSelection) {
       const name = selection.node.type.name
-      if (name === 'docflowFileCard') return 'card'
+      if (name === 'docdyneFileCard') return 'card'
       return null
     }
     if (!selection.empty && ed.view.hasFocus() && !ed.isActive('codeBlock')) return 'text'
@@ -1468,12 +1468,12 @@ export default function RichTextEditor({
           title={<span className="share-entry-modal-title">查看「{cardView.name || cardView.fileId.slice(0, 8)}」</span>}
           styles={{ body: { overflow: 'auto', height: 'min(76vh, 760px)', maxHeight: 'min(76vh, 760px)' } }}
           classNames={{
-            header: 'docflow-modal-header',
-            title: 'docflow-modal-title',
-            body: 'docflow-modal-body',
-            close: 'docflow-modal-close',
+            header: 'docdyne-modal-header',
+            title: 'docdyne-modal-title',
+            body: 'docdyne-modal-body',
+            close: 'docdyne-modal-close',
           }}
-          className="docflow-modal modal-viewer"
+          className="docdyne-modal modal-viewer"
           onCancel={() => setCardView(null)}
         >
           <div className="preview-embed">

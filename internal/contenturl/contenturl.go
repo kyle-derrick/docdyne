@@ -2,7 +2,7 @@
 // HMAC-SHA256 签名的紧凑 token（base64url(claims).base64url(mac)）。
 //
 // 安全基线：
-//   - 密钥经 HKDF-SHA256 从 secret 派生（info 域分离标签 docflow-raw-url-v1），
+//   - 密钥经 HKDF-SHA256 从 secret 派生（info 域分离标签 docdyne-raw-url-v1），
 //     未配置 RAW_URL_SECRET 时以 JWT_SECRET 派生——与 JWT access token、
 //     ONLYOFFICE token 的密钥材料/格式/purpose 互不可混用（见测试）；
 //   - claims 携带 purpose（raw=用户命名空间、raw-share=公开目录分享）、
@@ -70,7 +70,7 @@ func NewSigner(secret string, ttl time.Duration) *Signer {
 		ttl = DefaultTTL
 	}
 	key := make([]byte, 32)
-	reader := hkdf.New(sha256.New, []byte(secret), nil, []byte("docflow-raw-url-v1"))
+	reader := hkdf.New(sha256.New, []byte(secret), nil, []byte("docdyne-raw-url-v1"))
 	if _, err := io.ReadFull(reader, key); err != nil {
 		panic("contenturl: derive key: " + err.Error())
 	}

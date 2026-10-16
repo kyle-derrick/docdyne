@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

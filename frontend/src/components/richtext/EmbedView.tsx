@@ -10,7 +10,7 @@
 // 分享树内探测（同级 assets/ 优先），drawio/白板取文本本地渲染，卡片新窗口
 // 打开 raw URL；探测不到显示占位提示（不在分享范围内）。
 // 统一右上角小工具条（可编辑态）：编辑（新窗口）、替换（经全局事件
-// docflow:replace-embed 上提给编辑器层重开文件选择器——不直接在 NodeView
+// docdyne:replace-embed 上提给编辑器层重开文件选择器——不直接在 NodeView
 // 内渲染 Modal，避免 ProseMirror 搬移 DOM 与 React 冲突）、删除、刷新。
 // 尺寸（v2.7）：width 25-100% + height（0=按内容自适应）；选中（可编辑）
 // 浮出宽度快捷条、高度角柄拖拽与「自适应」复位。双击：编辑页=新窗口打开
@@ -34,7 +34,7 @@ import {
 } from '../../api'
 import DrawioExportImage from '../DrawioExportImage'
 import ExcalidrawViewer from '../ExcalidrawViewer'
-import { DocflowEmbedAttrs } from './DocflowEmbed'
+import { DocdyneEmbedAttrs } from './DocdyneEmbed'
 import { OPEN_FILE_CARD_EVENT } from './FileCardView'
 import { useColorMode } from '../../theme'
 import { useLocale } from '../../i18n'
@@ -45,7 +45,7 @@ import { resolvePublicUrl, fetchPublicText } from './publicResource'
  * pos 为发起替换的节点位置（getPos 实时值），编辑器层按位置精准替换，
  * 避免「按 fileId 扫描首个命中」在多个同源嵌入块时替换错节点（偶发被
  * 替换 bug 根因）。 */
-export const REPLACE_EMBED_EVENT = 'docflow:replace-embed'
+export const REPLACE_EMBED_EVENT = 'docdyne:replace-embed'
 
 type ExportToSvg = typeof import('@excalidraw/excalidraw')['exportToSvg']
 type ExportOptions = Parameters<ExportToSvg>[0]
@@ -106,7 +106,7 @@ function embedIcon(kind: string, name: string): ReactNode {
 const EMBED_WIDTHS = [25, 50, 75, 100]
 
 export default function EmbedView({ node, editor, selected, deleteNode, getPos }: NodeViewProps) {
-  const attrs = node.attrs as DocflowEmbedAttrs
+  const attrs = node.attrs as DocdyneEmbedAttrs
   const kind = attrs.kind
   const fileId = attrs.fileId
   const widthPct = Math.min(100, Math.max(25, Number(attrs.width) || 100))
@@ -140,12 +140,12 @@ export default function EmbedView({ node, editor, selected, deleteNode, getPos }
   /** 更新本节点 attrs（width/height）：经 editor.chain().command 直接
    * setNodeMarkup（getPos 实时取位）。不使用 NodeViewProps.updateAttributes
    * ——实测该版本（@tiptap/react 2.27.3）在 React NodeView 内静默失效。 */
-  const setAttrs = useCallback((patch: Partial<DocflowEmbedAttrs>) => {
+  const setAttrs = useCallback((patch: Partial<DocdyneEmbedAttrs>) => {
     const pos = typeof getPos === 'function' ? Number(getPos()) : NaN
     if (!Number.isFinite(pos) || pos < 0) return
     const view = editor.view
     const target = view.state.doc.nodeAt(pos)
-    if (!target || target.type.name !== 'docflowEmbed') return
+    if (!target || target.type.name !== 'docdyneEmbed') return
     view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...target.attrs, ...patch }))
   }, [editor])
 

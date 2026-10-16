@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // ---------- searxng / tavily 解析（httptest mock） ----------
@@ -29,24 +29,24 @@ func TestSearxngSearcherParse(t *testing.T) {
 		gotQuery, gotFormat, gotLang = r.URL.Query().Get("q"), r.URL.Query().Get("format"), r.URL.Query().Get("language")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"results":[` +
-			`{"title":"DocFlow 文档","url":"https://example.com/a","content":"` + long + `"},` +
+			`{"title":"DocDyne 文档","url":"https://example.com/a","content":"` + long + `"},` +
 			`{"title":"第二条","url":"https://example.com/b","content":"摘要 B"},` +
 			`{"title":"","url":"","content":"无 URL 条目应丢弃"},` +
 			`{"title":"第三条","url":"https://example.com/c","content":"摘要 C"}]}`))
 	}))
 	defer srv.Close()
 	s := &SearxngSearcher{BaseURL: srv.URL + "/"} // 尾斜杠容错
-	results, err := s.Search(context.Background(), "docflow 部署", 2)
+	results, err := s.Search(context.Background(), "docdyne 部署", 2)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if gotQuery != "docflow 部署" || gotFormat != "json" || gotLang != "zh" {
+	if gotQuery != "docdyne 部署" || gotFormat != "json" || gotLang != "zh" {
 		t.Fatalf("query params = %q %q %q", gotQuery, gotFormat, gotLang)
 	}
 	if len(results) != 2 { // maxResults=2 截断
 		t.Fatalf("results = %d, want 2（maxResults 截断）", len(results))
 	}
-	if results[0].Title != "DocFlow 文档" || results[0].URL != "https://example.com/a" {
+	if results[0].Title != "DocDyne 文档" || results[0].URL != "https://example.com/a" {
 		t.Fatalf("results[0] = %+v", results[0])
 	}
 	if got := utf8.RuneCountInString(results[0].Content); got != WebSearchSnippetMaxRunes {

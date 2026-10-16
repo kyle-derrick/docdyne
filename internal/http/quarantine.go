@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )

@@ -34,9 +34,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -85,8 +85,8 @@ type Config struct {
 	// DownloadBase DocumentServer 回源访问后端用的基地址（如 http://backend:8080），
 	// 下载/回调 URL 以此拼接（浏览器不可达，仅 DS 内网回源）。
 	DownloadBase string
-	// BrowserBase 浏览器可达的 DocFlow 站点基地址（如 https://example.com），
-	// v3.5 DocFlow AI 插件的 pluginsData 静态页 URL 以此拼接；为空时回退
+	// BrowserBase 浏览器可达的 DocDyne 站点基地址（如 https://example.com），
+	// v3.5 DocDyne AI 插件的 pluginsData 静态页 URL 以此拼接；为空时回退
 	// PublicURL 的同源根（compose 反代同域场景）。
 	BrowserBase string
 	// JWTSecret 与 DocumentServer 共享的签名密钥（HS256，启用时 ≥32 字节）。
@@ -404,12 +404,12 @@ func (s *Service) NewSessionConfig(user, fileID uuid.UUID, opts SessionOptions) 
 		"mode":        mode,
 		"lang":        sanitizeEditorLang(opts.Lang),
 		"user":        map[string]any{"id": user.String(), "name": name},
-		// v3.10 DocFlow AI 插件（编辑模式注入）：pluginsData 指向前端静态
-		// 清单（dist/oo-plugins/docflow-ai/config.json，variations[].url 相对
+		// v3.10 DocDyne AI 插件（编辑模式注入）：pluginsData 指向前端静态
+		// 清单（dist/oo-plugins/docdyne-ai/config.json，variations[].url 相对
 		// ——DS 的解析是拼接到 config.json 所在目录，绝对 URL 会 404，实测）；
 		// 不 autostart，默认收起由用户从编辑器插件图标展开。
 		"plugins": map[string]any{
-			"pluginsData": []string{fmt.Sprintf("%s/oo-plugins/docflow-ai/config.json", s.publicBaseFor(base))},
+			"pluginsData": []string{fmt.Sprintf("%s/oo-plugins/docdyne-ai/config.json", s.publicBaseFor(base))},
 		},
 	}
 	config := map[string]any{

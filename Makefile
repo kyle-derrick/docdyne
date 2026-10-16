@@ -14,18 +14,18 @@ seed:
 
 # 数据库迁移：按文件名序执行 migrations/*.sql（脚本内建幂等，可重复执行；
 # 单文件失败即退出）。需先设置 DATABASE_URL，例如：
-#   DATABASE_URL=postgres://docflow:change-me@localhost:5432/docflow?sslmode=disable make migrate
+#   DATABASE_URL=postgres://docdyne:change-me@localhost:5432/docdyne?sslmode=disable make migrate
 migrate:
 	go run ./cmd/migrate
 
 # Playwright E2E（frontend/e2e，需真实 PostgreSQL，本机无 Docker 时请先自备库）。
 # 前置条件：
 #   1) PostgreSQL 16 可达并已建库（示例，数据卷可复用）：
-#        docker run -d --name docflow-e2e-pg -p 5432:5432 \
-#          -e POSTGRES_DB=docflow -e POSTGRES_USER=docflow \
+#        docker run -d --name docdyne-e2e-pg -p 5432:5432 \
+#          -e POSTGRES_DB=docdyne -e POSTGRES_USER=docdyne \
 #          -e POSTGRES_PASSWORD=change-me postgres:16-alpine
 #   2) 导出 E2E_DATABASE_URL（必填，无则 webServer fail fast 并打印指引）：
-#        export E2E_DATABASE_URL="postgres://docflow:change-me@localhost:5432/docflow?sslmode=disable"
+#        export E2E_DATABASE_URL="postgres://docdyne:change-me@localhost:5432/docdyne?sslmode=disable"
 #      可选覆盖：E2E_JWT_SECRET、E2E_SEED_EMAIL、E2E_SEED_PASSWORD、E2E_STORAGE_ROOT。
 #   3) 首次运行需安装测试浏览器：
 #        cd frontend && npx playwright install chromium
@@ -47,14 +47,14 @@ build-frontend:
 
 # 前端热更新（不重建镜像）：vite 构建产物直接同步进运行中的 caddy 容器。
 # 注意目标目录必须是 /srv/frontend（deploy/Caddyfile 的 root；曾误拷
-# /srv/docflow 导致用户长期看到旧版——勿再犯）。assets 先清再拷，防旧
+# /srv/docdyne 导致用户长期看到旧版——勿再犯）。assets 先清再拷，防旧
 # hash 堆积；同步后 index.html(no-cache) 引用新 entry，刷新即新版。
 sync-frontend:
 	cd frontend && npm run build
-	docker exec docflow-caddy-1 sh -c "rm -rf /srv/frontend/assets"
-	docker cp frontend/dist/. docflow-caddy-1:/srv/frontend/
+	docker exec docdyne-caddy-1 sh -c "rm -rf /srv/frontend/assets"
+	docker cp frontend/dist/. docdyne-caddy-1:/srv/frontend/
 
-# Compose 配置校验（同时检查 DOCFLOW_IMAGE_TAG 可被解析）。
+# Compose 配置校验（同时检查 DOCDYNE_IMAGE_TAG 可被解析）。
 validate-compose:
 	docker compose config --quiet
 

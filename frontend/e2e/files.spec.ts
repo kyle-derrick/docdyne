@@ -12,7 +12,7 @@ const folder = `e2eA_${stamp}`
 const folderRenamed = `e2eB_${stamp}`
 const subFolder = `e2eC_${stamp}`
 const fileName = `e2eD_${stamp}.txt`
-const fileBody = `DocFlow E2E ${stamp}\nhello playwright\n`
+const fileBody = `DocDyne E2E ${stamp}\nhello playwright\n`
 const createdTxt = `e2eE_${stamp}.txt`
 const createdMd = `e2eF_${stamp}.md`
 

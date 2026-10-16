@@ -1,6 +1,6 @@
 // Package webhook 提供出站 Webhook 通知渠道（v1.1）：用户自助注册回调
 // URL，站内通知事件（与 notify 相同四类）发生时经 task:webhook-delivery
-// 队列投递 JSON 载荷并附 X-DocFlow-Signature HMAC 签名头；连续失败达
+// 队列投递 JSON 载荷并附 X-DocDyne-Signature HMAC 签名头；连续失败达
 // 阈值自动禁用。内存实现供测试，GormStore 为 PostgreSQL 实现。
 package webhook
 

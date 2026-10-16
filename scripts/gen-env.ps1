@@ -113,7 +113,7 @@ $pgPass = Ask-Secret 'PostgreSQL 密码（POSTGRES_PASSWORD，同步重写 DATAB
 if ($pgPass) {
     $text = $text -replace '(?m)^POSTGRES_PASSWORD=.*$', "POSTGRES_PASSWORD=$pgPass"
     # DATABASE_URL：存在则替换内嵌密码并归一 host 为 compose 内 postgres；不存在则追加
-    $dbUrl = "postgres://docflow:$pgPass@postgres:5432/docflow?sslmode=disable"
+    $dbUrl = "postgres://docdyne:$pgPass@postgres:5432/docdyne?sslmode=disable"
     if ($text -match '(?m)^DATABASE_URL=.*$') {
         $text = $text -replace '(?m)^DATABASE_URL=.*$', "DATABASE_URL=$dbUrl"
     } else {
@@ -131,7 +131,7 @@ if ($jwt) {
 }
 
 # 3) 初始管理员
-$email = Ask-Secret '初始管理员邮箱（SEED_ADMIN_EMAIL）' { 'admin@docflow.local' } '' -Default 'admin@docflow.local'
+$email = Ask-Secret '初始管理员邮箱（SEED_ADMIN_EMAIL）' { 'admin@docdyne.local' } '' -Default 'admin@docdyne.local'
 $user = Ask-Secret '初始管理员用户名（SEED_ADMIN_USERNAME）' { 'admin' } '' -Default 'admin'
 $adminPass = Ask-Secret '初始管理员密码（SEED_ADMIN_PASSWORD，首次登录后可改）' { New-Password } ''
 foreach ($pair in @(@('SEED_ADMIN_EMAIL', $email), @('SEED_ADMIN_USERNAME', $user), @('SEED_ADMIN_PASSWORD', $adminPass))) {

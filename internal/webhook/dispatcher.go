@@ -19,7 +19,7 @@ import (
 
 const (
 	// SignatureHeader 为签名头名，值为 sha256=<hex hmac>。
-	SignatureHeader = "X-DocFlow-Signature"
+	SignatureHeader = "X-DocDyne-Signature"
 	// DeliveryTimeout 单次投递 HTTP 超时。
 	DeliveryTimeout = 10 * time.Second
 	// DefaultMaxConsecutiveFailures 连续失败自动禁用阈值。
@@ -215,7 +215,7 @@ func (d *Dispatcher) post(ctx context.Context, url string, body []byte, signatur
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(SignatureHeader, signature)
-	req.Header.Set("User-Agent", "DocFlow-Webhook/1.1")
+	req.Header.Set("User-Agent", "DocDyne-Webhook/1.1")
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return 0, err

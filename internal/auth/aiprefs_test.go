@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 func validPrefs() AIPersonalPrefs {

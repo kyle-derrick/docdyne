@@ -13,8 +13,8 @@ for i in $(seq 1 90); do
   sleep 2
 done
 curl -sf -o /dev/null http://127.0.0.1/ready || { echo 'FATAL: entry not ready'; exit 1; }
-$C exec -T postgres psql -U docflow -d docflow -t -A -c \
+$C exec -T postgres psql -U docdyne -d docdyne -t -A -c \
   "SELECT 'TRUNCATE TABLE ' || string_agg(format('%I.%I', schemaname, tablename), ', ') || ' RESTART IDENTITY CASCADE' FROM pg_tables WHERE schemaname='public' AND tablename <> 'schema_migrations';" \
-  | $C exec -T postgres psql -U docflow -d docflow
+  | $C exec -T postgres psql -U docdyne -d docdyne
 $C run --rm seed 2>&1 | tail -1
 tr -d '\r' < scripts/compose-smoke.sh > /tmp/compose-smoke.sh && bash /tmp/compose-smoke.sh

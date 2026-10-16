@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/officetemplate"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/officetemplate"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

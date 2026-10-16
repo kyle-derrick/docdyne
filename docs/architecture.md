@@ -1,6 +1,6 @@
-# DocFlow 架构总览
+# DocDyne 架构总览
 
-面向希望理解 DocFlow 内部结构的开发者与运维者。本文描述**当前代码实现**（以仓库为准），包含模块划分、数据模型、关键链路、部署拓扑，以及若干**有意为之的设计取舍与已知局限**。
+面向希望理解 DocDyne 内部结构的开发者与运维者。本文描述**当前代码实现**（以仓库为准），包含模块划分、数据模型、关键链路、部署拓扑，以及若干**有意为之的设计取舍与已知局限**。
 
 配套阅读：
 
@@ -64,7 +64,7 @@
 
 | 二进制 | 源码 | 镜像内路径 | 职责 |
 | --- | --- | --- | --- |
-| `/docflow` | `cmd/server` | `ENTRYPOINT` | API 服务主进程 |
+| `/docdyne` | `cmd/server` | `ENTRYPOINT` | API 服务主进程 |
 | `/migrate` | `cmd/migrate` | — | 按文件名序执行 `migrations/*.sql` |
 | `/seed` | `cmd/seed` | — | 首次建库引导管理员（幂等） |
 
@@ -263,7 +263,7 @@ users ──┬── spaces（owner_id）
 
 **refresh**：轮换后**复查账号状态** —— 若账号已被禁用/锁定，撤销新 token 并返回 401/423。这是防止"禁用用户仍能靠旧 refresh 续期"的关键。
 
-**中间件**（`internal/auth/middleware.go`）：`VerifyBearer` 先看是否 `dfpat_` 前缀（PAT 路径），否则 JWT 解析并**强制校验 `token.Method == HS256`**（防算法混淆）。成功注入 `user_id`、`pat_scopes`、`auth_kind`。
+**中间件**（`internal/auth/middleware.go`）：`VerifyBearer` 先看是否 `ddpat_` 前缀（PAT 路径），否则 JWT 解析并**强制校验 `token.Method == HS256`**（防算法混淆）。成功注入 `user_id`、`pat_scopes`、`auth_kind`。
 
 **CSRF**：`CSRF_STRICT=true`（默认）时，refresh/logout 缺失 Origin/Referer 一律 403。
 
@@ -328,7 +328,7 @@ Complete 流水线（对终态幂等）
 
 - `Hub`：`map[userID]map[*client]struct{}`，每 client 一个缓冲 16 的 send channel；**缓冲满视作失效连接异步摘除**
 - `Broadcast`：先 `deliverLocal` 本地直发，再 `Publish` 到共享通道
-- Redis 桥（`QUEUE_DRIVER=redis` 时）：频道 `docflow:notify`，复用队列同一 Redis 连接
+- Redis 桥（`QUEUE_DRIVER=redis` 时）：频道 `docdyne:notify`，复用队列同一 Redis 连接
 - **去重回环**：`seen` map 记录本实例已发布的 msg_id（TTL 10s），订阅回调命中即跳过 —— 避免自己发布的消息经 Pub/Sub 回环再分发
 - `QUEUE_DRIVER=inprocess` 时为 NoopBroadcaster：Hub 保持纯本地分发。**单实例自洽，多实例必须 redis**
 
@@ -422,9 +422,9 @@ Caddy:  header { -Cookie; Content-Security-Policy "sandbox allow-scripts"; nosni
 `frontend/src/api.ts` 的机制：
 
 - `access_token` 仅模块级内存变量，**不写 localStorage**；刷新页面后靠 refresh cookie 恢复
-- **CSRF**：从 `document.cookie` 读 `docflow_csrf`，非 GET 请求加 `X-CSRF-Token` 头
+- **CSRF**：从 `document.cookie` 读 `docdyne_csrf`，非 GET 请求加 `X-CSRF-Token` 头
 - **401 自动刷新重放**：首次 401 → `refreshSession()` → 成功重放，失败清 token 并广播 `SESSION_EXPIRED_EVENT`
-- **跨标签页串行**：额外用 `navigator.locks.request('docflow-refresh', {mode:'exclusive'})` —— 因为 refresh token 每次使用都轮换，**并发重放会触发整个 session 撤销**
+- **跨标签页串行**：额外用 `navigator.locks.request('docdyne-refresh', {mode:'exclusive'})` —— 因为 refresh token 每次使用都轮换，**并发重放会触发整个 session 撤销**
 
 ### 6.3 构建与分包
 
@@ -486,9 +486,9 @@ Caddy:  header { -Cookie; Content-Security-Policy "sandbox allow-scripts"; nosni
 
 | 镜像 | 构建 | 用途 |
 | --- | --- | --- |
-| `docflow/caddy:$TAG` | `frontend/Dockerfile`（上下文 `./frontend`） | 入口：TLS + SPA 静态 + draw.io 静态 + 反代 |
-| `docflow/backend:$TAG` | `Dockerfile`（上下文 `.`） | Go API；migrate/seed 复用同镜像 |
-| `docflow/onlyoffice:8.2.3-cjk` | `deploy/onlyoffice/Dockerfile` | 官方 DS + `fonts-noto-cjk`（无 CJK 字体时中文渲染为方块） |
+| `docdyne/caddy:$TAG` | `frontend/Dockerfile`（上下文 `./frontend`） | 入口：TLS + SPA 静态 + draw.io 静态 + 反代 |
+| `docdyne/backend:$TAG` | `Dockerfile`（上下文 `.`） | Go API；migrate/seed 复用同镜像 |
+| `docdyne/onlyoffice:8.2.3-cjk` | `deploy/onlyoffice/Dockerfile` | 官方 DS + `fonts-noto-cjk`（无 CJK 字体时中文渲染为方块） |
 
 
 ---
@@ -536,7 +536,7 @@ Caddy:  header { -Cookie; Content-Security-Policy "sandbox allow-scripts"; nosni
 
 ### 9.3 与常见做法不同
 
-| 项 | 常见做法 | DocFlow |
+| 项 | 常见做法 | DocDyne |
 | --- | --- | --- |
 | DI | wire/fx 容器 | 无框架，40+ `SetXxx` 后置注入 |
 | access token 存放 | 响应体 + cookie | **仅响应体** |

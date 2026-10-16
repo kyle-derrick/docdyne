@@ -20,7 +20,7 @@ export default function LoginPage() {
   const switchLocale = () => {
     const next = locale === 'zh-CN' ? 'en-US' : 'zh-CN'
     saveLocale(next)
-    window.dispatchEvent(new Event('docflow:locale'))
+    window.dispatchEvent(new Event('docdyne:locale'))
   }
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
@@ -70,7 +70,7 @@ export default function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1 className="login-title">DocFlow</h1>
+        <h1 className="login-title">DocDyne</h1>
         <Button type="text" onClick={switchLocale}>{msg('switchLanguage')}</Button>
         <p className="hint">{locale === 'zh-CN' ? '登录以访问你的文件' : 'Log in to access your files'}</p>
         <label className="field">

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // fakeOCRStorage 最小 StorageReader：按 key 返回固定字节。

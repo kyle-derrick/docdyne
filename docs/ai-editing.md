@@ -1,4 +1,4 @@
-# DocFlow AI 编辑工具套装
+# DocDyne AI 编辑工具套装
 
 各文档类型的 AI 编辑能力总览（v7 工具套装体系）。所有编辑器的 AI 均为
 **工具循环 Agent**：模型每轮输出 `TOOL_CALL {"tool":…,"args":{…}}` 调用一个
@@ -25,8 +25,8 @@ word 元素序号从 1 起；slide 页码从 1 起）。
 
 ## 各类型入口与实现位置
 
-- **Office（word/excel/ppt）**：编辑器内「DocFlow AI」插件面板
-  （`frontend/public/oo-plugins/docflow-ai/`，v7）。工具在 OnlyOffice 沙箱内
+- **Office（word/excel/ppt）**：编辑器内「DocDyne AI」插件面板
+  （`frontend/public/oo-plugins/docdyne-ai/`，v7）。工具在 OnlyOffice 沙箱内
   经 `Asc.plugin.callCommand` 执行（plugin.js 内 ES5 函数序列化注入）；提示
   词按编辑器类型分节。缓存：plugin.js 改动必须递增 index.html 的 `?v=`。
 - **draw.io / 白板 / 富文本 / Monaco**：编辑页右侧 AIEditChat 面板
@@ -35,20 +35,20 @@ word 元素序号从 1 起；slide 页码从 1 起）。
   注入类型专属规范，前端本地执行（ProseMirror 命令 / DOMParser XML 操作 /
   excalidraw updateScene），落盘走版本链（应用前保存基线，可撤销）。
 - **平台 AI 助手（全局抽屉）**：AIAssistant（v7.4 起渲染层为 AIChatShell
-  assistant 模式，Drawer 仅作容器）+ 服务端 df_* 文件工具
+  assistant 模式，Drawer 仅作容器）+ 服务端 dd_* 文件工具
   （`internal/ai/platformtools.go`）——可创建 `.drawio`/`.excalidraw`/
   `.mermaid` 等图表白板源文件（跨类型创作），再进各编辑器用对应工具套装
   精修。
 - **查看页悬浮 AI 助理**：ViewerAIWidget（v7.4 起消息流/输入区为共享
   ChatThread/ChatInput；文本类文件支持「保存为新版本」，经 actionSlot
   注入）。
-- **外部 agent**：平台 MCP（`docs/mcp.md`，21 个 df_* 工具）——drawio/
+- **外部 agent**：平台 MCP（`docs/mcp.md`，21 个 dd_* 工具）——drawio/
   excalidraw 为文本源文件，直接读写即为编辑。
 
 ## 统一 AI 对话架构（v7.4）
 
 三处对话 UI（助手抽屉 / 编辑页面板 / 查看页悬浮卡）共用
-`frontend/packages/chat/`（npm workspace 包 `@docflow/chat`，源码分发）组件族，
+`frontend/packages/chat/`（npm workspace 包 `@docdyne/chat`，源码分发）组件族，
 宿主只保留业务逻辑、渲染全部经 props 注入；文件浏览/上传/弹窗外壳经
 `registerChatFileApi` 在组合根（`main.tsx`）注入（K2 依赖倒置，包零反向依赖
 宿主；边界与样式契约见 `packages/chat/README.md`）：
@@ -71,17 +71,17 @@ snapshot 快照，migration 054）；助手与编辑页共用，查看页按产�
 
 - 富文本 `insert_embed {name}`：在文档中内嵌平台文件（.drawio→图表、
   .excalidraw→白板、Office→文档卡片、其余→文件卡片）；内嵌块在 AI 上下文
-  中序列化为 `[DocFlow-Embed …]` 占位行并受保护（整篇重写也逐字保留）。
+  中序列化为 `[DocDyne-Embed …]` 占位行并受保护（整篇重写也逐字保留）。
 - 内嵌对象的内部内容编辑：从嵌入块「编辑（新窗口）」进入对应编辑页，使用
   该类型的工具套装。
-- 助手侧组合：对话中让 AI 直接 `df_write_file` 生成 `.drawio`/`.excalidraw`
+- 助手侧组合：对话中让 AI 直接 `dd_write_file` 生成 `.drawio`/`.excalidraw`
   源文件 → 打开编辑 → 继续用编辑器工具套装精修。
 
 ## 提示词分布
 
 | 提示词 | 位置 |
 |---|---|
-| Office 分类型 Agent（word/cell/slide/pdf 规范 + 工具清单） | `frontend/public/oo-plugins/docflow-ai/plugin.js`（buildSystem / KIND_GUIDES / TOOL_DOCS） |
+| Office 分类型 Agent（word/cell/slide/pdf 规范 + 工具清单） | `frontend/public/oo-plugins/docdyne-ai/plugin.js`（buildSystem / KIND_GUIDES / TOOL_DOCS） |
 | Agent 通用协议（TOOL_CALL/FINAL、先读后改）+ 宿主名 | `frontend/src/components/AIEditChat.tsx`（sendAgent） |
 | drawio XML 载荷规范 | `AIEditChat.tsx` DRAWIO_XML_GUIDE（drawio 页 agentSystemExtra 复用） |
 | excalidraw 骨架载荷规范 | `AIEditChat.tsx` EXCALIDRAW_JSON_GUIDE（白板页 agentSystemExtra 复用） |

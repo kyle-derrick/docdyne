@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/group"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/group"
 	"github.com/gin-gonic/gin"
 )
 

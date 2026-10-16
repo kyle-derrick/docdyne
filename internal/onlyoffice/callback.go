@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
 	"github.com/google/uuid"
 )
 
@@ -43,7 +43,7 @@ type callbackRequest struct {
 //   - 其他状态：空处理。
 //
 // 返回 nil 回复 {"error":0}，非 nil 回复 {"error":1}。
-// 每次回调计入 docflow_onlyoffice_callbacks_total{status,result}：status 归一为
+// 每次回调计入 docdyne_onlyoffice_callbacks_total{status,result}：status 归一为
 // 2（保存）/4（清理）/other（其余状态与校验失败），result 为 0/1。
 func (s *Service) HandleCallback(body []byte, authorization, ip, userAgent string) error {
 	status, err := s.processCallback(body, authorization, ip, userAgent)

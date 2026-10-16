@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/mcp"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/mcp"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,7 +35,7 @@ func (h *Handler) registerMCP(r *gin.Engine, jwtSecret string) {
 	if deps.Storage == nil {
 		deps.Storage = h.storage
 	}
-	// search 为可选能力（SetSearch 注入；未注入时 df_search_files 不可用）。
+	// search 为可选能力（SetSearch 注入；未注入时 dd_search_files 不可用）。
 	deps.Search = h.search
 	// AI 为可选能力（SetAIService 注入；未注入时 ask_docs 等 AI 工具不可用）。
 	if h.aiSvc != nil {
@@ -50,7 +50,7 @@ func (h *Handler) registerMCP(r *gin.Engine, jwtSecret string) {
 		MaxRequestBodyBytes: mcpMaxBodyBytes,
 	})
 
-	// PAT 认证路径与 api 组一致：h.auth 未注入（契约测试）时 dfpat_ 一律 401。
+	// PAT 认证路径与 api 组一致：h.auth 未注入（契约测试）时 ddpat_ 一律 401。
 	var patVerifier auth.AccessTokenVerifier
 	if h.auth != nil {
 		patVerifier = h.auth
@@ -63,7 +63,7 @@ func (h *Handler) registerMCP(r *gin.Engine, jwtSecret string) {
 	})
 }
 
-// mcpAuthMiddleware 认证 Bearer 凭证（PAT dfpat_ 或 access token，复用
+// mcpAuthMiddleware 认证 Bearer 凭证（PAT ddpat_ 或 access token，复用
 // auth.VerifyBearer 公共鉴权函数）；失败以 JSON-RPC error -32001 拒绝
 // （HTTP 401）。成功注入 user_id / PAT scopes / auth_kind 上下文。
 func mcpAuthMiddleware(jwtSecret string, pat auth.AccessTokenVerifier) gin.HandlerFunc {

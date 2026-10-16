@@ -42,7 +42,7 @@ export default function RegisterPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1 className="login-title">DocFlow</h1>
+        <h1 className="login-title">DocDyne</h1>
         <p className="hint">接受邀请，创建你的账号</p>
         <label className="field">
           <span>用户名</span>

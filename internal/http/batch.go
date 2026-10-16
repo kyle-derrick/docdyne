@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/settings"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -311,7 +311,7 @@ func (h *Handler) batchDownload(c *gin.Context) {
 	if h.zipper == nil {
 		// 无 zipper（理论上不发生，NewHandler 恒注入）：退回内联流式写出。
 		c.Header("Content-Type", "application/zip")
-		c.Header("Content-Disposition", `attachment; filename="docflow-files.zip"`)
+		c.Header("Content-Disposition", `attachment; filename="docdyne-files.zip"`)
 		zw := zip.NewWriter(c.Writer)
 		for _, e := range entries {
 			w, err := zw.CreateHeader(&zip.FileHeader{Name: e.name, Method: zip.Deflate})
@@ -328,7 +328,7 @@ func (h *Handler) batchDownload(c *gin.Context) {
 		_ = zw.Close()
 		return
 	}
-	h.writeZipStream(c, "docflow-files", entries)
+	h.writeZipStream(c, "docdyne-files", entries)
 }
 
 func batchResultsJSON(results []files.BatchItemResult) []gin.H {

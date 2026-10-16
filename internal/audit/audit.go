@@ -106,7 +106,7 @@ const (
 	ResourceToken = "token"
 	// ResourceWebhook 为出站 webhook（webhooks 行）。
 	ResourceWebhook = "webhook"
-	// ResourceBackup 为备份产物（BACKUP_DIR 下的 docflow-backup-<ts> 目录）。
+	// ResourceBackup 为备份产物（BACKUP_DIR 下的 docdyne-backup-<ts> 目录）。
 	ResourceBackup = "backup"
 	// ResourceGroup 为用户组（groups 行）。
 	ResourceGroup = "group"

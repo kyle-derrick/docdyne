@@ -1,6 +1,6 @@
 // Package http —— ai_memory_tools.go：工具式记忆执行器（v7.15 A7）。
 //
-// include_memory 开启时，df_read_memory/df_write_memory 随对话注入（见
+// include_memory 开启时，dd_read_memory/dd_write_memory 随对话注入（见
 // ai.go 的装配逻辑），system 上下文只带记忆标题列表（aiMemoryContextBlock），
 // 详情按需经工具读取——替代旧的全量内容注入（20 条 ×≤2000 字符最多
 // 6000 字符常驻），常态占用从 ~1500 tok 降到 ~200 tok。
@@ -20,9 +20,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // aiMemoryToolStore 记忆工具所需的最小存取能力（生产实现 *auth.UserStore，
@@ -44,7 +44,7 @@ type memoryToolCtx struct {
 
 // 记忆工具行为边界。
 const (
-	// aiMemoryToolReadLimit df_read_memory 无 query 时返回的最近条数。
+	// aiMemoryToolReadLimit dd_read_memory 无 query 时返回的最近条数。
 	aiMemoryToolReadLimit = 10
 	// aiMemoryToolQueryLimit 带 query 时最多扫描/返回的记忆条数。
 	aiMemoryToolQueryLimit = 50
@@ -99,7 +99,7 @@ func (m *memoryToolCtx) execute(name string, argsJSON json.RawMessage) (string, 
 	return `{"ok":true,` + strings.TrimPrefix(string(out), "{"), nil
 }
 
-// toolReadMemory df_read_memory：query 非空按子串过滤（大小写不敏感），
+// toolReadMemory dd_read_memory：query 非空按子串过滤（大小写不敏感），
 // 空 query 返回最近 aiMemoryToolReadLimit 条。
 func (m *memoryToolCtx) toolReadMemory(query string) (any, error) {
 	store, ok := m.h.aiMemory.(aiMemoryToolStore)
@@ -128,7 +128,7 @@ func (m *memoryToolCtx) toolReadMemory(query string) (any, error) {
 	return gin.H{"results": out, "count": len(out)}, nil
 }
 
-// toolWriteMemory df_write_memory：写一条 kind=auto 记忆并裁剪上限
+// toolWriteMemory dd_write_memory：写一条 kind=auto 记忆并裁剪上限
 // （校验含 ≤AIMemoryMaxContentRunes，超长报错回喂而非静默截断——让模型
 // 自行精炼后重试）。
 func (m *memoryToolCtx) toolWriteMemory(content string) (any, error) {

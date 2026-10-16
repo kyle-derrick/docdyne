@@ -1,6 +1,6 @@
-// Package backup 提供 DocFlow 备份产物的只读校验（管理闭环的读侧）：
-// 发现 BACKUP_DIR 下最近的 manifest.json（脚本 v2 的 docflow-backup-<ts>/
-// 目录布局，兼容 v1 顶层 docflow-*.manifest.json 散落清单），解析组件清单
+// Package backup 提供 DocDyne 备份产物的只读校验（管理闭环的读侧）：
+// 发现 BACKUP_DIR 下最近的 manifest.json（脚本 v2 的 docdyne-backup-<ts>/
+// 目录布局，兼容 v1 顶层 docdyne-*.manifest.json 散落清单），解析组件清单
 // 并对每文件重算 sha256。所有操作只读备份文件，不执行外部命令、不触达
 // 数据库（备份由 scripts/backup.sh|ps1 在服务进程外执行，run 端点恒 501）。
 package backup
@@ -66,12 +66,12 @@ var ErrNoBackup = errors.New("no backup manifest found")
 const markerName = "verify.json"
 
 // Latest 在 dir 下发现最近的备份清单：优先 v2 目录布局
-// docflow-backup-<ts>/manifest.json，兼容 v1 顶层 *.manifest.json；
+// docdyne-backup-<ts>/manifest.json，兼容 v1 顶层 *.manifest.json；
 // 按 manifest 修改时间取最近，返回清单路径与其所在备份目录。
 func Latest(dir string) (manifestPath, backupDir string, err error) {
 	var candidates []string
 	for _, pattern := range []string{
-		filepath.Join(dir, "docflow-backup-*", "manifest.json"),
+		filepath.Join(dir, "docdyne-backup-*", "manifest.json"),
 		filepath.Join(dir, "*.manifest.json"),
 	} {
 		matches, _ := filepath.Glob(pattern)

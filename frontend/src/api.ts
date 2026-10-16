@@ -1,13 +1,13 @@
-// DocFlow 前端 API 封装。
+// DocDyne 前端 API 封装。
 // - access_token 仅存内存（模块级变量），不写 localStorage；刷新页面后依赖 refresh cookie 恢复会话。
 // - 统一处理 JSON 错误与 401 自动刷新重放；refresh 失败广播 SESSION_EXPIRED_EVENT 通知路由回登录页。
 
 import type { EditMethod, ViewMethod } from './openers'
-// K2：对话领域类型自本文件迁入 @docflow/chat（包内自治），此处 re-export
+// K2：对话领域类型自本文件迁入 @docdyne/chat（包内自治），此处 re-export
 // 保持应用侧 `from './api'` 导入兼容；仅类型依赖（app → package 方向）。
-import type { AISource, AIToolCall, AIToolResult, AIUsage } from '@docflow/chat'
+import type { AISource, AIToolCall, AIToolResult, AIUsage } from '@docdyne/chat'
 
-export type { AISource, AIToolCall, AIToolResult, AIUsage } from '@docflow/chat'
+export type { AISource, AIToolCall, AIToolResult, AIUsage } from '@docdyne/chat'
 
 let accessToken: string | null = null
 
@@ -24,7 +24,7 @@ export function websocketToken(): string | null {
 }
 
 /** 会话过期事件：refresh 失败时广播，App 监听后跳转 /login。 */
-export const SESSION_EXPIRED_EVENT = 'docflow:session-expired'
+export const SESSION_EXPIRED_EVENT = 'docdyne:session-expired'
 
 export class ApiError extends Error {
   status: number
@@ -42,7 +42,7 @@ let refreshing: Promise<boolean> | null = null
 
 /** 用 HttpOnly refresh cookie 换新 access token；并发调用共享同一次请求。 */
 function csrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|; )docflow_csrf=([^;]*)/)
+  const match = document.cookie.match(/(?:^|; )docdyne_csrf=([^;]*)/)
   return match ? decodeURIComponent(match[1]) : null
 }
 
@@ -74,7 +74,7 @@ export async function refreshSession(): Promise<boolean> {
     // refresh token 每次使用都会轮换；不同标签页的模块级 Promise 无法互相
     // 共享，必须跨页串行，避免同一旧 token 并发重放触发整个 session 撤销。
     if (navigator.locks) {
-      return navigator.locks.request('docflow-refresh', { mode: 'exclusive' }, exchange)
+      return navigator.locks.request('docdyne-refresh', { mode: 'exclusive' }, exchange)
     }
     return exchange()
   })()
@@ -331,7 +331,7 @@ export async function deleteFileVersion(fileId: string, versionId: string): Prom
 export async function downloadBatchFiles(fileIds: string[]): Promise<void> {
   const res = await authFetch('/api/v1/files/batch/download', idemInit({ file_ids: fileIds }))
   if (!res.ok) throw new ApiError(res.status, '批量下载失败')
-  saveBlob(await res.blob(), 'docflow-files.zip')
+  saveBlob(await res.blob(), 'docdyne-files.zip')
 }
 
 /** 批量结果的简短摘要文案（成功 N 项 / 失败码统计）。 */
@@ -533,7 +533,7 @@ export interface ApiTokenItem {
   id: string
   name: string
   scopes: string[]
-  /** 明文前 14 字符（dfpat_ + 8 字符），UI 展示用。 */
+  /** 明文前 14 字符（ddpat_ + 8 字符），UI 展示用。 */
   prefix: string
   last_used_at: string | null
   expires_at: string | null
@@ -542,7 +542,7 @@ export interface ApiTokenItem {
 }
 
 export interface CreatedApiToken extends ApiTokenItem {
-  /** 一次性明文 token（dfpat_ 前缀；仅创建响应返回，之后不可再取）。 */
+  /** 一次性明文 token（ddpat_ 前缀；仅创建响应返回，之后不可再取）。 */
   token: string
 }
 
@@ -736,7 +736,7 @@ export interface WebhookItem {
 }
 
 export interface CreatedWebhook extends WebhookItem {
-  /** 一次性签名 secret（whsec_ 前缀；仅创建响应返回，用于校验 X-DocFlow-Signature）。 */
+  /** 一次性签名 secret（whsec_ 前缀；仅创建响应返回，用于校验 X-DocDyne-Signature）。 */
   secret: string
 }
 
@@ -1961,7 +1961,7 @@ export function isExcalidrawFile(name: string): boolean {
 /** 空白板初始场景（新建 .excalidraw 文件与空/损坏内容容错共用）。 */
 export const EMPTY_EXCALIDRAW_JSON = '{"type":"excalidraw","version":2,"elements":[],"appState":{}}'
 
-// ---------- DocFlow 富文本文档（.dfrt 主后缀，.dfdoc 兼容别名：Tiptap JSON 存储） ----------
+// ---------- DocDyne 富文本文档（.dfrt 主后缀，.dfdoc 兼容别名：Tiptap JSON 存储） ----------
 
 /** 仅富文本文档扩展名（.dfrt / 旧 .dfdoc）进入富文本编辑（Tiptap JSON 文档，查看/编辑同编辑器）。 */
 export function isDfdocFile(name: string): boolean {
@@ -2839,10 +2839,10 @@ export interface AIChatOptions {
   /** 我的文件（RAG）：回答时检索引用本人可见文档拼入上下文（后端就绪前
    *  透传该字段，未支持时由后端忽略，无副作用）。 */
   include_docs?: boolean
-  /** 平台文件工具（df_*）：AI 可列目录/读文件/写文件(版本保护)/建目录/
+  /** 平台文件工具（dd_*）：AI 可列目录/读文件/写文件(版本保护)/建目录/
    *  搜索，仅限用户有权限的空间（默认 true=注入）。 */
   use_files?: boolean
-  /** 工作目录 folderID（df_* 相对路径解析基准；空回落默认空间根）。 */
+  /** 工作目录 folderID（dd_* 相对路径解析基准；空回落默认空间根）。 */
   work_root?: string
   /** 服务端会话 id（可选）：携带时本次请求的用量行关联该会话
    *  （管理端按会话聚合 token；非 UUID/他人会话服务端静默忽略关联）。 */
@@ -3753,7 +3753,7 @@ export interface AIAgentPackageDef {
   description?: string
   /** 追加到系统提示之后的包级增强（≤4000 字符）。 */
   system_extra?: string
-  /** 注入的 df_* 平台工具名（非法名由后端校验拒收）。 */
+  /** 注入的 dd_* 平台工具名（非法名由后端校验拒收）。 */
   tools?: string[]
   /** 适用文档类型（doc/docx/xlsx/...）；空=全部。 */
   kinds?: string[]

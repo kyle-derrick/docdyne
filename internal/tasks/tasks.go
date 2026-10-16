@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
 )
 
 // TaskType 任务类型常量：既是 asynq 的 typename，也是 Prometheus 指标的

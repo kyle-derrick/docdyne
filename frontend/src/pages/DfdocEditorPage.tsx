@@ -1,5 +1,5 @@
 ﻿// 富文本文档页（.dfrt 主后缀 / .dfdoc 兼容别名；路由 /dfdoc/:fileId）：
-// DocFlow 专属富文本格式，Tiptap JSON 存储（见 RichTextEditor）——编辑态
+// DocDyne 专属富文本格式，Tiptap JSON 存储（见 RichTextEditor）——编辑态
 // 加载 JSON 进 Tiptap，保存整篇回写新版本；查看态 readonly 渲染同一编辑器
 //（嵌入块内联渲染 drawio/白板/图片等）。by-path 路由经 prop 传入 file_id。
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, useMemo } from 'react'
@@ -24,16 +24,16 @@ import type { CollabSnapshot } from '../components/richtext/CollabSession'
 const RichTextEditor = lazy(() => import('../components/richtext/RichTextEditor'))
 
 // ---- 富文本指令式编辑（AIEditChat applyKind=richtext-patch）----
-// AI 回复 ```docflow-edit 围栏内的 JSON 编辑指令数组（replace/insert/delete/
+// AI 回复 ```docdyne-edit 围栏内的 JSON 编辑指令数组（replace/insert/delete/
 // replaceAll），由执行器 applyRichTextPatch 在 Tiptap 文档中按定位原文精确
 // 匹配逐条落盘（增删改插，而非整段追加）。
 
 /** 单条编辑指令（宽松类型：字段存在性由执行器逐条校验）。 */
 // ---- AI 上下文占位行（受保护内容标记）----
-// 嵌入块（docflowEmbed）/文档图片（docflowImage）/文件卡片（docflowFileCard）
+// 嵌入块（docdyneEmbed）/文档图片（docdyneImage）/文件卡片（docdyneFileCard）
 // 是 atom 节点，纯文本序列化（getText）下对 AI 完全不可见——AI 一旦输出
 // replaceAll/大段 replace，这些节点即被 markdown HTML 整体覆盖丢失。
-// 方案：序列化时输出占位行（[DocFlow-Embed kind="…" fileId="…" title="…"] 等），
+// 方案：序列化时输出占位行（[DocDyne-Embed kind="…" fileId="…" title="…"] 等），
 // 提示词约束 AI 逐字保留；执行器把占位行还原为对应节点 HTML（Tiptap 按
 // parseHTML 约定重建节点）；replaceAll 后扫描缺失节点按原顺序追加文末保底。
 
@@ -52,14 +52,14 @@ function specialNodePlaceholder(node: ProseMirrorNode): string | null {
   const attrs = node.attrs as { kind?: string; fileId?: string; title?: string }
   const fid = String(attrs.fileId ?? '')
   const title = escapePlaceholderTitle(attrs.title ?? '')
-  if (node.type.name === 'docflowEmbed') {
-    return `[DocFlow-Embed kind="${String(attrs.kind ?? 'file')}" fileId="${fid}" title="${title}"]`
+  if (node.type.name === 'docdyneEmbed') {
+    return `[DocDyne-Embed kind="${String(attrs.kind ?? 'file')}" fileId="${fid}" title="${title}"]`
   }
-  if (node.type.name === 'docflowImage') {
-    return `[DocFlow-Image fileId="${fid}" title="${title}"]`
+  if (node.type.name === 'docdyneImage') {
+    return `[DocDyne-Image fileId="${fid}" title="${title}"]`
   }
-  if (node.type.name === 'docflowFileCard') {
-    return `[DocFlow-File fileId="${fid}" title="${title}"]`
+  if (node.type.name === 'docdyneFileCard') {
+    return `[DocDyne-File fileId="${fid}" title="${title}"]`
   }
   return null
 }
@@ -95,21 +95,21 @@ function escapeHTMLAttr(s: string): string {
 }
 
 /** 把 AI 输出 markdown 中的占位行还原为对应节点的 HTML（marked 解析前）：
- * - Embed/Image 为块级 div（data-docflow-embed / data-docflow-image 属性，
- *   与 DocflowEmbed.ts / DocflowImage.ts 的 parseHTML 约定一致）；
- * - FileCard 为内联 span（data-docflow-file）。 */
+ * - Embed/Image 为块级 div（data-docdyne-embed / data-docdyne-image 属性，
+ *   与 DocdyneEmbed.ts / DocdyneImage.ts 的 parseHTML 约定一致）；
+ * - FileCard 为内联 span（data-docdyne-file）。 */
 function hydratePlaceholders(md: string): string {
   const title = '((?:\\\\.|[^"\\\\])*)'
   return md
-    .replace(new RegExp(`\\[DocFlow-Embed kind="([^"]*)" fileId="([^"]*)" title=${title}\\]`, 'g'),
+    .replace(new RegExp(`\\[DocDyne-Embed kind="([^"]*)" fileId="([^"]*)" title=${title}\\]`, 'g'),
       (_m, kind: string, fid: string, t: string) =>
-        `<div data-docflow-embed="${escapeHTMLAttr(kind)}" data-file-id="${escapeHTMLAttr(fid)}" data-title="${escapeHTMLAttr(unescapePlaceholderTitle(t))}" data-width="100"></div>`)
-    .replace(new RegExp(`\\[DocFlow-Image fileId="([^"]*)" title=${title}\\]`, 'g'),
+        `<div data-docdyne-embed="${escapeHTMLAttr(kind)}" data-file-id="${escapeHTMLAttr(fid)}" data-title="${escapeHTMLAttr(unescapePlaceholderTitle(t))}" data-width="100"></div>`)
+    .replace(new RegExp(`\\[DocDyne-Image fileId="([^"]*)" title=${title}\\]`, 'g'),
       (_m, fid: string, t: string) =>
-        `<div data-docflow-image="1" data-file-id="${escapeHTMLAttr(fid)}" data-title="${escapeHTMLAttr(unescapePlaceholderTitle(t))}" data-width="100"></div>`)
-    .replace(new RegExp(`\\[DocFlow-File fileId="([^"]*)" title=${title}\\]`, 'g'),
+        `<div data-docdyne-image="1" data-file-id="${escapeHTMLAttr(fid)}" data-title="${escapeHTMLAttr(unescapePlaceholderTitle(t))}" data-width="100"></div>`)
+    .replace(new RegExp(`\\[DocDyne-File fileId="([^"]*)" title=${title}\\]`, 'g'),
       (_m, fid: string, t: string) =>
-        `<span data-docflow-file="1" data-file-id="${escapeHTMLAttr(fid)}" data-title="${escapeHTMLAttr(unescapePlaceholderTitle(t))}"></span>`)
+        `<span data-docdyne-file="1" data-file-id="${escapeHTMLAttr(fid)}" data-title="${escapeHTMLAttr(unescapePlaceholderTitle(t))}"></span>`)
 }
 
 /** 在 ProseMirror 文档中按纯文本查找 needle（首个匹配，首尾空白不参与）：
@@ -370,7 +370,7 @@ export default function DfdocEditorPage({
     return [
       {
         name: 'read_document',
-        desc: '{} → 读当前文档全文（嵌入卡片序列化为 [DocFlow-Embed/Image/File] 占位行——受保护内容，改写时必须原样保留）。',
+        desc: '{} → 读当前文档全文（嵌入卡片序列化为 [DocDyne-Embed/Image/File] 占位行——受保护内容，改写时必须原样保留）。',
         label: () => '读取全文',
         exec: async () => {
           const full = docText()
@@ -553,7 +553,7 @@ export default function DfdocEditorPage({
           if (!/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(hit.name)) {
             return { ok: false, error: `${hit.name} 不是图片文件（可用 insert_embed 嵌入其它类型）` }
           }
-          ed.chain().insertContentAt(at, { type: 'docflowImage', attrs: { fileId: hit.id, title: hit.name, width: 100 } }).run()
+          ed.chain().insertContentAt(at, { type: 'docdyneImage', attrs: { fileId: hit.id, title: hit.name, width: 100 } }).run()
           markDirty()
           return { ok: true, inserted: hit.name }
         },
@@ -577,7 +577,7 @@ export default function DfdocEditorPage({
                 ? 'office'
                 : 'file'
           const at = a.at === 'cursor' ? ed.state.selection.from : ed.state.doc.content.size
-          ed.chain().insertContentAt(at, { type: 'docflowEmbed', attrs: { kind, fileId: hit.id, title: hit.name } }).run()
+          ed.chain().insertContentAt(at, { type: 'docdyneEmbed', attrs: { kind, fileId: hit.id, title: hit.name } }).run()
           markDirty()
           return { ok: true, kind, inserted: hit.name }
         },
@@ -619,7 +619,7 @@ export default function DfdocEditorPage({
       {
         name: 'write_document',
         destructive: true,
-        desc: '{md} → 整篇重写（仅当改动覆盖大半文档时使用；md 中的 [DocFlow-Embed/Image/File] 占位行必须逐字保留）。',
+        desc: '{md} → 整篇重写（仅当改动覆盖大半文档时使用；md 中的 [DocDyne-Embed/Image/File] 占位行必须逐字保留）。',
         label: () => '整篇重写',
         exec: async (a: Record<string, unknown>) => {
           const md = String(a.md ?? '')
@@ -758,11 +758,11 @@ export default function DfdocEditorPage({
           agentSystemExtra={[
             '富文本宿主约束：',
             '- 定位统一用 find（10-80 字、取自单一段落内的唯一原文片段，逐字复制）。',
-            '- [DocFlow-Embed kind="…" fileId="…" title="…"] / [DocFlow-Image …] / [DocFlow-File …] 占位行是嵌入的图表/白板/图片/文件块，受保护：不得作为 find、不得改写其文本；整篇重写（write_document）时必须把它们逐字放入 md（先 read_document 抄录占位行再写回）。',
+            '- [DocDyne-Embed kind="…" fileId="…" title="…"] / [DocDyne-Image …] / [DocDyne-File …] 占位行是嵌入的图表/白板/图片/文件块，受保护：不得作为 find、不得改写其文本；整篇重写（write_document）时必须把它们逐字放入 md（先 read_document 抄录占位行再写回）。',
             '- 整篇重写是最后手段（改动覆盖大半文档才用）：rewrite 前必须 read_document；若 read 返回 truncated=true，用 search_text 补齐尾部再写，切勿凭残文重建。',
             '- 行内样式用 format_text，段落级样式（标题/列表/代码块/引用）用 set_block_type——不要用整段替换实现格式调整。',
             '- 插入图片优先 insert_image {name}（平台文件）；组合其它文档用 insert_embed {name}（drawio/白板/Office/文件卡片），at:"end" 追加到文末；插入后不要整篇重写（会把刚插的块抹掉）——继续用局部工具。',
-            '- 格式规范（硬性）：标题层级 #/##/### 连续不跳级（一级=加粗大号、二级=加粗中号、三级=加粗）；正文自然间距；重要概念**加粗**；列表风格统一；表格用 insert_table header:true（表头加粗+底纹）；中英文/数字间加空格；代码块用围栏语法；[DocFlow-*] 占位行原样保留。',
+            '- 格式规范（硬性）：标题层级 #/##/### 连续不跳级（一级=加粗大号、二级=加粗中号、三级=加粗）；正文自然间距；重要概念**加粗**；列表风格统一；表格用 insert_table header:true（表头加粗+底纹）；中英文/数字间加空格；代码块用围栏语法；[DocDyne-*] 占位行原样保留。',
             '- 【自检循环】每批修改后 read_document 抽查改动点（格式未破坏/无重复/占位行完整），发现问题先修复再继续；全部完成才 FINAL 总结。',
           ].join('\n')}
         />

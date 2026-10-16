@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/oidc"
-	"github.com/docflow/docflow/internal/onlyoffice"
-	"github.com/docflow/docflow/internal/search"
-	"github.com/docflow/docflow/internal/tagging"
-	"github.com/docflow/docflow/internal/webpkg"
+	"github.com/kyle-derrick/docdyne/internal/oidc"
+	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
+	"github.com/kyle-derrick/docdyne/internal/search"
+	"github.com/kyle-derrick/docdyne/internal/tagging"
+	"github.com/kyle-derrick/docdyne/internal/webpkg"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 )

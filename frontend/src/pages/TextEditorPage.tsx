@@ -109,10 +109,10 @@ function HtmlViewer({ source, name }: { source: string; name: string }) {
 
 type MdViewMode = 'edit' | 'split' | 'preview'
 
-const MD_VIEW_KEY = 'docflow.mdViewMode'
+const MD_VIEW_KEY = 'docdyne.mdViewMode'
 
 /** md 分栏比例（百分比，编辑侧宽度；localStorage 记住，默认 50）。 */
-const MD_SPLIT_KEY = 'docflow.mdSplitRatio'
+const MD_SPLIT_KEY = 'docdyne.mdSplitRatio'
 
 function loadMdViewMode(): MdViewMode {
   const v = window.localStorage.getItem(MD_VIEW_KEY)

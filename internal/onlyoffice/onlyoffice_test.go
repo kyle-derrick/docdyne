@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -633,10 +633,10 @@ func TestPublicServerURLFor(t *testing.T) {
 		scheme, host string
 		want         string
 	}{
-		{"未配置按 Host 推导 http", "", "http", "docflow.example.com", "http://docflow.example.com/onlyoffice"},
-		{"未配置按 Host 推导 https", "", "https", "docflow.example.com:443", "https://docflow.example.com:443/onlyoffice"},
-		{"显式外网域名原样", "https://office.example.com/onlyoffice", "http", "docflow.example.com", "https://office.example.com/onlyoffice"},
-		{"显式 127.0.0.1 视为未配置", "http://127.0.0.1/onlyoffice", "https", "docflow.example.com", "https://docflow.example.com/onlyoffice"},
+		{"未配置按 Host 推导 http", "", "http", "docdyne.example.com", "http://docdyne.example.com/onlyoffice"},
+		{"未配置按 Host 推导 https", "", "https", "docdyne.example.com:443", "https://docdyne.example.com:443/onlyoffice"},
+		{"显式外网域名原样", "https://office.example.com/onlyoffice", "http", "docdyne.example.com", "https://office.example.com/onlyoffice"},
+		{"显式 127.0.0.1 视为未配置", "http://127.0.0.1/onlyoffice", "https", "docdyne.example.com", "https://docdyne.example.com/onlyoffice"},
 		{"显式 localhost 视为未配置", "http://localhost/onlyoffice", "http", "10.0.0.8:8080", "http://10.0.0.8:8080/onlyoffice"},
 		{"非法 scheme 归一 http", "http://127.0.0.1/onlyoffice", "ftp", "h", "http://h/onlyoffice"},
 		{"host 空回退显式 PublicURL", "https://office.example.com/onlyoffice", "http", "", "https://office.example.com/onlyoffice"},

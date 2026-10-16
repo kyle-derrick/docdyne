@@ -51,7 +51,7 @@ func (f *fakeMeili) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(`{"taskUid":1}`))
-	case r.URL.Path == "/indexes/docflow-files/settings/filterable-attributes" && r.Method == http.MethodPut:
+	case r.URL.Path == "/indexes/docdyne-files/settings/filterable-attributes" && r.Method == http.MethodPut:
 		f.mu.Lock()
 		status := f.settingsStatus
 		f.mu.Unlock()
@@ -60,7 +60,7 @@ func (f *fakeMeili) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(`{"taskUid":4}`))
-	case r.URL.Path == "/indexes/docflow-files/documents" && r.Method == http.MethodPost:
+	case r.URL.Path == "/indexes/docdyne-files/documents" && r.Method == http.MethodPost:
 		f.mu.Lock()
 		var docs []map[string]any
 		_ = json.Unmarshal([]byte(body), &docs)
@@ -68,13 +68,13 @@ func (f *fakeMeili) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		w.WriteHeader(202)
 		_, _ = w.Write([]byte(`{"taskUid":2}`))
-	case strings.HasPrefix(r.URL.Path, "/indexes/docflow-files/documents/") && r.Method == http.MethodDelete:
+	case strings.HasPrefix(r.URL.Path, "/indexes/docdyne-files/documents/") && r.Method == http.MethodDelete:
 		f.mu.Lock()
 		f.deletePaths = append(f.deletePaths, r.URL.Path)
 		f.mu.Unlock()
 		w.WriteHeader(202)
 		_, _ = w.Write([]byte(`{"taskUid":3}`))
-	case r.URL.Path == "/indexes/docflow-files/search" && r.Method == http.MethodPost:
+	case r.URL.Path == "/indexes/docdyne-files/search" && r.Method == http.MethodPost:
 		w.Header().Set("Content-Type", "application/json")
 		resp := f.searchResponse
 		if resp == "" {
@@ -128,7 +128,7 @@ func TestMeiliEnsureIndexIdempotent(t *testing.T) {
 	}
 	var putFound bool
 	for _, req := range fake.requests {
-		if strings.HasPrefix(req, "PUT /indexes/docflow-files/settings/filterable-attributes") &&
+		if strings.HasPrefix(req, "PUT /indexes/docdyne-files/settings/filterable-attributes") &&
 			strings.Contains(req, `"owner_id"`) && strings.Contains(req, `"space_id"`) {
 			putFound = true
 		}
@@ -185,7 +185,7 @@ func TestMeiliUpsertDocBody(t *testing.T) {
 	fake.mu.Lock()
 	paths := append([]string(nil), fake.deletePaths...)
 	fake.mu.Unlock()
-	if len(paths) != 1 || paths[0] != "/indexes/docflow-files/documents/"+fileID.String() {
+	if len(paths) != 1 || paths[0] != "/indexes/docdyne-files/documents/"+fileID.String() {
 		t.Fatalf("delete paths = %v", paths)
 	}
 }
@@ -221,7 +221,7 @@ func TestMeiliQueryDocs(t *testing.T) {
 	fake.mu.Lock()
 	last := ""
 	for _, req := range fake.requests {
-		if strings.HasPrefix(req, "POST /indexes/docflow-files/search") {
+		if strings.HasPrefix(req, "POST /indexes/docdyne-files/search") {
 			last = req
 		}
 	}
@@ -253,7 +253,7 @@ func TestMeiliQueryDocs(t *testing.T) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	for _, req := range fake.requests {
-		if strings.HasPrefix(req, "POST /indexes/docflow-files/search") && strings.Contains(req, other.String()) {
+		if strings.HasPrefix(req, "POST /indexes/docdyne-files/search") && strings.Contains(req, other.String()) {
 			if strings.Contains(req, "space_id") {
 				t.Fatalf("user without spaces should not filter by space_id: %s", req)
 			}

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/share"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -130,7 +130,7 @@ func TestPublicSharePasswordFlow(t *testing.T) {
 		t.Fatalf("verify must set exactly one cookie, got %v", cookies)
 	}
 	cookie := cookies[0]
-	wantName := "docflow_sa_" + token[:8]
+	wantName := "docdyne_sa_" + token[:8]
 	if cookie.Name != wantName {
 		t.Fatalf("cookie name = %q, want %q", cookie.Name, wantName)
 	}
@@ -141,7 +141,7 @@ func TestPublicSharePasswordFlow(t *testing.T) {
 		t.Fatalf("cookie value must be the opaque session value, got %q", cookie.Value)
 	}
 
-	// 携带 cookie：元数据 200，附水印渲染结果（IP 前缀脱敏 + 文件名 + DocFlow 侧展示）。
+	// 携带 cookie：元数据 200，附水印渲染结果（IP 前缀脱敏 + 文件名 + DocDyne 侧展示）。
 	w = doPublic(router, http.MethodGet, infoPath, cookie)
 	if w.Code != http.StatusOK {
 		t.Fatalf("info with session: %d (body %s)", w.Code, w.Body.String())

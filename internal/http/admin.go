@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/backup"
-	"github.com/docflow/docflow/internal/files"
-	"github.com/docflow/docflow/internal/group"
-	"github.com/docflow/docflow/internal/mail"
-	"github.com/docflow/docflow/internal/metrics"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/backup"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/group"
+	"github.com/kyle-derrick/docdyne/internal/mail"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -367,7 +367,7 @@ func (h *Handler) testSMTPSettings(c *gin.Context) {
 		return
 	}
 	mailer := mail.NewSMTPMailer(effective.Host, effective.Port, effective.User, effective.Pass, effective.From, effective.TLSMode)
-	body := fmt.Sprintf("这是一封 DocFlow SMTP 配置测试邮件。\n\n收到本邮件说明当前 SMTP 配置可正常投递。\n\n服务器：%s:%d（加密方式 %s）\n发件人：%s", effective.Host, effective.Port, effective.TLSMode, effective.From)
+	body := fmt.Sprintf("这是一封 DocDyne SMTP 配置测试邮件。\n\n收到本邮件说明当前 SMTP 配置可正常投递。\n\n服务器：%s:%d（加密方式 %s）\n发件人：%s", effective.Host, effective.Port, effective.TLSMode, effective.From)
 	if err := mailer.SendNotification(to, "SMTP 测试邮件", body); err != nil {
 		c.JSON(502, gin.H{"error": fmt.Sprintf("发送失败：%v", err)})
 		return
@@ -377,7 +377,7 @@ func (h *Handler) testSMTPSettings(c *gin.Context) {
 
 // backupStatusResponse 为 GET /admin/backups/status 的结构化响应：
 // enabled=BACKUP_DIR 是否配置；last_backup 取最近的 manifest.json（v2 目录
-// 布局 docflow-backup-<ts>/，兼容 v1 顶层散落清单）；verified 读取备份目录
+// 布局 docdyne-backup-<ts>/，兼容 v1 顶层散落清单）；verified 读取备份目录
 // 内 verify.json 标记（脚本 --verify / POST verify / cmd/backup-verify 写入，
 // 未验证时为 null）；files 为清单内每文件 sha256 与大小。
 type backupStatusResponse struct {

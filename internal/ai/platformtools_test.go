@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // requiredOf 提取 schema 的 required 数组（断言用）。
@@ -38,7 +38,7 @@ func requiredOf(t *testing.T, params map[string]any) []string {
 // schema 结构合法且必填参数正确。
 func TestPlatformToolsDeclarations(t *testing.T) {
 	tools := PlatformTools()
-	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history", "df_read_memory", "df_write_memory"}
+	want := []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search", "dd_search_history", "dd_read_memory", "dd_write_memory"}
 	if len(tools) != len(want) {
 		t.Fatalf("工具数 = %d, want %d（%v）", len(tools), len(want), tools)
 	}
@@ -62,21 +62,21 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 		}
 	}
 	// 必填参数：path（read/write/mkdir）、content（write/memory）、
-	// query（search/search_history）；df_list_dir 的 path 与 df_read_memory
+	// query（search/search_history）；dd_list_dir 的 path 与 dd_read_memory
 	// 的 query 可选。
-	if got := requiredOf(t, byName["df_list_dir"].Params); got != nil {
-		t.Fatalf("df_list_dir required = %v, want 无（path 可选）", got)
+	if got := requiredOf(t, byName["dd_list_dir"].Params); got != nil {
+		t.Fatalf("dd_list_dir required = %v, want 无（path 可选）", got)
 	}
-	if got := requiredOf(t, byName["df_read_memory"].Params); got != nil {
-		t.Fatalf("df_read_memory required = %v, want 无（query 可选）", got)
+	if got := requiredOf(t, byName["dd_read_memory"].Params); got != nil {
+		t.Fatalf("dd_read_memory required = %v, want 无（query 可选）", got)
 	}
 	for name, wantReq := range map[string][]string{
-		"df_read_file":      {"path"},
-		"df_write_file":     {"path", "content"},
-		"df_mkdir":          {"path"},
-		"df_search":         {"query"},
-		"df_search_history": {"query"},
-		"df_write_memory":   {"content"},
+		"dd_read_file":      {"path"},
+		"dd_write_file":     {"path", "content"},
+		"dd_mkdir":          {"path"},
+		"dd_search":         {"query"},
+		"dd_search_history": {"query"},
+		"dd_write_memory":   {"content"},
 	} {
 		got := requiredOf(t, byName[name].Params)
 		if len(got) != len(wantReq) {
@@ -99,7 +99,7 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 // TestPlatformToolNames 名称集合与声明一致。
 func TestPlatformToolNames(t *testing.T) {
 	names := PlatformToolNames()
-	want := []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search", "df_search_history", "df_read_memory", "df_write_memory"}
+	want := []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search", "dd_search_history", "dd_read_memory", "dd_write_memory"}
 	if len(names) != len(want) {
 		t.Fatalf("名称集合大小 = %d, want %d", len(names), len(want))
 	}
@@ -117,7 +117,7 @@ func TestPlatformToolNames(t *testing.T) {
 }
 
 // TestPlatformToolsFor 按开关过滤（v7.15 A7/A8）：history=false 剔
-// df_search_history；memory=false 剔记忆双工具；两者均 true = 全集。
+// dd_search_history；memory=false 剔记忆双工具；两者均 true = 全集。
 func TestPlatformToolsFor(t *testing.T) {
 	names := func(tools []PlatformTool) map[string]bool {
 		out := map[string]bool{}
@@ -132,7 +132,7 @@ func TestPlatformToolsFor(t *testing.T) {
 	}
 	noHist := names(PlatformToolsFor(false, true))
 	if noHist[PlatformToolSearchHistory] || len(noHist) != 7 {
-		t.Fatalf("history=false 应剔 df_search_history: %v", noHist)
+		t.Fatalf("history=false 应剔 dd_search_history: %v", noHist)
 	}
 	noMem := names(PlatformToolsFor(true, false))
 	if noMem[PlatformToolReadMemory] || noMem[PlatformToolWriteMemory] || len(noMem) != 6 {
@@ -145,7 +145,7 @@ func TestPlatformToolsFor(t *testing.T) {
 	if !IsMemoryToolName(PlatformToolReadMemory) || !IsMemoryToolName(PlatformToolWriteMemory) {
 		t.Fatal("IsMemoryToolName 应识别记忆双工具")
 	}
-	if IsMemoryToolName(PlatformToolSearch) || IsMemoryToolName("df_read_file") {
+	if IsMemoryToolName(PlatformToolSearch) || IsMemoryToolName("dd_read_file") {
 		t.Fatal("IsMemoryToolName 不应误判文件工具")
 	}
 }
@@ -168,7 +168,7 @@ func TestPlatformToolWriteExtAllowed(t *testing.T) {
 }
 
 // TestChatPlatformToolsLoop 内置工具循环：PlatformTools+ToolExecutor 注入
-// ChatRequest 后，上游请求 tools 含 df_*；模型请求工具时经回调执行并把
+// ChatRequest 后，上游请求 tools 含 dd_*；模型请求工具时经回调执行并把
 // 结果 JSON 回喂（role:tool），最终文本返回（非流式路径）。
 func TestChatPlatformToolsLoop(t *testing.T) {
 	var bodies []map[string]any
@@ -180,7 +180,7 @@ func TestChatPlatformToolsLoop(t *testing.T) {
 		rounds++
 		w.Header().Set("Content-Type", "application/json")
 		if rounds == 1 {
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_p1","function":{"name":"df_list_dir","arguments":"{}"}}]}}],"usage":{"prompt_tokens":5,"completion_tokens":5}}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_p1","function":{"name":"dd_list_dir","arguments":"{}"}}]}}],"usage":{"prompt_tokens":5,"completion_tokens":5}}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"共 3 个文件"}}]}`))
@@ -208,13 +208,13 @@ func TestChatPlatformToolsLoop(t *testing.T) {
 	if res.Content != "共 3 个文件" {
 		t.Fatalf("最终回复 = %q", res.Content)
 	}
-	if execName != "df_list_dir" {
+	if execName != "dd_list_dir" {
 		t.Fatalf("执行器收到的工具名 = %q", execName)
 	}
 	if strings.TrimSpace(string(execArgs)) != "{}" {
 		t.Fatalf("执行器收到的参数 = %s", execArgs)
 	}
-	// 上游首请求 tools 含全部 df_*。
+	// 上游首请求 tools 含全部 dd_*。
 	if len(bodies) != 2 {
 		t.Fatalf("上游轮数 = %d, want 2", len(bodies))
 	}
@@ -231,7 +231,7 @@ func TestChatPlatformToolsLoop(t *testing.T) {
 	for _, tl := range tools {
 		names[tl.Function.Name] = true
 	}
-	for _, want := range []string{"df_list_dir", "df_read_file", "df_write_file", "df_mkdir", "df_search"} {
+	for _, want := range []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search"} {
 		if !names[want] {
 			t.Fatalf("上游 tools 缺少 %s（实际 %v）", want, names)
 		}

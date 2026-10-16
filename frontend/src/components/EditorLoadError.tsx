@@ -63,7 +63,7 @@ export class EditorLoadErrorBoundary extends Component<
   }
 
   componentDidCatch(error: unknown) {
-    console.error('[docflow] editor chunk load failed:', error)
+    console.error('[docdyne] editor chunk load failed:', error)
   }
 
   render() {

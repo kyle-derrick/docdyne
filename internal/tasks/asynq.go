@@ -10,7 +10,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/docflow/docflow/internal/metrics"
+	"github.com/kyle-derrick/docdyne/internal/metrics"
 )
 
 // RedisAsynq 基于 asynq 的队列驱动（QUEUE_DRIVER=redis）。Client 与 Server
@@ -88,7 +88,7 @@ func NewAsynqServer(redisAddr, redisPassword string, concurrency int) *asynq.Ser
 }
 
 // NewMux 注册四类任务的 asynq 处理器：与 InProcess 驱动共用同一组处理
-// 函数实现，行为一致；处理结果计入 docflow_queue_processed_total{type,status}，
+// 函数实现，行为一致；处理结果计入 docdyne_queue_processed_total{type,status}，
 // 瞬时错误原样返回交由 asynq 重试。
 func NewMux(completeUpload, extractWebpkg, searchIndex TaskFunc, webhookDelivery WebhookDeliveryFunc) *asynq.ServeMux {
 	mux := asynq.NewServeMux()

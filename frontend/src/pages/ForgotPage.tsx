@@ -29,7 +29,7 @@ export default function ForgotPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1 className="login-title">DocFlow</h1>
+        <h1 className="login-title">DocDyne</h1>
         {sent ? (
           <>
             <p className="hint">如果该邮箱存在账号，重置链接已发送（30 分钟内有效，仅可使用一次）。</p>

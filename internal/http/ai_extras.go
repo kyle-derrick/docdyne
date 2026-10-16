@@ -34,10 +34,10 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
-	"github.com/docflow/docflow/internal/ai"
-	"github.com/docflow/docflow/internal/auth"
-	"github.com/docflow/docflow/internal/mcpclient"
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/mcpclient"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // ---------- 平台人设 / 技能模板 ----------
@@ -199,7 +199,7 @@ func (h *Handler) adminPutAIAgentPackages(c *gin.Context) {
 }
 
 // aiPackageExportFile 导出文件名前缀（format 决定扩展名）。
-const aiPackageExportFile = "docflow-agent-packages"
+const aiPackageExportFile = "docdyne-agent-packages"
 
 // adminExportAIAgentPackages GET /api/v1/admin/settings/ai/agent-packages/
 // export?format=json|yaml&scope=platform|builtin|all：技能包导出（I2，可
@@ -412,7 +412,7 @@ const aiMemoryContextLimit = 20
 
 // aiMemoryTitleRunes 标题列表中单条记忆的截取长度（rune 计，v7.15 A7：
 // system 只带标题不再全量注入）。20 条 ×≤48 字符 ≈ 千字符内（~200 tok），
-// 替代旧的全量注入（≤6000 字符常驻）；详情由模型按需 df_read_memory。
+// 替代旧的全量注入（≤6000 字符常驻）；详情由模型按需 dd_read_memory。
 const aiMemoryTitleRunes = 48
 
 // aiMemoryStore 抽象记忆存取（生产实现 *auth.UserStore，NewHandler 装配；
@@ -429,8 +429,8 @@ var _ aiMemoryStore = (*auth.UserStore)(nil)
 // aiMemoryContextBlock 拼装记忆上下文块（include_memory 开启时经
 // appendContextSystem 并入首条 system 消息，v7.15 A7 工具式记忆）：
 // 只注入最近 20 条的「标题列表」（每条截 aiMemoryTitleRunes 字符，时间
-// 正序阅读自然）+ 工具用法提示——完整内容由模型在需要时 df_read_memory
-// 按需读取，用户明确表达新偏好时 df_write_memory 记录。标题列表为用户
+// 正序阅读自然）+ 工具用法提示——完整内容由模型在需要时 dd_read_memory
+// 按需读取，用户明确表达新偏好时 dd_write_memory 记录。标题列表为用户
 // 自述数据（AI 亦可代写），整体经 ai.UntrustedBlock 围栏隔离（J2）。
 // 未装配存储 / 读取失败 / 无记忆返回空串（静默降级，不阻塞对话）。
 func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
@@ -449,7 +449,7 @@ func (h *Handler) aiMemoryContextBlock(user uuid.UUID) string {
 		}
 		b.WriteString("\n- " + string(title))
 	}
-	return "以下是用户的长期偏好记忆标题列表（完整内容用 df_read_memory 工具按关键词查询；用户明确表达值得长期记住的偏好时用 df_write_memory 记录）：\n" +
+	return "以下是用户的长期偏好记忆标题列表（完整内容用 dd_read_memory 工具按关键词查询；用户明确表达值得长期记住的偏好时用 dd_write_memory 记录）：\n" +
 		ai.UntrustedBlock("用户记忆标题", strings.TrimPrefix(b.String(), "\n"))
 }
 
@@ -726,7 +726,7 @@ func (h *Handler) agentPackagesForKind(kind string) []settings.AIAgentPackageDef
 	packs := []settings.AIAgentPackageDef{
 		{ID: "builtin-excel-analyst", Name: "Excel 报表专家", Kinds: []string{"text"}, SystemExtra: "你是 Excel 报表专家：整表用 write_table（含表头行二维数组）；数字/百分比/日期列设 numberFormat；关键行加条件格式；表头冻结；完成后 read_range 校验行列。"},
 		{ID: "builtin-diagram-architect", Name: "图表架构师", Kinds: []string{"excalidraw-json", "drawio-xml"}, SystemExtra: "你是图表架构师（参照成熟 excalidraw/drawio skill 方法论）：先 read_scene/list_cells 掌握现状再动笔；设计遵循「图要论证而非罗列」——每个概念用匹配其行为的视觉模式（扇出/汇聚/树/环/时间线），忌等大的盒子阵列；留白即层级（焦点元素最大、周围最空）。新增优先 insert_elements/insert_cells（大图分节多次插入，可用 at 锚点精确落点）；加连线一律 connect {fromId,toId}（白板）或带 source/target 的边（drawio），勿手算坐标；改色改字用 update_elements/update_cells，不整图重画；重构连线=只删旧箭头再重连，节点不动。【自检循环（硬性）】每完成一节/一次修改后必须重读（read_scene/list_cells）验证：无重叠、无悬空连线、标签完整未截断、间距均匀、对齐网格；发现问题先修复再继续，全部通过才 FINAL。语言：始终使用中文（过程说明与总结）。"},
-		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校（成熟 docx/pdf skill 方法论）：逐条定位（find 用 10-80 字唯一片段，逐字复制原文）；改动最小化（格式调整用 format_text/set_block_type，不整段替换；嵌入占位行 [DocFlow-*] 一律不动）；标题层级连续（不跳级）、列表风格统一、中英文间距一致。【自检循环（硬性）】每批修改后 read_document 抽查改动点：格式未破坏、无重复段落、占位行完整；发现问题先修复再继续。语言：始终使用中文。"},
+		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校（成熟 docx/pdf skill 方法论）：逐条定位（find 用 10-80 字唯一片段，逐字复制原文）；改动最小化（格式调整用 format_text/set_block_type，不整段替换；嵌入占位行 [DocDyne-*] 一律不动）；标题层级连续（不跳级）、列表风格统一、中英文间距一致。【自检循环（硬性）】每批修改后 read_document 抽查改动点：格式未破坏、无重复段落、占位行完整；发现问题先修复再继续。语言：始终使用中文。"},
 	}
 	if h.settings != nil {
 		if svc, ok := h.settings.(interface {

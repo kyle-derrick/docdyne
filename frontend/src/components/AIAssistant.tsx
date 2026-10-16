@@ -16,7 +16,7 @@
 // - 「问 AI」（全局搜索框）：openAIAssistant(context?, ask?) 事件打开并
 //   以检索增强模式立即提问；
 // - 人设三源合并（平台 + 内置 + 自定义）、长期记忆（手动 + 自动提取开关）、
-//   df_* 平台文件工具（use_files + work_root 工作目录）、MCP/联网/思考开关
+//   dd_* 平台文件工具（use_files + work_root 工作目录）、MCP/联网/思考开关
 //   ——详见各段注释。
 import { useEffect, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
@@ -75,8 +75,8 @@ interface AIContextFile {
 }
 
 /** 引用文件（随对话发送 fileIds；用户气泡 📎 chips 展示；定义在
- *  @docflow/chat 共享，此处保留导出兼容既有引用）。 */
-export type { AIAttachFile } from '@docflow/chat'
+ *  @docdyne/chat 共享，此处保留导出兼容既有引用）。 */
+export type { AIAttachFile } from '@docdyne/chat'
 
 // ---------- 可选模型列表（GET /api/v1/ai/models 由并行任务添加） ----------
 // api.ts 暂无封装（getAIModels 可能由并行任务加入），为解耦在此本地实现：
@@ -98,13 +98,13 @@ export interface AIModelOption {
 }
 
 /** 选定模型持久化 key（助手与编辑页内嵌对话共用）。 */
-export const AI_MODEL_STORAGE_KEY = 'docflow.ai.model'
+export const AI_MODEL_STORAGE_KEY = 'docdyne.ai.model'
 
 /** 联网/思考开关持久化 key（AIAssistant / AIEditChat 等对话 UI 共用）。 */
-export const AI_WEB_STORAGE_KEY = 'docflow.ai.web'
-export const AI_THINK_STORAGE_KEY = 'docflow.ai.think'
+export const AI_WEB_STORAGE_KEY = 'docdyne.ai.web'
+export const AI_THINK_STORAGE_KEY = 'docdyne.ai.think'
 /** 思考等级持久化 key（low/medium/high；缺省 medium）。 */
-export const AI_THINK_EFFORT_KEY = 'docflow.ai.think.effort'
+export const AI_THINK_EFFORT_KEY = 'docdyne.ai.think.effort'
 
 /** 读取思考等级（非法回退 medium）。 */
 export function loadThinkEffort(): 'low' | 'medium' | 'high' {
@@ -116,14 +116,14 @@ export function loadThinkEffort(): 'low' | 'medium' | 'high' {
   }
 }
 /** MCP 工具开关持久化 key（默认关；仅平台存在启用中的 MCP 服务时显示开关）。 */
-export const AI_MCP_STORAGE_KEY = 'docflow.ai.mcp'
+export const AI_MCP_STORAGE_KEY = 'docdyne.ai.mcp'
 /** 「我的文件」（RAG 检索本人文档）开关持久化 key（默认开；RAG 未启用时隐藏）。 */
-export const AI_DOCS_STORAGE_KEY = 'docflow.ai.docs'
-/** 平台文件工具（df_* 直接读写工作目录内文件）开关持久化 key（默认开）。 */
-export const AI_FILES_STORAGE_KEY = 'docflow.ai.files'
+export const AI_DOCS_STORAGE_KEY = 'docdyne.ai.docs'
+/** 平台文件工具（dd_* 直接读写工作目录内文件）开关持久化 key（默认开）。 */
+export const AI_FILES_STORAGE_KEY = 'docdyne.ai.files'
 
 /** 助手模式持久化 key（'chat' = 仅对话（不修改/不操作文件）；缺省/其他 = 智能）。 */
-export const AI_MODE_STORAGE_KEY = 'docflow.ai.mode'
+export const AI_MODE_STORAGE_KEY = 'docdyne.ai.mode'
 
 /** 读取助手模式（非法/未存储回退「智能」）。 */
 function loadAIMode(): 'smart' | 'chat' {
@@ -135,7 +135,7 @@ function loadAIMode(): 'smart' | 'chat' {
 }
 
 /** 同页多个开关实例的状态同步事件（storage 事件仅跨标签页触发）。 */
-const AI_FLAGS_EVENT = 'docflow:ai-flags'
+const AI_FLAGS_EVENT = 'docdyne:ai-flags'
 
 /** 读 localStorage 布尔标记（'1'/'0'；未存储或不可用时返回 null）。 */
 export function readAIFlag(key: string): boolean | null {
@@ -469,7 +469,7 @@ export interface AIChatToggleState {
   docs: boolean
   /** RAG 是否可用（useAIFeatures().rag；false = 隐藏开关且不发送）。 */
   docsAvailable: boolean
-  /** 平台文件工具开关（默认开；发送 use_files，df_* 直接读写工作目录内文件）。 */
+  /** 平台文件工具开关（默认开；发送 use_files，dd_* 直接读写工作目录内文件）。 */
   files: boolean
   setWeb: (v: boolean) => void
   setThink: (v: boolean) => void
@@ -480,20 +480,20 @@ export interface AIChatToggleState {
 
 /**
  * 联网/思考/MCP/我的文件开关共享逻辑（AIAssistant / AIEditChat 复用）：
- * - 联网：默认开（后端未配置搜索时静默忽略），持久化 docflow.ai.web；
+ * - 联网：默认开（后端未配置搜索时静默忽略），持久化 docdyne.ai.web；
  * - 思考：所选模型 capabilities 含 reasoning 时默认开，否则关且禁用
  *   （Tooltip 由调用方按 thinkBlocked 提示）；模型切换/列表加载后重估；
- *   持久化 docflow.ai.think 记忆用户显式选择（模型不支持时强制关）；
- * - MCP 工具：默认关，持久化 docflow.ai.mcp；仅平台存在启用中的 MCP
+ *   持久化 docdyne.ai.think 记忆用户显式选择（模型不支持时强制关）；
+ * - MCP 工具：默认关，持久化 docdyne.ai.mcp；仅平台存在启用中的 MCP
  *   服务（GET /ai/mcp 模块级缓存探测）时显示开关；
- * - 我的文件：默认开，持久化 docflow.ai.docs；发送 include_docs: true
+ * - 我的文件：默认开，持久化 docdyne.ai.docs；发送 include_docs: true
  *   （后端检索引用本人文档；未支持时静默忽略）；useAIFeatures().rag
  *   为 false 时隐藏开关且不发送；
- * - 文件工具：默认开，持久化 docflow.ai.files；发送 use_files（df_* 平台
+ * - 文件工具：默认开，持久化 docdyne.ai.files；发送 use_files（dd_* 平台
  *   文件工具，AI 可直接读写工作目录内文件，覆盖自动留版本）；
  * - 未显式选模型（用后端默认）时按「任一可见模型支持推理」宽估；
  * - /ai/models 为空（未配置模型）时思考开关禁用；
- * - 同页多实例经 docflow:ai-flags 事件保持一致。
+ * - 同页多实例经 docdyne:ai-flags 事件保持一致。
  */
 export function useAIChatToggles(models: AIModelOption[], modelKey: string, opts?: { ready?: boolean }): AIChatToggleState {
   const [web, setWebState] = useState(() => readAIFlag(AI_WEB_STORAGE_KEY) ?? true)
@@ -593,7 +593,7 @@ export function aiDocsTooltip(zh: boolean): string {
     : 'My files (RAG): retrieve and cite my in-platform documents only, no external internet access'
 }
 
-/** 「文件操作」开关 Tooltip 文案（df_* 平台文件工具）。 */
+/** 「文件操作」开关 Tooltip 文案（dd_* 平台文件工具）。 */
 export function aiFilesTooltip(zh: boolean): string {
   return zh
     ? '文件操作：AI 可直接读写工作目录内的文件（自动留版本）'
@@ -681,7 +681,7 @@ export function AIChatToggleBar({
       })}
       {/* MCP 工具：仅平台存在启用中的 MCP 服务时显示（默认关）。 */}
       {iconBtn(zh ? 'MCP 工具' : 'MCP tools', Wrench, mcp, () => onMcp(!mcp), aiMCPTooltip(zh), { hidden: !mcpAvailable })}
-      {/* 文件操作（df_* 平台文件工具）：默认开；onFiles 未传/对话模式不渲染。 */}
+      {/* 文件操作（dd_* 平台文件工具）：默认开；onFiles 未传/对话模式不渲染。 */}
       {iconBtn(zh ? '文件操作' : 'File operations', FolderCog, files ?? true, () => onFiles?.(!(files ?? true)), aiFilesTooltip(zh), {
         hidden: !onFiles || filesDisabled,
       })}
@@ -692,17 +692,17 @@ export function AIChatToggleBar({
 // ---------- 联网搜索来源（SSE meta.sources 宽松读取） ----------
 
 /** 联网搜索来源条目（后端字段名宽松归一化）。 */
-// ---------- 网络来源 / 工具调用展示（@docflow/chat 共享实现，此处保留兼容导出） ----------
+// ---------- 网络来源 / 工具调用展示（@docdyne/chat 共享实现，此处保留兼容导出） ----------
 
-// 网络来源归一化与渲染、工具调用链迁至 @docflow/chat（三处对话共用），
+// 网络来源归一化与渲染、工具调用链迁至 @docdyne/chat（三处对话共用），
 // 保留原导出名以兼容 AIEditChat 等既有引用。
-import { AIAttachTree, AIChatShell, aiFriendlyError, applyToolResult, normalizeWebSources, toolEntryFrom, useStickyScroll } from '@docflow/chat'
-import type { AIAttachFile, AIChatTurnData, ChatMessage } from '@docflow/chat'
+import { AIAttachTree, AIChatShell, aiFriendlyError, applyToolResult, normalizeWebSources, toolEntryFrom, useStickyScroll } from '@docdyne/chat'
+import type { AIAttachFile, AIChatTurnData, ChatMessage } from '@docdyne/chat'
 
-// ---------- 工作目录选择（df_* 平台文件工具的相对路径基准） ----------
+// ---------- 工作目录选择（dd_* 平台文件工具的相对路径基准） ----------
 
 /** 工作目录持久化 key（{spaceId, folderId, name[, path]}；无记忆 = 默认空间根）。 */
-export const AI_WORKDIR_STORAGE_KEY = 'docflow.ai.workdir'
+export const AI_WORKDIR_STORAGE_KEY = 'docdyne.ai.workdir'
 
 /** 工作目录记忆值（folderId 为解析基准；name 供按钮显示、path 供 Tooltip）。 */
 export interface AIWorkDir {
@@ -991,8 +991,8 @@ const AI_PERSONAS = [
 ] as const
 
 /** 人设持久化 keys。 */
-const AI_PERSONA_KEY = 'docflow.ai.persona'
-const AI_PERSONA_CUSTOM_KEY = 'docflow.ai.persona.custom'
+const AI_PERSONA_KEY = 'docdyne.ai.persona'
+const AI_PERSONA_CUSTOM_KEY = 'docdyne.ai.persona.custom'
 
 /** 读取记住的人设（内置 id 或平台前缀值；缺省/非法值回退通用助理）。 */
 function loadPersonaId(): string {
@@ -1006,12 +1006,12 @@ function loadPersonaId(): string {
  * 模式提问——全局搜索框「问 AI」入口使用）。
  */
 export function openAIAssistant(context?: AIContextFile, ask?: string): void {
-  window.dispatchEvent(new CustomEvent<{ context?: AIContextFile; ask?: string }>('docflow:ai-open', { detail: { context, ask } }))
+  window.dispatchEvent(new CustomEvent<{ context?: AIContextFile; ask?: string }>('docdyne:ai-open', { detail: { context, ask } }))
 }
 
 /** 设置 AI 上下文文件（查看页进入时调用，供快捷摘要使用）。 */
 export function setAIContextFile(context: AIContextFile | null): void {
-  window.dispatchEvent(new CustomEvent<AIContextFile | null>('docflow:ai-context', { detail: context }))
+  window.dispatchEvent(new CustomEvent<AIContextFile | null>('docdyne:ai-context', { detail: context }))
 }
 
 interface ChatTurn extends AIChatTurnData {
@@ -1023,12 +1023,12 @@ interface ChatTurn extends AIChatTurnData {
   prologue?: string[]
   /** 完整过程 trace（v7.13：与编辑宿主同构——思考/叙述/工具按时间序
    *  交织的 TraceStage[]；ChatThread 直接渲染）。 */
-  trace?: import('@docflow/chat').TraceStage[]
+  trace?: import('@docdyne/chat').TraceStage[]
 }
 
 // ---------- 多会话（历史会话；服务端 ai_conversations 持久化） ----------
 // v7.2 起会话存服务端（/api/v1/ai/conversations，source=assistant，
-// 跨设备一致）；localStorage docflow.ai.convos.{uid} 仅作首次迁移源
+// 跨设备一致）；localStorage docdyne.ai.convos.{uid} 仅作首次迁移源
 //（服务端为空且本机有历史时一次性上迁）。
 
 /** 会话内持久化消息（role/content/ts + user 回合的引用文件 chips）。 */
@@ -1038,7 +1038,7 @@ export interface AIConvoMessage {
   ts: number
   files?: AIAttachFile[]
   /** assistant 回合的完整过程 trace（v7.14b 持久化）。 */
-  trace?: import('@docflow/chat').TraceStage[]
+  trace?: import('@docdyne/chat').TraceStage[]
 }
 
 /** 历史会话条目（≤30 个，超出服务端裁最旧；单会话消息 ≤50 条）。 */
@@ -1054,7 +1054,7 @@ const AI_CONVO_MAX = 300
 const AI_CONVO_MSG_MAX = 50
 
 /** 旧本机存储 key（仅迁移源）。 */
-const aiConvosKey = (uid: string) => `docflow.ai.convos.${uid}`
+const aiConvosKey = (uid: string) => `docdyne.ai.convos.${uid}`
 
 /** 读取本机历史会话（迁移源；宽松解析，损坏条目跳过，按 updatedAt 降序）。 */
 function loadAIConvos(uid: string): AIConvo[] {
@@ -1181,7 +1181,7 @@ export default function AIAssistant() {
   // 加载期间思考开关保持可用（默认开），避免「支持思考却禁用」误判。
   const toggles = useAIChatToggles(models, modelKey, { ready: modelsLoaded })
   const [thinkEffort, setThinkEffort] = useState<'low' | 'medium' | 'high'>(loadThinkEffort)
-  // ---- 助手模式（智能 | 仅对话）：仅对话 = 不注入 df_* 文件工具
+  // ---- 助手模式（智能 | 仅对话）：仅对话 = 不注入 dd_* 文件工具
   //      （use_files 显式 false）+ 系统提示声明不读写文件；localStorage 记忆。 ----
   const [aiMode, setAiMode] = useState<'smart' | 'chat'>(loadAIMode)
   const chatOnly = aiMode === 'chat'
@@ -1233,7 +1233,7 @@ export default function AIAssistant() {
 useEffect(() => {
     if (aiLoc && !aiLoc.folderId && aiLoc.spaceId) void resolveSpaceRootFolderId(aiLoc.spaceId)
   }, [aiLoc])
-  // 工作目录（df_* 文件工具相对路径基准）：localStorage 记忆
+  // 工作目录（dd_* 文件工具相对路径基准）：localStorage 记忆
   // {spaceId, folderId, name}；未选择 = 跟随文件页位置（有）或默认空间根。
   const [workdir, setWorkdir] = useState<AIWorkDir | null>(loadAIWorkDir)
   const selectWorkDir = (w: AIWorkDir | null) => {
@@ -1245,7 +1245,7 @@ useEffect(() => {
       /* ignore */
     }
   }
-  // ---- 多会话（历史会话；localStorage docflow.ai.convos.{uid}，uid 就绪后载入）----
+  // ---- 多会话（历史会话；localStorage docdyne.ai.convos.{uid}，uid 就绪后载入）----
   const [aiUid, setAiUid] = useState('')
   const [convos, setConvos] = useState<AIConvo[]>([])
   const [convoId, setConvoId] = useState('')
@@ -1265,7 +1265,7 @@ useEffect(() => {
   // 拖动/缩放/记忆内聚 AIChatShell）。
   const [floatMode, setFloatMode] = useState(() => {
     try {
-      return window.localStorage.getItem('docflow.ai.assistant.floatMode') === '1'
+      return window.localStorage.getItem('docdyne.ai.assistant.floatMode') === '1'
     } catch {
       return false
     }
@@ -1274,7 +1274,7 @@ useEffect(() => {
     setFloatMode((v) => {
       const next = !v
       try {
-        window.localStorage.setItem('docflow.ai.assistant.floatMode', next ? '1' : '0')
+        window.localStorage.setItem('docdyne.ai.assistant.floatMode', next ? '1' : '0')
       } catch {
         /* ignore */
       }
@@ -1538,7 +1538,7 @@ useEffect(() => {
       const lines: string[] = [
         `# ${zh ? 'AI 会话' : 'AI conversation'}：${title}`,
         '',
-        `> ${stamp.toLocaleString()} · DocFlow AI 助手`,
+        `> ${stamp.toLocaleString()} · DocDyne AI 助手`,
         '',
       ]
       for (const x of list) {
@@ -1569,7 +1569,7 @@ useEffect(() => {
           rows.push({ title: s.title, updatedAt: s.updatedAt, messages: row.messages })
         } catch { /* 单会话失败跳过 */ }
       }
-      const payload = { version: 1, kind: 'docflow-ai-sessions', source: 'assistant', exported_at: new Date().toISOString(), sessions: rows }
+      const payload = { version: 1, kind: 'docdyne-ai-sessions', source: 'assistant', exported_at: new Date().toISOString(), sessions: rows }
       const stamp = new Date()
       const pad = (n: number) => String(n).padStart(2, '0')
       const name = `AI会话备份-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`
@@ -1730,11 +1730,11 @@ useEffect(() => {
       const detail = (e as CustomEvent<AIContextFile | null>).detail
       setContext(detail)
     }
-    window.addEventListener('docflow:ai-open', onOpen)
-    window.addEventListener('docflow:ai-context', onContext)
+    window.addEventListener('docdyne:ai-open', onOpen)
+    window.addEventListener('docdyne:ai-context', onContext)
     return () => {
-      window.removeEventListener('docflow:ai-open', onOpen)
-      window.removeEventListener('docflow:ai-context', onContext)
+      window.removeEventListener('docdyne:ai-open', onOpen)
+      window.removeEventListener('docdyne:ai-context', onContext)
     }
   }, [])
 
@@ -2014,7 +2014,7 @@ useEffect(() => {
           include_memory: true,
           // 我的文件（RAG 引用本人文档）：默认开（后端就绪前透传、忽略）。
           include_docs: toggles.docs ? true : undefined,
-          // 平台文件工具（df_*）：开关显式透传（关闭时传 false 停止注入）；
+          // 平台文件工具（dd_*）：开关显式透传（关闭时传 false 停止注入）；
           // 仅对话模式恒 false（不注入任何文件工具）。
           use_files: chatOnly ? false : toggles.files,
           // 工作目录（相对路径解析基准）：实际生效目录（见上方 workRoot）。
@@ -2274,8 +2274,8 @@ useEffect(() => {
   // ---- 渲染（v7.4 S8：AIChatShell 统一 UI；本组件只注入业务回调）----
   // 模式说明（v7.6：经头部模式单按钮 hover 展示）。
   const modeTip = chatOnly
-    ? (zh ? '不注入 df_* 文件工具（use_files=false）且系统提示声明不读写文件；联网/思考/MCP/记忆等能力不受影响。' : 'No df_* file tools are injected; web/thinking/MCP/memory still work.')
-    : (zh ? 'AI 可经 df_* 平台文件工具直接读写工作目录内文件（自动留版本）；工作目录在下方工具行切换。' : 'The AI can read/write files in the working directory via df_* tools (auto versioned); change the working directory in the toolbar above.')
+    ? (zh ? '不注入 dd_* 文件工具（use_files=false）且系统提示声明不读写文件；联网/思考/MCP/记忆等能力不受影响。' : 'No dd_* file tools are injected; web/thinking/MCP/memory still work.')
+    : (zh ? 'AI 可经 dd_* 平台文件工具直接读写工作目录内文件（自动留版本）；工作目录在下方工具行切换。' : 'The AI can read/write files in the working directory via dd_* tools (auto versioned); change the working directory in the toolbar above.')
   const copyContent = (content: string) => {
     void navigator.clipboard.writeText(content)
     void message.success(zh ? '已复制' : 'Copied')
@@ -2440,7 +2440,7 @@ useEffect(() => {
                   </Button>
                 </Popover>
               )}
-              {/* 工作目录（df_* 文件工具基准）：手选（固定）> 跟随文件页当前位置 > 默认空间根。 */}
+              {/* 工作目录（dd_* 文件工具基准）：手选（固定）> 跟随文件页当前位置 > 默认空间根。 */}
               <AIWorkDirButton
                 value={workdir}
                 follow={!workdir && aiLoc ? { path: aiLoc.path } : null}

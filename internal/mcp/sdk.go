@@ -1,7 +1,7 @@
-// SDK 适配层（K6 迁移）：把 DocFlow 的 Tool 定义挂到官方 MCP Go SDK
+// SDK 适配层（K6 迁移）：把 DocDyne 的 Tool 定义挂到官方 MCP Go SDK
 // （github.com/modelcontextprotocol/go-sdk/mcp）的 Server 上——协议分发、
 // JSON-RPC 信封、Streamable HTTP 传输（stateless + JSONResponse）全部由
-// SDK 承接；DocFlow 侧只保留 scope 门控、能力可用性标注与 handler 结果
+// SDK 承接；DocDyne 侧只保留 scope 门控、能力可用性标注与 handler 结果
 // 到 text content 的转换。
 package mcp
 
@@ -34,7 +34,7 @@ func IdentityFromContext(ctx context.Context) Identity {
 	return Identity{}
 }
 
-// allServerTools 汇总全部工具定义（df_ 文件工具 + AI 工具 + 会话工具）。
+// allServerTools 汇总全部工具定义（dd_ 文件工具 + AI 工具 + 会话工具）。
 func allServerTools(deps *Deps) []Tool {
 	return append(append(allTools(), aiTools()...), conversationTools(deps.Convos)...)
 }
@@ -65,7 +65,7 @@ func NewSDKServer(deps *Deps) *mcpsdk.Server {
 	return s
 }
 
-// adaptTool 把 DocFlow Tool 适配为 SDK ToolHandler：scope 门控 → 可用性
+// adaptTool 把 DocDyne Tool 适配为 SDK ToolHandler：scope 门控 → 可用性
 // 门控 → 调用既有 handler → 结果转 text content。错误统一按 MCP 规范以
 // isError 工具结果返回（agent 可读原因并自行调整策略）；K6 迁移把
 // scope 不足与入参非法从协议级错误码（-32003/-32602）改为 isError——

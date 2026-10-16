@@ -44,7 +44,7 @@ func TestMetricsEndpointMounted(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"docflow_http_requests_total",
+		"docdyne_http_requests_total",
 		`route="/health"`,
 		`route="unknown"`,
 	} {

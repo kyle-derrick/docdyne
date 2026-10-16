@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/docflow/docflow/internal/audit"
-	"github.com/docflow/docflow/internal/upload"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // errUnknownTaskType 表示载荷的任务类型未注册（不应发生，防御性返回）。

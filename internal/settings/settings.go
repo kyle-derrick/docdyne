@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -146,7 +146,7 @@ const (
 	KeyAISearchTavilyKey  = "ai.search.tavily_api_key"
 	KeyAISearchMaxResults = "ai.search.max_results"
 	// KeyAIHistorySearch 对话历史检索开关（v7.15 A8）：keyword（默认，消息
-	// 行表 + pg_trgm 子串检索）/ off（关闭——df_search_history 不注入）。
+	// 行表 + pg_trgm 子串检索）/ off（关闭——dd_search_history 不注入）。
 	// 管理端 /admin/settings/ai 维护；不进 Definitions（专用 AI 设置页读写）。
 	KeyAIHistorySearch = "ai.history_search"
 	// KeyAIOCR 为图片 OCR 配置（整体 JSON 块：enabled/provider_id/model_id/
@@ -501,7 +501,7 @@ type AIConfig struct {
 	AgentPackages []AIAgentPackageDef `json:"agent_packages,omitempty"`
 	// HistorySearch 对话历史检索（v7.15 A8，ai.history_search 键）：
 	// "keyword"（默认，含空值——消息行表 + pg_trgm 子串检索）或 "off"
-	//（关闭：df_search_history 工具不注入）。vector 预留值位：会话消息
+	//（关闭：dd_search_history 工具不注入）。vector 预留值位：会话消息
 	// 向量化需按轮 embedding（成本/链路另行评估），当前未启用。
 	HistorySearch string `json:"history_search,omitempty"`
 	// FallbackModels 为备选模型链（H2，ai.fallback_models 键）：普通对话
@@ -663,7 +663,7 @@ const (
 
 // DefaultAIConfig 返回默认 AI 配置（无 Provider）。
 func DefaultAIConfig() AIConfig {
-	return AIConfig{Temperature: AITemperatureDefault, MaxTokens: AIMaxTokensDefault, PerUserPerMin: AIPerUserPerMinDefault, RAG: AIRAGConfig{Mode: "keyword", QdrantURL: "http://qdrant:6333", CollectionPrefix: "docflow_", EmbeddingProvider: "mock", EmbeddingModel: "text-embedding-3-small", TopK: 8, ChunkSize: 1000, ChunkOverlap: 100}, Search: AISearchConfig{MaxResults: AISearchMaxResultsDefault}, HistorySearch: "keyword"}
+	return AIConfig{Temperature: AITemperatureDefault, MaxTokens: AIMaxTokensDefault, PerUserPerMin: AIPerUserPerMinDefault, RAG: AIRAGConfig{Mode: "keyword", QdrantURL: "http://qdrant:6333", CollectionPrefix: "docdyne_", EmbeddingProvider: "mock", EmbeddingModel: "text-embedding-3-small", TopK: 8, ChunkSize: 1000, ChunkOverlap: 100}, Search: AISearchConfig{MaxResults: AISearchMaxResultsDefault}, HistorySearch: "keyword"}
 }
 
 // ValidateAIProvider 校验单个 Provider 条目（ID 唯一性由 ValidateAI 统一判）。
@@ -1008,7 +1008,7 @@ var Definitions = []Definition{
 	{Key: KeyAIRAGMode, Type: TypeString, Default: "keyword", Effect: EffectImmediate, Description: "RAG mode: keyword or hybrid"},
 	{Key: KeyAIRAGVectorEnabled, Type: TypeBool, Default: false, Effect: EffectImmediate, Description: "Enable optional vector RAG"},
 	{Key: KeyAIRAGQdrantURL, Type: TypeString, Default: "http://qdrant:6333", Effect: EffectRestart, Description: "Qdrant URL"},
-	{Key: KeyAIRAGCollectionPrefix, Type: TypeString, Default: "docflow_", Effect: EffectRestart, Description: "Qdrant collection prefix"},
+	{Key: KeyAIRAGCollectionPrefix, Type: TypeString, Default: "docdyne_", Effect: EffectRestart, Description: "Qdrant collection prefix"},
 	{Key: KeyAIRAGEmbeddingProvider, Type: TypeString, Default: "mock", Effect: EffectRestart, Description: "Embedding provider"},
 	{Key: KeyAIRAGEmbeddingModel, Type: TypeString, Default: "text-embedding-3-small", Effect: EffectRestart, Description: "Embedding model"},
 	{Key: KeyAIRAGTopK, Type: TypeInt, Default: int64(8), Min: intPtr(1), Max: intPtr(100), Effect: EffectImmediate, Description: "Vector retrieval top K"},

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docflow/docflow/internal/settings"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // mockChunkDelay 流式块间隔（模拟网络打字机节奏）。

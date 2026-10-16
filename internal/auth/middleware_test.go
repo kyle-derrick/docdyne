@@ -162,7 +162,7 @@ func TestRequireAccessTokenDualPathMatrix(t *testing.T) {
 	if code, _ := bearerRequest(secret, service, tampered); code != http.StatusUnauthorized {
 		t.Fatalf("tampered pat status = %d, want 401", code)
 	}
-	// 未知前缀 / 畸形（过短）/ 无 dfpat_ 前缀的垃圾串。
+	// 未知前缀 / 畸形（过短）/ 无 ddpat_ 前缀的垃圾串。
 	if code, _ := bearerRequest(secret, service, PATPrefix+strings.Repeat("Q", 43)); code != http.StatusUnauthorized {
 		t.Fatalf("unknown prefix status = %d, want 401", code)
 	}
@@ -190,7 +190,7 @@ func TestRequireAccessTokenDualPathMatrix(t *testing.T) {
 		t.Fatalf("jwt under disabled probe status=%d kind=%q, want 200 jwt", code, kind)
 	}
 
-	// 未注入 PAT 校验器：dfpat_ 前缀一律 401（fail closed）。
+	// 未注入 PAT 校验器：ddpat_ 前缀一律 401（fail closed）。
 	if code, _ := bearerRequest(secret, nil, plaintext); code != http.StatusUnauthorized {
 		t.Fatalf("pat without verifier status = %d, want 401", code)
 	}
