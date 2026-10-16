@@ -2,10 +2,10 @@
 
 DocFlow 以 MCP（Model Context Protocol）对外暴露文件与协作能力：在 Claude / Cursor / Cline 等 AI agent 中接入后，AI 可以完全操作 DocFlow（浏览、读写、版本管理、分享、检索）。
 
-- **协议**：JSON-RPC 2.0 over HTTP（Streamable HTTP 简化版）——单次请求-响应，无 session / SSE 长连
-- **端点**：`POST /mcp`（`GET /mcp` 返回 405，不支持服务端推送流）
-- **协议版本**：`initialize` 返回 `protocolVersion: 2025-03-26`
-- **支持方法**：`initialize` / `notifications/*`（静默确认）/ `ping` / `tools/list` / `tools/call`
+- **协议**：JSON-RPC 2.0 over HTTP（Streamable HTTP stateless 形态，由[官方 MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) 承接）——单次请求-响应，无 session / SSE 长连
+- **端点**：`POST /mcp`（`GET /mcp` 返回 405，不支持服务端推送流）；请求须带 `Content-Type: application/json` 与 `Accept: application/json, text/event-stream`
+- **协议版本**：与客户端协商——客户端请求的版本受支持即原样返回（如 `2025-03-26`），否则返回服务端支持的最新版（当前支持 `2024-11-05` 至 `2026-07-28`）
+- **支持方法**：`initialize` / `notifications/*`（202 确认）/ `ping` / `tools/list` / `tools/call`
 - **限流**：按 IP 每分钟 60 次（429 超限）
 
 ## 接入方法
@@ -111,19 +111,19 @@ curl -s .../mcp -H "Authorization: Bearer dfpat_..." \
 - 写入走完整上传管线：Office 格式校验、病毒扫描（ClamAV）、存储配额、扩展名黑名单、MIME 按扩展名推断，全部生效；同名冲突报错可换名重试
 - 搜索（`df_search_files`）依赖部署启用全文检索；未启用时 `tools/list` 中标注「当前部署未启用」，调用返回结构化错误
 
-## JSON-RPC 错误码
+## 错误约定
 
-| code | 含义 |
-| --- | --- |
-| `-32700` | 请求体不是合法 JSON（parse error） |
-| `-32600` | 不是合法的 JSON-RPC 2.0 请求 |
-| `-32601` | 方法不存在 |
-| `-32602` | 参数非法（含未知工具名、参数校验失败） |
-| `-32603` | 服务端内部错误 |
-| `-32001` | 认证失败（Bearer 凭证缺失/无效，HTTP 401） |
-| `-32003` | PAT scope 不足（如只读 PAT 调写工具） |
+协议与传输由官方 MCP Go SDK 承接，错误分三层：
 
-工具执行的业务错误（文件不存在、重名冲突、越权、配额超限等）按 MCP 规范以 `result.isError=true` 返回，`content[0].text` 为面向 AI 的可读说明。
+| 层级 | 表现 | 示例 |
+| --- | --- | --- |
+| HTTP 层拒绝 | 对应状态码 + plain text（无 JSON-RPC envelope） | 请求体不是合法 JSON / 未知方法 / 缺 `Accept` 头 → `400`；认证失败 → `401`；超 64MB → `413` |
+| JSON-RPC 协议错误 | HTTP 200 + `error` envelope | 未知工具名 / 缺工具名 → `-32602`（invalid params）；认证失败 → `-32001` |
+| 工具级错误 | HTTP 200 + `result.isError=true` | **PAT scope 不足**（如只读 PAT 调写工具）、入参校验失败（如 `file_id` 非 UUID）、文件不存在、重名冲突、越权、配额超限、能力未启用等 |
+
+工具级错误的 `content[0].text` 为面向 AI 的可读说明（含缺失 scope 名、参数字段指引、替代方案提示），agent 可据此自行调整策略。
+
+> 2026-10 迁移官方 SDK 前的旧版把 scope 不足与入参非法分别以 `-32003` / `-32602` 协议错误码返回；迁移后按 SDK 与 MCP 规范约定统一为 `isError` 工具结果（协议错误码保留 `-32001` 认证与 `-32602` 未知工具）。
 
 ## 安全说明
 

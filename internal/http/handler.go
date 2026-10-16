@@ -266,8 +266,10 @@ type Handler struct {
 	// upload/share/space/storage 装配，search 于 Register 时并入（SetSearch
 	// 后注册）；测试可直接改写注入内存实现（模式同 resolver/unpacker）。
 	mcpDeps *mcp.Deps
-	// mcpServer 为 Register 时构建的 MCP 服务端实例（mcpPost 消费）。
-	mcpServer *mcp.Server
+	// mcpCache 为 MCP SDK Server 缓存（K6：官方 SDK + 能力可用性快照重建），
+	// mcpTransport 为官方 StreamableHTTPHandler（stateless + JSONResponse）。
+	mcpCache     *mcp.ServerCache
+	mcpTransport http.Handler
 	// zipper 为目录打包下载（download.zip）的最小文件依赖（NewHandler 以
 	// *files.Store 装配，接口化便于单测注入内存实现，模式同 unpacker）。
 	zipper zipDownloadAPI

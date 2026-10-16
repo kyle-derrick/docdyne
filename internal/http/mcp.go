@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"io"
 	"net/http"
 
 	"github.com/docflow/docflow/internal/ai"
@@ -10,6 +9,7 @@ import (
 	"github.com/docflow/docflow/internal/mcp"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // mcpRateLimitPerMin 为 /mcp 端点的独立按 IP 轻限流（每分钟 60 次；
@@ -23,8 +23,10 @@ const mcpMaxBodyBytes = 64 << 20
 // registerMCP 挂载 MCP（Model Context Protocol）端点：根级 /mcp，不经
 // /api/v1（无 CSRF 中间件——MCP 客户端为非浏览器 Bearer 凭证调用方），
 // 认证复用 PAT/access token 公共鉴权函数，独立按 IP 限流。
-// POST 为单次 JSON-RPC 请求-响应（Streamable HTTP 简化版，无 session/SSE）；
-// GET 返回 405（不支持服务端推送流）。
+// K6 迁移官方 SDK：传输为 StreamableHTTPHandler 的 stateless + JSONResponse
+// 形态（单次 JSON-RPC 请求-响应、恒 application/json 应答，与迁移前 wire
+// 行为一致）；AI 能力开关变化经 ServerCache 快照重建 SDK Server。
+// GET 返回 405（不支持服务端推送流；SDK stateless 同语义，此处显式挡下）。
 func (h *Handler) registerMCP(r *gin.Engine, jwtSecret string) {
 	deps := h.mcpDeps
 	if deps == nil {
@@ -39,7 +41,14 @@ func (h *Handler) registerMCP(r *gin.Engine, jwtSecret string) {
 	if h.aiSvc != nil {
 		deps.AI = &mcpAIAssistant{svc: h.aiSvc, source: aiFileContentSource{files: h.aiFiles, storage: h.storage}}
 	}
-	h.mcpServer = mcp.NewServer(deps)
+	h.mcpCache = mcp.NewServerCache(deps)
+	h.mcpTransport = mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		return h.mcpCache.Server()
+	}, &mcpsdk.StreamableHTTPOptions{
+		Stateless:           true,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: mcpMaxBodyBytes,
+	})
 
 	// PAT 认证路径与 api 组一致：h.auth 未注入（契约测试）时 dfpat_ 一律 401。
 	var patVerifier auth.AccessTokenVerifier
@@ -89,30 +98,18 @@ func mcpIdentity(c *gin.Context) mcp.Identity {
 	return identity
 }
 
-// mcpPost POST /mcp：单次 JSON-RPC 2.0 请求-响应（Accept 允许
-// application/json 与 text/event-stream，本实现恒以 application/json 应答；
-// notification 回 202 无 body）。
+// mcpPost POST /mcp：鉴权后把 Identity 注入请求上下文，其余全部交官方
+// SDK StreamableHTTPHandler（stateless：单次请求-响应、恒 application/json
+// 应答、notification 回 202 无 body、超 MaxRequestBodyBytes 回 413）。
+// SDK 会把 http.Request.Context() 传播进工具 handler（见 sdk.go 注释）。
 func (h *Handler) mcpPost(c *gin.Context) {
-	if h.mcpServer == nil {
+	if h.mcpTransport == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "mcp server is not configured"})
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, mcpMaxBodyBytes))
-	if err != nil {
-		c.Data(http.StatusOK, "application/json", mcp.NewError(jsonNull, mcp.CodeParseError, "parse error", nil).Encode())
-		return
-	}
-	identity := mcpIdentity(c)
-	response := h.mcpServer.Handle(c.Request.Context(), body, identity)
-	if response == nil {
-		c.Status(http.StatusAccepted)
-		return
-	}
-	c.Data(http.StatusOK, "application/json", response)
+	c.Request = c.Request.WithContext(mcp.WithIdentity(c.Request.Context(), mcpIdentity(c)))
+	h.mcpTransport.ServeHTTP(c.Writer, c.Request)
 }
-
-// jsonNull 为 JSON-RPC 应答的 null id 常量。
-var jsonNull = []byte("null")
 
 // mcpAIAssistant 把 *ai.Service 适配为 mcp.AIAssistant（每调用 ForUser
 // 关联用量记账；文件摘要复用 aiFileContentSource 的读授权链）。

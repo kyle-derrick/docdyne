@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 # 国内网络构建可覆盖：docker compose build --build-arg GOPROXY=https://goproxy.cn
 ARG GOPROXY=

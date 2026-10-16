@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-自托管的企业级文档与文件管理平台（Go 1.22 + React 18/TS）。
+自托管的企业级文档与文件管理平台（Go 1.25 + React 18/TS）。
 
 - 后端：`cmd/server`，Gin + GORM + pgx，PostgreSQL 16，增量 SQL 迁移
 - 前端：`frontend/`，React 18 + TypeScript + Vite（PWA），构建产物并入 Caddy 镜像（无独立前端容器）

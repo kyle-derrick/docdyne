@@ -602,16 +602,20 @@ func TestMCPAuthFailures(t *testing.T) {
 	}
 }
 
-// PAT scope 不足：files:read PAT 写 → -32003；读工具正常；未限定 PAT 可写。
+// PAT scope 不足：files:read PAT 写 → isError 工具结果（missing scope；
+// K6 迁移官方 SDK 后不再用协议级 -32003）；读工具正常；未限定 PAT 可写。
 func TestMCPPATScopes(t *testing.T) {
 	env := newMCPTestEnv(t, false)
 	readOnly := env.newPAT(t, []string{"files:read"})
 	unscoped := env.newPAT(t, nil)
 
-	// 只读 PAT 调写工具 → -32003，且未建目录。
+	// 只读 PAT 调写工具 → isError + missing scope，且未建目录。
 	_, out := env.callMCP(t, readOnly, "tools/call", map[string]any{"name": "df_create_folder", "arguments": map[string]any{"name": "x"}})
-	if got := rpcError(t, out); got != mcp.CodeMissingScope {
-		t.Fatalf("rpc error = %d, want %d (%v)", got, mcp.CodeMissingScope, out)
+	if got := rpcError(t, out); got != 0 {
+		t.Fatalf("unexpected rpc error %d: %v", got, out)
+	}
+	if text := toolErrorText(t, out); !strings.Contains(text, "missing scope") {
+		t.Fatalf("scope denial = %q, want missing scope (%v)", text, out)
 	}
 	for _, f := range env.tree.files {
 		if f.Name == "x" {
@@ -755,7 +759,7 @@ func TestMCPSharesAndSpaces(t *testing.T) {
 	}
 }
 
-// JSON-RPC 错误码与 GET 405。
+// 传输层拒绝语义（K6 迁移官方 SDK 后）与 GET 405。
 func TestMCPHTTPErrors(t *testing.T) {
 	env := newMCPTestEnv(t, false)
 	authHeader := env.jwt()
@@ -769,36 +773,35 @@ func TestMCPHTTPErrors(t *testing.T) {
 		t.Fatalf("GET /mcp = %d, want 405", w.Code)
 	}
 
-	// parse error → -32700。
-	req = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0"`))
-	req.Header.Set("Authorization", authHeader)
-	w = httptest.NewRecorder()
-	env.router.ServeHTTP(w, req)
-	var out map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &out)
-	if got := rpcError(t, out); got != mcp.CodeParseError {
-		t.Fatalf("parse error code = %d (%v)", got, out)
+	// malformed payload / 未知方法 → HTTP 400（SDK 在传输层拒绝，
+	// 不再以 JSON-RPC error envelope 应答）。
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Authorization", authHeader)
+		w := httptest.NewRecorder()
+		env.router.ServeHTTP(w, req)
+		return w
+	}
+	if w := post(`{"jsonrpc":"2.0"`); w.Code != http.StatusBadRequest {
+		t.Fatalf("parse error = %d %q, want 400", w.Code, w.Body.String())
+	}
+	if code, out := env.callMCP(t, authHeader, "docflow/custom", nil); code != http.StatusBadRequest {
+		t.Fatalf("unknown method = %d (%v), want 400", code, out)
 	}
 
-	// method not found → -32601。
-	_, out = env.callMCP(t, authHeader, "prompts/list", nil)
-	if got := rpcError(t, out); got != mcp.CodeMethodNotFound {
-		t.Fatalf("method not found code = %d (%v)", got, out)
+	// 入参非法（file_id 非 UUID）→ isError 工具结果（agent 可读）。
+	_, out := env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "df_get_file", "arguments": map[string]any{"file_id": "zzz"}})
+	if got := rpcError(t, out); got != 0 {
+		t.Fatalf("invalid params = rpc error %d, want tool-level error (%v)", got, out)
 	}
-
-	// invalid params（file_id 非 UUID）→ -32602。
-	_, out = env.callMCP(t, authHeader, "tools/call", map[string]any{"name": "df_get_file", "arguments": map[string]any{"file_id": "zzz"}})
-	if got := rpcError(t, out); got != mcp.CodeInvalidParams {
-		t.Fatalf("invalid params code = %d (%v)", got, out)
+	if text := toolErrorText(t, out); !strings.Contains(text, "file_id") {
+		t.Fatalf("invalid params text = %q, want file_id guidance (%v)", text, out)
 	}
 
 	// notification → 202 无 body。
-	body := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
-	req = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
-	req.Header.Set("Authorization", authHeader)
-	w = httptest.NewRecorder()
-	env.router.ServeHTTP(w, req)
-	if w.Code != http.StatusAccepted || w.Body.Len() != 0 {
+	if w := post(`{"jsonrpc":"2.0","method":"notifications/initialized"}`); w.Code != http.StatusAccepted || w.Body.Len() != 0 {
 		t.Fatalf("notification = %d %q, want 202 empty", w.Code, w.Body.String())
 	}
 }

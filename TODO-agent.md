@@ -383,19 +383,18 @@
       附 memory_id；谁=user_id、何时=created_at 既有）
 
 ## K. 库封装与复用（所有功能完成并稳定后）
-> 2026-10-15 K 批次审计结论（K2 已落地；K1/K3/K5-K10 暂缓——前置为域模型
-> 分层重构）：逐包 grep 非测试依赖图，Go 侧候选（K1 agent / K3 tools /
-> K5 upload / K6 mcp / K7 search / K8 webpkg / K9 office / K10 versioning）
-> **无一干净**——全部依赖 `internal/files` 域模型（FileItem/Store/路径解析
-> 与 ACL 联动），机械搬目录到 pkg/ 只会造出反向 import internal/ 的伪独立
-> module。前置路径：先把 files 域模型（实体+存储接口）下沉为 internal/
-> core（或 domain）层、业务模块依赖倒置到接口，此后逐包提取才是真独立
-> module——属多会话架构工程，非本批次可收口；审计依赖图已存档于本节各条
-> 附注，供后续开工直接使用。
-- [ ] K1. Go Agent 库（pkg/agent）：工具循环+上下文压缩+子代理+
-      熔断器+重试 → 独立 Go module（docflow.ai/agent）
-      【暂缓：internal/ai 的 agent 循环依赖 internal/files（写工具落盘）
-      与 internal/acl；前置=域模型分层（见批次审计结论）】
+> 2026-10-16 K 批次定夺（替代 10-15 的「暂缓」结论，经开源生态实证复核）：
+> 库化的收益是外部受众，成本是 API 冻结+永久维护——逐项复核后 Go 侧候选
+> **无一项值得提取为独立库**，改判如下：K3/K7/K10 取消（诉求已被 MCP 生态/
+> 现状消解）；K1/K5/K8/K9 定夺「不提取、保持内部」（安全硬化/业务内核/
+> 小众独特/版本联动是平台语义非库卖点）；K6 改判为「迁移官方 MCP Go SDK」
+> （净删自研框架代码，协议演进由官方承接）；唯一保留的架构工程=K11 域模型
+> 分层（为可测试性，不为发库）。原始审计数据（依赖图、行数、耦合密度）
+> 留存于各条附注。
+- [x] K1. Go Agent 库 → **定夺：不提取，保持内部**（2026-10-16）。
+      agent 循环带 J 批次安全硬化（工具沙箱钉死/UntrustedBlock 围栏/写
+      审计），是 DocFlow 平台语义——通用框架（cloudwego/eino 等）不承接
+      这些；生态位也已被占据，发库受众不足。内部保持 internal/ai 现状。
 - [x] K2. React Chat UI 库（@docflow/chat）：npm workspace 真提取
       （2026-10-15）——`frontend/packages/chat/`（源码分发：exports →
       src/index.ts，Vite/tsc bundler 解析直消 TS 源；peerDeps=react/antd/
@@ -409,37 +408,54 @@
       全绿。CSS 暂留宿主 styles.css（~340 行 ai-* 规则含复合选择器非干净
       可切割，随包导入链全局生效）；独立 CSS 主题变量=发布前置，连同
       token 化与产物构建记于 packages/chat/README.md「样式契约」
-- [ ] K3. 平台工具 SDK（@docflow/tools）：df_* 工具定义/执行框架 →
-      允许第三方注册自定义工具（插件化）
-      【暂缓：df_* 工具执行体直接调 internal/files Store；前置同上】
+- [x] K3. 平台工具 SDK（@docflow/tools）→ **取消**（2026-10-16）。
+      「第三方注册自定义工具」的诉求 MCP 已经回答：平台 MCP server 暴露
+      21 个 df_* 工具 + internal/mcpclient 可配置外部 MCP server，第三方
+      扩展走标准协议即可——自定义插件 SDK 是重复发明已标准化的东西
 - [x] K4. 技能包格式规范：JSON Schema + 版本化 + 可分享格式（v7.15：
       版本化=version/changelog（I1）、可分享格式=JSON/YAML 导入导出（I2，
       键名 snake_case 契约经 roundtrip 钉死）；JSON Schema 落地
       docs/schema/agent-packages.schema.json——draft 2020-12，envelope/
       裸数组双形态、约束与 ValidateAIAgentPackages 逐条对应、builtin-
       前缀拒收与 applyKind 枚举在 schema 层可校验，正反样例验证通过）
-- [ ] K5. Go Upload 库（pkg/upload）：断点续传+分片+病毒扫描+
-      多存储(local/S3/MinIO) → 独立库（docflow.ai/upload，
-      4123 行，接口已抽象良好）【暂缓：上传落盘路径依赖 internal/files
-      建文件行/配额扣减；前置同上】
-- [ ] K6. Go MCP 框架（pkg/mcp）：MCP Server 构建框架——工具注册/
-      资源暴露/PAT 鉴权/作用域 → docflow.ai/mcp（2293 行，
-      通用 MCP 服务端构建）【暂缓：df_* 工具处理器依赖 internal/files
-      与 internal/acl；前置同上】
-- [ ] K7. Go Search 抽象（pkg/search）：多后端搜索——Meilisearch/
-      PostgreSQL tsvector/Qdrant 向量 → 统一接口
-      docflow.ai/search（1537 行）【暂缓：索引管道读 internal/files
-      模型触发增量；前置同上】
-- [ ] K8. Go WebPKG 库（pkg/webpkg）：静态网站 zip 上传+解包+
-      HMAC 鉴权访问 → docflow.ai/webpkg（1939 行，独特功能）
-      【暂缓：解包产物以 internal/files 文件行落库；前置同上】
-- [ ] K9. Go OnlyOffice 集成库（pkg/office）：OO 配置生成/回调处理/
-      JWT/版本管理 → docflow.ai/office（2580 行）【暂缓：回调落
-      internal/files 版本链；前置同上】
-- [ ] K10. Go 文件版本库（pkg/versioning）：版本链+自动保留策略+
-      回滚 → docflow.ai/versioning（从 files/ 提取）【暂缓：版本链
-      与 files 域模型同表同事务；F4 已定全量保留默认（keep<=0 跳过
-      裁剪），独立化收益待域模型分层后再评估】
+- [x] K5. Go Upload 库 → **定夺：不提取，保持内部**（2026-10-16）。
+      「多存储(local/S3/MinIO)」卖点已用 aws-sdk-go-v2 兑现（internal/
+      upload/s3.go 在产）；会话/配额/版本联动是业务内核非库卖点。断点
+      续传若未来标准化协议，参考 tus/tusd（官方 tus 协议参考实现，可嵌
+      入 Gin）；病毒扫描启用时直接接 clamd 客户端库
+- [x] K6. Go MCP 框架 → **改判（2026-10-16）：迁移官方 MCP Go SDK，已完成**
+      （github.com/modelcontextprotocol/go-sdk v1.8.0）。自研 JSON-RPC/
+      传输/会话分发层删除，换 SDK StreamableHTTPHandler（stateless +
+      JSONResponse，wire 形态与迁移前一致：单请求-响应、恒 application/
+      json、notification 202、GET 405）；DocFlow 保留 df_* 工具定义 +
+      Deps 接口 + PAT scope 门控（身份经 WithIdentity 注入 req context，
+      SDK 传播进工具 handler）。语义变化（有意）：scope 不足与入参非法
+      从协议错误码（-32003/-32602）改为 isError 工具结果（SDK 错误约定）；
+      语义破坏请求（malformed/未知方法）在 HTTP 400 层拒绝；协议版本由
+      固定 2025-03-26 改为 SDK 协商（支持 2024-11-05 至 2026-07-28，
+      客户端版本受支持即回显）。AI 开关运行时切换经 ServerCache 按
+      可用性快照重建 SDK Server。docs/mcp.md / architecture.md 已同步；
+      测试重写为 httptest 驱动真实传输层
+- [x] K7. Go Search 抽象 → **取消**（2026-10-16）。835 行里大头是
+      DocFlow 特有 glue（OCR/文档解析/增量索引）；后端已直接对接
+      （meili.go 原生 HTTP / PG tsvector 内建）。「统一搜索抽象」外部
+      受众为零——每家的 glue 都不同
+- [x] K8. Go WebPKG 库 → **定夺：不提取，保持内部**（2026-10-16）。
+      独特功能（zip 静态站托管+HMAC 访问）但受众极小，zip 处理 stdlib
+      足矣；发库无收益
+- [x] K9. Go OnlyOffice 集成库 → **定夺：不提取，保持内部**
+      （2026-10-16）。回调/JWT 与版本链（F4 全量保留）深度联动是
+      DocFlow 语义；若未来开源引流再议（产品决策非工程决策）
+- [x] K10. Go 文件版本库 → **取消**（2026-10-16）。F4 定全量保留后
+      「自动保留策略」卖点消失；版本链与 files 同表同事务，独立化
+      无收益
+- [ ] K11.（新增，唯一保留的架构工程）域模型分层：internal/files 的
+      File/FileVersion/ObjectBlob/Store 下沉为 core 层接口，业务包
+      （upload/mcp/search/webpkg/onlyoffice/acl 等）依赖倒置到窄接口。
+      收益=可测试性与未来可替换性（不为发库）。实测：files 不反向依赖
+      acl/space（无环，单向下沉）；acl 仅用 files.File 类型（28 处）；
+      各包耦合点集中（每包 1-2 文件）。前置完成后 K6 迁移的 df_* 处理器
+      接线也更干净
 
 ## L. 参考项目复盘产出（2026-10-15，经 20170 代理拉源码实证：drawio-mcp
 ## 官方 / excalidraw-diagram-skill / opencode / pi-mono / cherry-studio）

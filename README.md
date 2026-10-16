@@ -2,7 +2,7 @@
 
 自托管的企业级文档与文件管理平台：团队空间、细粒度权限、断点续传上传、在线编辑（OnlyOffice / draw.io / Excalidraw）、全文搜索、病毒扫描、OIDC 单点登录与完整审计。
 
-- 后端：Go 1.22（Gin + GORM），PostgreSQL 16，增量 SQL 迁移
+- 后端：Go 1.25（Gin + GORM），PostgreSQL 16，增量 SQL 迁移
 - 前端：React 18 + TypeScript + Vite（PWA），构建产物并入 Caddy 镜像，无独立前端容器
 - 部署：docker compose 一键起，caddy 为唯一宿主端口（80/443）
 

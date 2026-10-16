@@ -154,7 +154,7 @@ seed 的幂等策略：`INSERT ... ON CONFLICT (email) DO UPDATE ... WHERE users
 | --- | --- |
 | `onlyoffice` | Document Server 集成：编辑配置 JWT、下载 token、保存回调幂等 |
 | `webpkg` | 网页包（zip）安全解包与内容提供（Zip Slip / 符号链接 / 解压炸弹防护） |
-| `mcp` | MCP 服务端（JSON-RPC 2.0 over HTTP）+ 平台/AI 工具集 |
+| `mcp` | MCP 服务端（官方 MCP Go SDK 承接协议与 Streamable HTTP stateless 传输）+ 平台/AI 工具集 |
 | `mcpclient` | 外部 MCP 服务器轻客户端（Streamable HTTP，自研不引 SDK） |
 | `xmind` | 解析 `.xmind` 思维导图（zip 容器） |
 

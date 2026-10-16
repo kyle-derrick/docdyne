@@ -3,12 +3,16 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/docflow/docflow/internal/ai"
 	"github.com/docflow/docflow/internal/files"
 	"github.com/docflow/docflow/internal/search"
 	"github.com/docflow/docflow/internal/space"
@@ -111,8 +115,23 @@ func (s *fakeSearch) Query(user uuid.UUID, opts search.QueryOptions) ([]search.R
 	return []search.Result{{ID: uuid.New(), Name: opts.Q + ".md", Type: "file", UpdatedAt: time.Now()}}, nil
 }
 
-// newTestServer 构造带最小依赖的服务端与测试用户。
-func newTestServer(withSearch bool) (*Server, *fakeFiles, *fakeSearch) {
+// fakeAI 为开关可翻转的 AI 替身（验证 ServerCache 按 Available 快照重建）。
+type fakeAI struct{ enabled bool }
+
+func (a *fakeAI) Enabled() bool { return a.enabled }
+func (a *fakeAI) AskDocs(ctx context.Context, user uuid.UUID, query string, topK int, spaceID *uuid.UUID) (string, []ai.Source, error) {
+	return "", nil, nil
+}
+func (a *fakeAI) SummarizeFile(ctx context.Context, user, fileID uuid.UUID) (string, error) {
+	return "", nil
+}
+func (a *fakeAI) Chat(ctx context.Context, user uuid.UUID, messages []ai.Message) (string, error) {
+	return "", nil
+}
+
+// newTestHandler 构造与生产同构的传输 handler（官方 SDK
+// StreamableHTTPHandler，stateless + JSONResponse）与最小依赖替身。
+func newTestHandler(withSearch bool) (http.Handler, *fakeFiles, *fakeSearch) {
 	user := uuid.New()
 	spaceID := uuid.New()
 	ff := &fakeFiles{root: files.File{ID: uuid.New(), Name: "根目录", OwnerID: user, SpaceID: spaceID, Type: "folder", IsRoot: true}}
@@ -121,33 +140,59 @@ func newTestServer(withSearch bool) (*Server, *fakeFiles, *fakeSearch) {
 	if withSearch {
 		deps.Search = fs
 	}
-	return NewServer(deps), ff, fs
+	cache := NewServerCache(deps)
+	return mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		return cache.Server()
+	}, &mcpsdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true}), ff, fs
 }
 
 func testIdentity() Identity { return Identity{UserID: uuid.New()} }
 
-// call 发起一次 tools/call 并解析为通用 map。
-func call(t *testing.T, s *Server, id Identity, name string, arguments string) map[string]any {
+// post 发起一次 POST /mcp（身份经 WithIdentity 注入请求上下文——生产链路
+// 由 gin 鉴权中间件完成；SDK 把 http.Request.Context() 传播进工具 handler）。
+func post(t *testing.T, h http.Handler, id Identity, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req = req.WithContext(WithIdentity(req.Context(), id))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// call 发起一次 tools/call 并解析 JSON 应答为通用 map。
+func call(t *testing.T, h http.Handler, id Identity, name string, arguments string) map[string]any {
 	t.Helper()
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":` + arguments + `}}`
-	raw := s.Handle(context.Background(), []byte(body), id)
-	if raw == nil {
-		t.Fatal("expected a response for a request with id")
+	rec := post(t, h, id, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tools/call %s: status = %d (%s)", name, rec.Code, rec.Body.String())
 	}
 	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("unmarshal response: %v (%s)", err, raw)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal response: %v (%s)", err, rec.Body.String())
 	}
 	return out
 }
 
+// toolResult 取 result 子对象（缺失返回 nil）。
+func toolResult(out map[string]any) map[string]any {
+	result, _ := out["result"].(map[string]any)
+	return result
+}
+
 // ---------- 协议层测试 ----------
 
-// initialize：协议版本、capabilities.tools、serverInfo。
+// initialize：协议版本回显（2025-03-26 受支持即返回同版本）、
+// capabilities.tools、serverInfo、instructions。
 func TestInitialize(t *testing.T) {
-	s, _, _ := newTestServer(false)
+	h, _, _ := newTestHandler(false)
 	body := `{"jsonrpc":"2.0","id":7,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"tester","version":"0"}}}`
-	raw := s.Handle(context.Background(), []byte(body), testIdentity())
+	rec := post(t, h, testIdentity(), body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("initialize: status = %d (%s)", rec.Code, rec.Body.String())
+	}
 	var out struct {
 		JSONRPC string `json:"jsonrpc"`
 		ID      int    `json:"id"`
@@ -158,10 +203,11 @@ func TestInitialize(t *testing.T) {
 				Name    string `json:"name"`
 				Version string `json:"version"`
 			} `json:"serverInfo"`
+			Instructions string `json:"instructions"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("unmarshal: %v (%s)", err, raw)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v (%s)", err, rec.Body.String())
 	}
 	if out.JSONRPC != "2.0" || out.ID != 7 {
 		t.Fatalf("envelope = %s id=%d", out.JSONRPC, out.ID)
@@ -175,13 +221,19 @@ func TestInitialize(t *testing.T) {
 	if out.Result.ServerInfo.Name != ServerName || out.Result.ServerInfo.Version == "" {
 		t.Fatalf("serverInfo = %+v", out.Result.ServerInfo)
 	}
+	if !strings.Contains(out.Result.Instructions, "DocFlow") {
+		t.Fatalf("instructions = %q, want DocFlow guidance", out.Result.Instructions)
+	}
 }
 
 // tools/list：至少 20 个工具；文件工具 df_ 前缀，AI 工具
 // （ask_docs/summarize_file/ai_chat，任务书命名）除外；inputSchema 为 object。
 func TestToolsListAtLeast20(t *testing.T) {
-	s, _, _ := newTestServer(false)
-	raw := s.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`), testIdentity())
+	h, _, _ := newTestHandler(false)
+	rec := post(t, h, testIdentity(), `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tools/list: status = %d (%s)", rec.Code, rec.Body.String())
+	}
 	var out struct {
 		Result struct {
 			Tools []struct {
@@ -191,20 +243,20 @@ func TestToolsListAtLeast20(t *testing.T) {
 			} `json:"tools"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v (%s)", err, rec.Body.String())
 	}
 	if len(out.Result.Tools) < 20 {
 		t.Fatalf("tools count = %d, want >= 20", len(out.Result.Tools))
 	}
-	aiTools := map[string]bool{"ask_docs": false, "summarize_file": false, "ai_chat": false}
+	aiToolNames := map[string]bool{"ask_docs": false, "summarize_file": false, "ai_chat": false}
 	seen := map[string]bool{}
 	for _, tool := range out.Result.Tools {
-		if _, isAI := aiTools[tool.Name]; !strings.HasPrefix(tool.Name, "df_") && !isAI {
+		if _, isAI := aiToolNames[tool.Name]; !strings.HasPrefix(tool.Name, "df_") && !isAI {
 			t.Fatalf("tool %q unexpected name (df_ prefix or known AI tool required)", tool.Name)
 		}
-		if _, isAI := aiTools[tool.Name]; isAI {
-			aiTools[tool.Name] = true
+		if _, isAI := aiToolNames[tool.Name]; isAI {
+			aiToolNames[tool.Name] = true
 		}
 		if seen[tool.Name] {
 			t.Fatalf("duplicate tool %q", tool.Name)
@@ -224,92 +276,135 @@ func TestToolsListAtLeast20(t *testing.T) {
 		}
 	}
 	// AI 工具（任务书命名）全部在场。
-	for name, present := range aiTools {
+	for name, present := range aiToolNames {
 		if !present {
 			t.Fatalf("ai tool %q missing from tools/list", name)
 		}
 	}
 }
 
-// JSON-RPC 错误码：parse error / invalid request / method not found / invalid params。
-func TestJSONRPCErrorCodes(t *testing.T) {
-	s, _, _ := newTestServer(false)
-	cases := []struct {
-		name string
-		body string
-		code int
-	}{
-		{"parse-error", `{"jsonrpc":"2.0","id":1,"method":`, CodeParseError},
-		{"invalid-request", `{"jsonrpc":"1.0","id":1,"method":"initialize"}`, CodeInvalidRequest},
-		{"no-method", `{"jsonrpc":"2.0","id":1}`, CodeInvalidRequest},
-		{"method-not-found", `{"jsonrpc":"2.0","id":2,"method":"resources/list"}`, CodeMethodNotFound},
-		{"unknown-tool", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"df_nope"}}`, CodeInvalidParams},
-		{"missing-tool-name", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{}}`, CodeInvalidParams},
-		{"bad-args", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"df_get_file","arguments":{"file_id":"not-a-uuid"}}}`, CodeInvalidParams},
+// 传输层拒绝（HTTP 400）：malformed payload / 未知方法。
+// K6 迁移后语义破坏的请求由 SDK 在 HTTP 层拒绝（plain text），不再以
+// JSON-RPC error envelope 应答。
+func TestTransportRejects(t *testing.T) {
+	h, _, _ := newTestHandler(false)
+	for _, tc := range []struct{ name, body string }{
+		{"parse-error", `{"jsonrpc":"2.0","id":1,"method":`},
+		{"unknown-method", `{"jsonrpc":"2.0","id":2,"method":"docflow/custom"}`},
+	} {
+		rec := post(t, h, testIdentity(), tc.body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400 (%s)", tc.name, rec.Code, rec.Body.String())
+		}
 	}
-	for _, tc := range cases {
-		raw := s.Handle(context.Background(), []byte(tc.body), testIdentity())
+}
+
+// JSON-RPC 协议错误（HTTP 200 + error envelope）：未知工具 / 缺工具名
+// 返回 -32602（JSON-RPC invalid params；SDK callTool 约定）。
+func TestJSONRPCErrorCodes(t *testing.T) {
+	const codeInvalidParams = -32602
+	h, _, _ := newTestHandler(false)
+	for _, tc := range []struct{ name, body string }{
+		{"unknown-tool", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"df_nope"}}`},
+		{"missing-tool-name", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{}}`},
+	} {
+		rec := post(t, h, testIdentity(), tc.body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d (%s)", tc.name, rec.Code, rec.Body.String())
+		}
 		var out struct {
 			Error struct {
 				Code int `json:"code"`
 			} `json:"error"`
 		}
-		if err := json.Unmarshal(raw, &out); err != nil {
-			t.Fatalf("%s: unmarshal %v (%s)", tc.name, err, raw)
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("%s: unmarshal %v (%s)", tc.name, err, rec.Body.String())
 		}
-		if out.Error.Code != tc.code {
-			t.Fatalf("%s: code = %d, want %d (%s)", tc.name, out.Error.Code, tc.code, raw)
+		if out.Error.Code != codeInvalidParams {
+			t.Fatalf("%s: code = %d, want %d (%s)", tc.name, out.Error.Code, codeInvalidParams, rec.Body.String())
 		}
 	}
 }
 
-// notification（无 id / id null）不应答。
+// 工具入参非法：按 SDK 约定转 isError 工具结果（agent 可读原因），
+// K6 迁移后不再是协议级 -32602。
+func TestBadArgsIsToolError(t *testing.T) {
+	h, _, _ := newTestHandler(false)
+	out := call(t, h, testIdentity(), "df_get_file", `{"file_id":"not-a-uuid"}`)
+	if out["error"] != nil {
+		t.Fatalf("bad args must be a tool-level error, got rpc error: %v", out)
+	}
+	result := toolResult(out)
+	if result == nil || result["isError"] != true {
+		t.Fatalf("result.isError missing: %v", out)
+	}
+	if text := toolText(t, result); !strings.Contains(text, "file_id") {
+		t.Fatalf("error text = %q, want file_id guidance", text)
+	}
+}
+
+// notification（无 id / id null）：202 Accepted 无 body（SDK 传输约定）。
 func TestNotificationNoResponse(t *testing.T) {
-	s, _, _ := newTestServer(false)
+	h, _, _ := newTestHandler(false)
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}`,
 	} {
-		if raw := s.Handle(context.Background(), []byte(body), testIdentity()); raw != nil {
-			t.Fatalf("notification produced a response: %s", raw)
+		rec := post(t, h, testIdentity(), body)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("notification: status = %d, want 202 (%s)", rec.Code, rec.Body.String())
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("notification must not have a body: %s", rec.Body.String())
 		}
 	}
 }
 
 // ping 返回空对象结果。
 func TestPing(t *testing.T) {
-	s, _, _ := newTestServer(false)
-	raw := s.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":9,"method":"ping"}`), testIdentity())
+	h, _, _ := newTestHandler(false)
+	rec := post(t, h, testIdentity(), `{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ping: status = %d (%s)", rec.Code, rec.Body.String())
+	}
 	var out struct {
 		Result map[string]any `json:"result"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil || out.Result == nil {
-		t.Fatalf("ping response = %s err=%v", raw, err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Result == nil {
+		t.Fatalf("ping response = %s err=%v", rec.Body.String(), err)
 	}
 }
 
-// PAT scope 不足：files:read PAT 调写工具 → -32003；读工具正常；未限定
-// scope 的 PAT 与 JWT 不受限。
+// PAT scope 不足：files:read PAT 调写工具 → isError 工具结果（missing
+// scope，K6 迁移后不再用协议级 -32003）；读工具正常；未限定 scope 的 PAT
+// 与 JWT 不受限。
 func TestPATScopeEnforcement(t *testing.T) {
-	s, ff, _ := newTestServer(false)
+	h, ff, _ := newTestHandler(false)
 	readOnly := Identity{UserID: uuid.New(), IsPAT: true, Scopes: []string{"files:read"}}
 	// 写工具被拒。
-	out := call(t, s, readOnly, "df_create_folder", `{"name":"x"}`)
-	if code := nestedErrorCode(out); code != CodeMissingScope {
-		t.Fatalf("read-only PAT write: error.code = %v, want %d (%v)", nestedErrorCode(out), CodeMissingScope, out)
+	out := call(t, h, readOnly, "df_create_folder", `{"name":"x"}`)
+	if out["error"] != nil {
+		t.Fatalf("scope denial must be a tool-level error, got rpc error: %v", out)
+	}
+	result := toolResult(out)
+	if result == nil || result["isError"] != true {
+		t.Fatalf("result.isError missing: %v", out)
+	}
+	if text := toolText(t, result); !strings.Contains(text, "missing scope") {
+		t.Fatalf("error text = %q, want missing scope message", text)
 	}
 	// 未实际执行。
 	if len(ff.created) != 0 {
 		t.Fatalf("scope-denied call must not execute, created = %v", ff.created)
 	}
-	// 读工具走工具执行（结果 isError，因为 fake 返回 notFound，但不是 -32003）。
-	out = call(t, s, readOnly, "df_get_file", `{"file_id":"`+uuid.New().String()+`"}`)
-	if nestedErrorCode(out) == CodeMissingScope {
+	// 读工具走工具执行（isError 源自 fake 的 notFound，但不是 missing scope）。
+	out = call(t, h, readOnly, "df_get_file", `{"file_id":"`+uuid.New().String()+`"}`)
+	if text := toolText(t, toolResult(out)); strings.Contains(text, "missing scope") {
 		t.Fatalf("read tool must not be scope-denied: %v", out)
 	}
 	// 未限定 scope 的 PAT 可写。
 	unscoped := Identity{UserID: ff.root.OwnerID, IsPAT: true}
-	out = call(t, s, unscoped, "df_create_folder", `{"name":"ok"}`)
+	out = call(t, h, unscoped, "df_create_folder", `{"name":"ok"}`)
 	if out["error"] != nil {
 		t.Fatalf("unscoped PAT write failed: %v", out)
 	}
@@ -318,31 +413,17 @@ func TestPATScopeEnforcement(t *testing.T) {
 	}
 	// JWT 可写。
 	jwtID := Identity{UserID: ff.root.OwnerID}
-	out = call(t, s, jwtID, "df_create_folder", `{"name":"jwt"}`)
+	out = call(t, h, jwtID, "df_create_folder", `{"name":"jwt"}`)
 	if out["error"] != nil {
 		t.Fatalf("jwt write failed: %v", out)
 	}
 }
 
-// nestedErrorCode 从响应 map 提取 error.code（无错误返回 0）。
-func nestedErrorCode(out map[string]any) int {
-	e, ok := out["error"].(map[string]any)
-	if !ok {
-		return 0
-	}
-	switch code := e["code"].(type) {
-	case float64:
-		return int(code)
-	default:
-		return -1
-	}
-}
-
 // 未注入 search：tools/list 标注「当前部署未启用」，调用返回明确结构化错误。
 func TestSearchUnavailable(t *testing.T) {
-	s, _, _ := newTestServer(false)
+	h, _, _ := newTestHandler(false)
 	// tools/list 标注。
-	raw := s.Handle(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`), testIdentity())
+	rec := post(t, h, testIdentity(), `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	var listing struct {
 		Result struct {
 			Tools []struct {
@@ -351,8 +432,8 @@ func TestSearchUnavailable(t *testing.T) {
 			} `json:"tools"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(raw, &listing); err != nil {
-		t.Fatalf("unmarshal tools/list: %v", err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
+		t.Fatalf("unmarshal tools/list: %v (%s)", err, rec.Body.String())
 	}
 	found := false
 	for _, tool := range listing.Result.Tools {
@@ -367,11 +448,11 @@ func TestSearchUnavailable(t *testing.T) {
 		t.Fatal("df_search_files missing from tools/list")
 	}
 	// 调用返回 isError + 明确错误信息。
-	out := call(t, s, testIdentity(), "df_search_files", `{"query":"合同"}`)
+	out := call(t, h, testIdentity(), "df_search_files", `{"query":"合同"}`)
 	if out["error"] != nil {
 		t.Fatalf("unavailable tool must be a tool-level error, got rpc error: %v", out)
 	}
-	result, _ := out["result"].(map[string]any)
+	result := toolResult(out)
 	if result == nil || result["isError"] != true {
 		t.Fatalf("result.isError missing: %v", out)
 	}
@@ -383,9 +464,9 @@ func TestSearchUnavailable(t *testing.T) {
 
 // 注入 search：df_search_files 正常返回。
 func TestSearchAvailable(t *testing.T) {
-	s, _, fs := newTestServer(true)
-	out := call(t, s, testIdentity(), "df_search_files", `{"query":"合同"}`)
-	result, _ := out["result"].(map[string]any)
+	h, _, fs := newTestHandler(true)
+	out := call(t, h, testIdentity(), "df_search_files", `{"query":"合同"}`)
+	result := toolResult(out)
 	if result == nil || result["isError"] == true {
 		t.Fatalf("search call failed: %v", out)
 	}
@@ -394,8 +475,59 @@ func TestSearchAvailable(t *testing.T) {
 	}
 }
 
+// AI 开关运行时切换：tools/list 的「当前部署未启用」标注随
+// ServerCache 快照重建时效正确（ServerCache 的存在意义）。
+func TestServerCacheRebuildsOnAIAvailabilityChange(t *testing.T) {
+	user := uuid.New()
+	spaceID := uuid.New()
+	aiFake := &fakeAI{enabled: true}
+	deps := &Deps{
+		Files:  &fakeFiles{root: files.File{ID: uuid.New(), Name: "根目录", OwnerID: user, SpaceID: spaceID, Type: "folder", IsRoot: true}},
+		Spaces: &fakeSpaces{owner: user, spaceID: spaceID},
+		AI:     aiFake,
+	}
+	cache := NewServerCache(deps)
+	h := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		return cache.Server()
+	}, &mcpsdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+
+	askDocsDescription := func() string {
+		t.Helper()
+		rec := post(t, h, testIdentity(), `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+		var listing struct {
+			Result struct {
+				Tools []struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+				} `json:"tools"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &listing); err != nil {
+			t.Fatalf("unmarshal tools/list: %v (%s)", err, rec.Body.String())
+		}
+		for _, tool := range listing.Result.Tools {
+			if tool.Name == "ask_docs" {
+				return tool.Description
+			}
+		}
+		t.Fatal("ask_docs missing from tools/list")
+		return ""
+	}
+
+	if desc := askDocsDescription(); strings.Contains(desc, "当前部署未启用") {
+		t.Fatalf("enabled AI must not carry unavailable marker: %q", desc)
+	}
+	aiFake.enabled = false
+	if desc := askDocsDescription(); !strings.Contains(desc, "当前部署未启用") {
+		t.Fatalf("disabled AI must carry unavailable marker: %q", desc)
+	}
+}
+
 func toolText(t *testing.T, result map[string]any) string {
 	t.Helper()
+	if result == nil {
+		return ""
+	}
 	content, _ := result["content"].([]any)
 	if len(content) == 0 {
 		return ""
@@ -427,4 +559,5 @@ func TestIdentityAllows(t *testing.T) {
 var (
 	_ FileStore     = (*fakeFiles)(nil)
 	_ SearchService = (*fakeSearch)(nil)
+	_ AIAssistant   = (*fakeAI)(nil)
 )

@@ -1125,6 +1125,13 @@ func errorMessage(tool string, err error) string {
 			msg = ue.message
 			break
 		}
+		// 入参错误同样按 agent 可读消息透传（K6 迁移后不再由分发层
+		// 单独转协议级 -32602，而是 isError 工具结果）。
+		var ae *argsError
+		if errors.As(err, &ae) {
+			msg = ae.message
+			break
+		}
 		msg = "operation failed (internal error)"
 	}
 	return tool + ": " + msg

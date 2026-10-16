@@ -17,7 +17,15 @@ import (
 	"github.com/docflow/docflow/internal/upload"
 )
 
-// Identity 为一次 MCP 请求的调用方身份（HTTP 层从 Bearer 凭证解析注入）。
+// ServerName / ServerVersion 为 serverInfo 字段取值（SDK Implementation）。
+const (
+	ServerName    = "docflow"
+	ServerVersion = "1.0.0"
+)
+
+// Identity 为一次 MCP 请求的调用方身份（HTTP 层从 Bearer 凭证解析后经
+// WithIdentity 注入请求上下文，SDK 会把 http.Request.Context() 传播进
+// 工具 handler，见 streamable.go 的 connectStreamable 注释）。
 type Identity struct {
 	UserID uuid.UUID
 	// IsPAT 表示凭证为 PAT（dfpat_）；JWT access token 不受 scope 限制。
@@ -116,10 +124,12 @@ type Deps struct {
 	Convos ConvoStore
 }
 
-// Tool 为一个 MCP 工具定义：inputSchema 手写 JSON Schema（不引 zod）；
-// Scope 为所需 PAT scope（files:read / files:write，JWT 不受限）；
-// Available 返回 false 时该部署未启用对应能力（tools/list 描述中标注，
-// 调用返回结构化错误），nil 表示恒可用。
+// Tool 为一个 MCP 工具定义：inputSchema 手写 JSON Schema（低层
+// Server.AddTool 直接消费 raw schema，SDK 不做入参校验——校验仍在各
+// 工具 handler 内，与迁移前一致）；Scope 为所需 PAT scope
+// （files:read / files:write，JWT 不受限）；Available 返回 false 时该部署
+// 未启用对应能力（tools/list 描述中标注，调用返回结构化错误），nil 表示
+// 恒可用。
 type Tool struct {
 	Name        string
 	Description string
@@ -129,7 +139,7 @@ type Tool struct {
 	Handler     func(ctx context.Context, deps *Deps, id Identity, args json.RawMessage) (any, error)
 }
 
-// argsError 表示工具入参非法（JSON-RPC -32602）。
+// argsError 表示工具入参非法（转 isError 工具结果，agent 可读）。
 type argsError struct{ message string }
 
 func (e *argsError) Error() string { return e.message }
@@ -142,147 +152,10 @@ func badArgs(format string, a ...any) error {
 // errToolUnavailable 为能力未注入的哨兵（分发层转为结构化工具错误）。
 var errToolUnavailable = errors.New("capability not available on this deployment")
 
-// Server 为 MCP 服务端：持有一组 Tool 与服务依赖，按 JSON-RPC 分发。
-type Server struct {
-	deps  *Deps
-	tools []Tool
-}
-
-// NewServer 构造服务端并注册全部工具（df_ 文件工具 + ask_docs/
-// summarize_file/ai_chat AI 工具）。
-func NewServer(deps *Deps) *Server {
-	if deps == nil {
-		deps = &Deps{}
-	}
-	s := &Server{deps: deps}
-	s.tools = append(append(allTools(), aiTools()...), conversationTools(s.deps.Convos)...)
-	return s
-}
-
-// Tools 返回工具清单（含不可用工具；unavailable 标注由 ToolsList 处理）。
-func (s *Server) Tools() []Tool { return s.tools }
-
-// Handle 处理一个 JSON-RPC 请求体并返回应答体；notification（无 id）
-// 返回 nil（调用方回 HTTP 202，不应答）。
-func (s *Server) Handle(ctx context.Context, body []byte, identity Identity) []byte {
-	var req Request
-	if err := json.Unmarshal(body, &req); err != nil {
-		return NewError(json.RawMessage("null"), CodeParseError, "parse error", nil).Encode()
-	}
-	if req.JSONRPC != "2.0" || req.Method == "" {
-		return NewError(req.ID, CodeInvalidRequest, "invalid request: expected jsonrpc 2.0 with a method", nil).Encode()
-	}
-	if req.IsNotification() {
-		// notification（如 initialized）：静默确认，不应答。
-		return nil
-	}
-	switch req.Method {
-	case "initialize":
-		return NewResult(req.ID, s.initializeResult()).Encode()
-	case "ping":
-		return NewResult(req.ID, map[string]any{}).Encode()
-	case "tools/list":
-		return NewResult(req.ID, s.toolsListResult()).Encode()
-	case "tools/call":
-		return s.handleToolsCall(ctx, req, identity)
-	default:
-		return NewError(req.ID, CodeMethodNotFound, "method not found: "+req.Method, nil).Encode()
-	}
-}
-
-func (s *Server) initializeResult() map[string]any {
-	instructions := "DocFlow 文档中台 MCP 服务端（统一空间模型）。工具均以 df_ 前缀命名；" +
-		"文件操作按空间定位：space_id 缺省为你的默认空间，df_list_spaces 可列出全部可见空间。" +
-		"写入走上传管线（office 校验/扫描/配额生效）；文本类（md/txt/xml/json/excalidraw 等）" +
-		"可用 df_read_file 直读、df_write_version 覆盖编辑；drawio 的 .drawio 文件即 XML，" +
-		"excalidraw 的 .excalidraw 即 JSON，均可按文本直接读写。"
-	return map[string]any{
-		"protocolVersion": ProtocolVersion,
-		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-		"serverInfo":      map[string]any{"name": ServerName, "version": ServerVersion},
-		"instructions":    instructions,
-	}
-}
-
-// toolsListResult 输出工具清单：不可用工具描述尾部追加「（当前部署未启用）」。
-func (s *Server) toolsListResult() map[string]any {
-	type toolMeta struct {
-		Name        string         `json:"name"`
-		Description string         `json:"description"`
-		InputSchema map[string]any `json:"inputSchema"`
-	}
-	out := make([]toolMeta, 0, len(s.tools))
-	for _, t := range s.tools {
-		desc := t.Description
-		if t.Available != nil && !t.Available(s.deps) {
-			desc += "（当前部署未启用）"
-		}
-		out = append(out, toolMeta{Name: t.Name, Description: desc, InputSchema: t.InputSchema})
-	}
-	return map[string]any{"tools": out}
-}
-
-// toolContent / toolResult 为 MCP tools/call 的结果结构（text 内容 + isError）。
-type toolContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type toolResult struct {
-	Content []toolContent `json:"content"`
-	IsError bool          `json:"isError"`
-}
-
-func (s *Server) handleToolsCall(ctx context.Context, req Request, identity Identity) []byte {
-	var params struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
-		return NewError(req.ID, CodeInvalidParams, "invalid params: expected {name, arguments}", nil).Encode()
-	}
-	var tool *Tool
-	for i := range s.tools {
-		if s.tools[i].Name == params.Name {
-			tool = &s.tools[i]
-			break
-		}
-	}
-	if tool == nil {
-		return NewError(req.ID, CodeInvalidParams, "unknown tool: "+params.Name, nil).Encode()
-	}
-	// PAT scope 门控（语义同 api 组 RequireScope）。
-	if !identity.Allows(tool.Scope) {
-		return NewError(req.ID, CodeMissingScope, "missing scope: "+tool.Scope, nil).Encode()
-	}
-	if tool.Available != nil && !tool.Available(s.deps) {
-		return NewResult(req.ID, errorToolResult(params.Name, errToolUnavailable)).Encode()
-	}
-	args := params.Arguments
-	if len(args) == 0 {
-		args = json.RawMessage("{}")
-	}
-	result, err := tool.Handler(ctx, s.deps, identity, args)
-	if err != nil {
-		var ae *argsError
-		if errors.As(err, &ae) {
-			return NewError(req.ID, CodeInvalidParams, ae.message, nil).Encode()
-		}
-		// 工具执行错误（服务层语义错误）：按 MCP 规范以 isError 结果返回，
-		// 便于 agent 阅读原因并自行调整策略（重名/越权/不存在等）。
-		return NewResult(req.ID, errorToolResult(params.Name, err)).Encode()
-	}
-	data, merr := json.MarshalIndent(result, "", "  ")
-	if merr != nil {
-		return NewError(req.ID, CodeInternalError, "result encoding failed", nil).Encode()
-	}
-	return NewResult(req.ID, toolResult{Content: []toolContent{{Type: "text", Text: string(data)}}}).Encode()
-}
-
-// errorToolResult 把工具执行错误转为结构化 isError 结果（错误码 + 说明）。
-func errorToolResult(name string, err error) toolResult {
-	return toolResult{
-		Content: []toolContent{{Type: "text", Text: errorMessage(name, err)}},
-		IsError: true,
-	}
-}
+// serverInstructions 为 initialize 应答的 instructions 字段（SDK
+// ServerOptions.Instructions）。
+const serverInstructions = "DocFlow 文档中台 MCP 服务端（统一空间模型）。工具均以 df_ 前缀命名；" +
+	"文件操作按空间定位：space_id 缺省为你的默认空间，df_list_spaces 可列出全部可见空间。" +
+	"写入走上传管线（office 校验/扫描/配额生效）；文本类（md/txt/xml/json/excalidraw 等）" +
+	"可用 df_read_file 直读、df_write_version 覆盖编辑；drawio 的 .drawio 文件即 XML，" +
+	"excalidraw 的 .excalidraw 即 JSON，均可按文本直接读写。"
