@@ -2,6 +2,8 @@
 # Keycloak OIDC 端到端：起 Keycloak → kcadm 配 realm/client/user → backend 启用
 # OIDC → curl 走 authorization code（登录页表单提交）→ 断言自动开户 + 会话。
 set -e
+# Windows Git Bash：防 MSYS 把容器内绝对路径 /opt/... 改写成本地盘符（Linux 忽略）
+export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/.."
 C="docker compose -f docker-compose.yml -f scripts/compose-scale.yml --profile minimal --profile search --profile full --profile storage --profile antivirus"
 
