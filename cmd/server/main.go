@@ -800,7 +800,16 @@ func newStorage(cfg config.Config) (upload.Storage, error) {
 	switch cfg.StorageDriver {
 	case "s3":
 		log.Printf("storage driver: s3 (bucket=%s endpoint=%s path_style=%t)", cfg.S3Bucket, cfg.S3Endpoint, cfg.S3PathStyle)
-		return upload.NewS3Storage(cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3PathStyle)
+		st, err := upload.NewS3Storage(cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3PathStyle)
+		if err != nil {
+			return nil, err
+		}
+		// 引导期确保 bucket 存在（自托管 MinIO 免手工预建；与 meili
+		// EnsureIndex 同为 fail-fast 连通性校验）。
+		if err := st.EnsureBucket(context.Background()); err != nil {
+			return nil, fmt.Errorf("s3 ensure bucket: %w", err)
+		}
+		return st, nil
 	default:
 		log.Printf("storage driver: local (root=%s)", cfg.StorageRoot)
 		return upload.NewLocalStorage(cfg.StorageRoot)

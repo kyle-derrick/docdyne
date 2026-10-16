@@ -344,6 +344,34 @@ func (a *awsS3) HeadBucket(ctx context.Context) error {
 	return err
 }
 
+// EnsureBucket 引导期确保 bucket 存在：Head 通过直接返回；否则 CreateBucket
+// 后复验。自托管 S3 兼容部署（MinIO 等）免手工预建 bucket；AWS S3 场景
+// bucket 早已存在，等价一次连通性校验。测试替身无 bucket 语义，跳过。
+func (s *S3Storage) EnsureBucket(ctx context.Context) error {
+	a, ok := s.api.(*awsS3)
+	if !ok {
+		return nil
+	}
+	if err := a.HeadBucket(ctx); err == nil {
+		return nil
+	}
+	input := &s3.CreateBucketInput{Bucket: &a.bucket}
+	// AWS S3 的非 us-east-1 区域要求显式 LocationConstraint（MinIO 不敏感）。
+	if r := a.client.Options().Region; r != "" && r != "us-east-1" {
+		input.CreateBucketConfiguration = &s3types.CreateBucketConfiguration{LocationConstraint: s3types.BucketLocationConstraint(r)}
+	}
+	if _, err := a.client.CreateBucket(ctx, input); err != nil {
+		var owned *s3types.BucketAlreadyOwnedByYou
+		if !errors.As(err, &owned) {
+			return fmt.Errorf("create bucket %s: %w", a.bucket, err)
+		}
+	}
+	if err := a.HeadBucket(ctx); err != nil {
+		return fmt.Errorf("verify bucket %s after create: %w", a.bucket, err)
+	}
+	return nil
+}
+
 func (a *awsS3) GetObject(ctx context.Context, key string) (io.ReadCloser, error) {
 	out, err := a.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &a.bucket, Key: &key})
 	if err != nil {
