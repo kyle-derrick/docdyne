@@ -52,7 +52,7 @@ const (
 // 存在注入风险，office/图片编辑走平台既有编辑器。
 var PlatformToolWriteExts = []string{
 	// 文档与纯文本
-	"md", "markdown", "txt", "text", "dfdoc", "rst", "adoc",
+	"md", "markdown", "txt", "text", "ddoc", "rst", "adoc",
 	// 结构化数据
 	"json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "env", "properties", "csv", "tsv",
 	// Web
@@ -112,7 +112,7 @@ var platformToolsAll = []PlatformTool{
 	},
 	{
 		Name:        PlatformToolReadFile,
-		Description: "读取平台空间中一个文件的文本内容（PDF/docx/xlsx/pptx/drawio/excalidraw/dfdoc 等自动抽取为纯文本；纯二进制不支持）。path 为相对当前工作目录的文件路径。内容截断至 " + itoa(PlatformToolReadMaxRunes) + " 字符并标注 truncated，需要更多内容时请分段请求。",
+		Description: "读取平台空间中一个文件的文本内容（PDF/docx/xlsx/pptx/drawio/excalidraw/ddoc 等自动抽取为纯文本；纯二进制不支持）。path 为相对当前工作目录的文件路径。内容截断至 " + itoa(PlatformToolReadMaxRunes) + " 字符并标注 truncated，需要更多内容时请分段请求。",
 		Params: map[string]any{
 			"type":     "object",
 			"required": []string{"path"},

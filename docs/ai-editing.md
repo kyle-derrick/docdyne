@@ -16,7 +16,7 @@ word 元素序号从 1 起；slide 页码从 1 起）。
 | PDF | — | 查看页 AI（摘要/对话，服务端抽取文本） | —（DS 无 PDF 文档 API，如实边界） | — | — |
 | draw.io | 6 | read_diagram / list_cells | update_cells / delete_cells | insert_cells | replace_diagram（整图） |
 | 白板 (Excalidraw) | 6 | read_scene | update_elements / move_elements / delete_elements / connect（a→b 直连） | insert_elements（骨架数组，at 锚点） | — |
-| 富文本 (.dfdoc) | 12 | read_document / read_selection / search_text | replace_text / write_document / delete_block | insert_content（Markdown）/ insert_table / insert_image / insert_link / **insert_embed** | format_text / set_block_type |
+| 富文本 (.ddoc) | 12 | read_document / read_selection / search_text | replace_text / write_document / delete_block | insert_content（Markdown）/ insert_table / insert_image / insert_link / **insert_embed** | format_text / set_block_type |
 | Monaco 文本 | 6 | read_document / read_selection / search_text | replace_text / write_whole | insert_content | — |
 
 ★ `write_table`：整表场景的组合工具——模型给二维数组（含表头行）而非逐格
@@ -85,7 +85,7 @@ snapshot 快照，migration 054）；助手与编辑页共用，查看页按产�
 | Agent 通用协议（TOOL_CALL/FINAL、先读后改）+ 宿主名 | `frontend/src/components/AIEditChat.tsx`（sendAgent） |
 | drawio XML 载荷规范 | `AIEditChat.tsx` DRAWIO_XML_GUIDE（drawio 页 agentSystemExtra 复用） |
 | excalidraw 骨架载荷规范 | `AIEditChat.tsx` EXCALIDRAW_JSON_GUIDE（白板页 agentSystemExtra 复用） |
-| 富文本宿主约束（find 片段/占位行保护） | `DfdocEditorPage.tsx`（agentSystemExtra） |
+| 富文本宿主约束（find 片段/占位行保护） | `DdocEditorPage.tsx`（agentSystemExtra） |
 | 摘要 / RAG 引用 / OCR / 记忆提取 / 文件上下文块 | `internal/ai/*.go`、`internal/http/ai*.go` |
 
 检索片段 / 附件全文 / 网络搜索摘要 / 记忆标题等不可信数据注入 system 上下文时，

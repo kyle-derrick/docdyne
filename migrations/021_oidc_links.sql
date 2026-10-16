@@ -1,5 +1,5 @@
 -- 021: OIDC 单点登录（v2 设计）。
--- oidc_links：IdP 身份（sub，issuer 内稳定标识）→ DocFlow 用户的关联。
+-- oidc_links：IdP 身份（sub，issuer 内稳定标识）→ DocDyne 用户的关联。
 -- 首次 SSO 登录时按 email 匹配既有用户（或自动开户，OIDC_AUTO_PROVISION）
 -- 后写入本表；此后 IdP 侧 email 变更仍可凭 sub 登录。
 -- sub 为主键：单 issuer 部署下即全局唯一；多 IdP 预留时须扩为

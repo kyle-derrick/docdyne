@@ -18,8 +18,8 @@ import { useColorMode } from '../theme'
 
 // Monaco（VSCode）编辑器：本地打包 + 按语言 worker（产物 3MB+ 独立 chunk，
 // 仅编辑态进入时拉取；查看态一律 <pre> 纯渲染，不加载 Monaco）。
-// v1.7 起 .md 回归纯 Markdown（源码+渲染），富文本编辑仅 .dfdoc
-//（见 DfdocEditorPage / RichTextEditor）。
+// v1.7 起 .md 回归纯 Markdown（源码+渲染），富文本编辑仅 .ddoc
+//（见 DdocEditorPage / RichTextEditor）。
 const MonacoEditor = lazy(() => import('../components/MonacoEditor'))
 
 export type EditorKind = 'text' | 'markdown' | 'html' | 'css' | 'javascript'

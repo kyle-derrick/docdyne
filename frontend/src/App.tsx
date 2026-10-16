@@ -48,7 +48,7 @@ import AdminPage from './pages/AdminPage'
 import DrawioPage from './pages/DrawioPage'
 import ExcalidrawPage from './pages/ExcalidrawPage'
 import TextEditorPage from './pages/TextEditorPage'
-import DfdocEditorPage from './pages/DfdocEditorPage'
+import DdocEditorPage from './pages/DdocEditorPage'
 import OfficeAIPage from './pages/OfficeAIPage'
 import SettingsPage from './pages/SettingsPage'
 import DashboardPage from './pages/DashboardPage'
@@ -894,8 +894,8 @@ export default function App() {
         <Route path="/text/:fileId" element={<RequireAuth bare><TextEditorPage kind="text" /></RequireAuth>} />
         <Route path="/markdown/:fileId" element={<RequireAuth bare><TextEditorPage kind="markdown" /></RequireAuth>} />
         <Route path="/code/:fileId" element={<RequireAuth bare><TextEditorPage kind="text" /></RequireAuth>} />
-        {/* .dfdoc 富文本文档（Tiptap JSON）：编辑/查看同编辑器，独立窗口。 */}
-        <Route path="/dfdoc/:fileId" element={<RequireAuth bare><DfdocEditorPage /></RequireAuth>} />
+        {/* .ddoc 富文本文档（Tiptap JSON）：编辑/查看同编辑器，独立窗口。 */}
+        <Route path="/ddoc/:fileId" element={<RequireAuth bare><DdocEditorPage /></RequireAuth>} />
         <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
         <Route path="/admin/:section" element={<RequireAuth><AdminPage /></RequireAuth>} />
         {/* 回收站已弹窗化（文件页工具栏按钮，见 TrashModal），整页路由删除；

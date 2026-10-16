@@ -2,7 +2,7 @@
 //
 // 按类型分发（扩展名优先，回退 MIME）：
 //   - md/txt/源码等文本类：直读原文；
-//   - .dfdoc/.json（Tiptap/ProseMirror JSON）：遍历节点树收集 text 叶子
+//   - .ddoc/.json（Tiptap/ProseMirror JSON）：遍历节点树收集 text 叶子
 //     与 codeBlock 文本；
 //   - .drawio：解析 mxGraphModel XML，收集 mxCell 的 value/label 属性
 //     （含内嵌 HTML 标签剥离）；
@@ -48,7 +48,7 @@ func ExtractText(name, mime string, data []byte) (text string, ok bool) {
 	}()
 	lower := strings.ToLower(name)
 	switch {
-	case strings.HasSuffix(lower, ".dfdoc"), strings.HasSuffix(lower, ".json"):
+	case strings.HasSuffix(lower, ".ddoc"), strings.HasSuffix(lower, ".json"):
 		return extractTiptap(data)
 	case strings.HasSuffix(lower, ".drawio"):
 		return extractDrawio(data)
@@ -110,7 +110,7 @@ func decodeRune(b []byte) (rune, int) {
 	}
 }
 
-// ---------- Tiptap / ProseMirror JSON（.dfdoc 富文本） ----------
+// ---------- Tiptap / ProseMirror JSON（.ddoc 富文本） ----------
 
 // extractTiptap 遍历 {type:"doc",content:[...]} 节点树，收集 text 节点与
 // 代码块文本；块级节点间补换行。普通 .json 文件同样安全（无 text 字段则空）。

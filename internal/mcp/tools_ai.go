@@ -55,7 +55,7 @@ func aiTools() []Tool {
 		},
 		{
 			Name:        "summarize_file",
-			Description: "生成文件的 AI 摘要：支持 md/txt/源码、.dfdoc 富文本、drawio、excalidraw、docx/xlsx/pptx、pdf（简单字体）等类型的全文抽取；不支持的类型按元信息生成占位摘要。需部署启用 AI。",
+			Description: "生成文件的 AI 摘要：支持 md/txt/源码、.ddoc 富文本、drawio、excalidraw、docx/xlsx/pptx、pdf（简单字体）等类型的全文抽取；不支持的类型按元信息生成占位摘要。需部署启用 AI。",
 			Scope:       ScopeAIChat,
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
 				"file_id": map[string]any{"type": "string", "description": "文件 file_id（UUID）"},

@@ -257,7 +257,7 @@ func fileExt(name string) string {
 }
 
 // supportedFileTypes 为 DocumentServer 支持的 document.fileType 白名单
-// （编辑/查看共用）。此前不校验扩展名即生成配置，把 .dfrt 等平台专属类型
+// （编辑/查看共用）。此前不校验扩展名即生成配置，把 .ddrt 等平台专属类型
 // 强制交给 OnlyOffice 时（「打开方式」允许非法组合显式覆盖），DS 报晦涩的
 // "document.fileType parameter is invalid"——现提前拦截并给出明确错误。
 // 无扩展名文件沿用 documentFileMeta 的 txt 回退口径，视同 txt。
@@ -268,7 +268,7 @@ var supportedFileTypes = map[string]bool{
 }
 
 // ErrInvalidFileType 表示目标文件扩展名不在 OnlyOffice 支持范围内
-// （如 .dfrt 富文本文档——应由富文本编辑器处理，而非 DocumentServer）。
+// （如 .ddrt 富文本文档——应由富文本编辑器处理，而非 DocumentServer）。
 var ErrInvalidFileType = errors.New("onlyoffice does not support this file type")
 
 // validateFileType 校验文件名扩展名是否可交给 DocumentServer；无扩展名视同

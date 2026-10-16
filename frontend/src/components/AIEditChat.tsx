@@ -80,7 +80,7 @@ const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
  *   替换画布内容。两者均无选区概念，统一走 onApply('replace')；
  * - richtext-patch：富文本页——指令式编辑（Cursor/Notion AI 形态）：AI 回
  *   ```docdyne-edit 围栏内的 JSON 编辑指令数组（replace/insert/delete/
- *   replaceAll），宿主执行器（DfdocEditorPage.applyRichTextPatch）在
+ *   replaceAll），宿主执行器（DdocEditorPage.applyRichTextPatch）在
  *   ProseMirror 文档中按定位原文精确匹配逐条执行；围栏缺失时宿主回落
  *   追加。回复原文经 onApply('replace') 透传，解析在宿主侧。 */
 export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'richtext-patch' | 'office-word' | 'office-excel' | 'office-ppt' | 'office-pdf'

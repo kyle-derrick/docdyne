@@ -1,4 +1,4 @@
-// DocDyne 富文本编辑器（Tiptap v2，.dfrt 专属格式：Tiptap JSON 存储）：
+// DocDyne 富文本编辑器（Tiptap v2，.ddrt 专属格式：Tiptap JSON 存储）：
 // - 受控语义：initialJSON 仅装载期生效（父组件用 key 重挂载换内容），
 //   用户编辑经 onChange(json) 全量回吐最新文档 JSON（JSON.stringify(getJSON())）；
 // - readonly 态复用同一渲染（editable=false，隐藏工具栏/菜单）；公开分享
@@ -120,7 +120,7 @@ export interface RichTextEditorProps {
   /** 用户编辑后回调（最新文档 JSON 字符串）。 */
   onChange?: (json: string) => void
   readonly?: boolean
-  /** dfdoc 文件自身 ID：图片上传时解析其所在目录（其下 assets/ 子目录）。 */
+  /** ddoc 文件自身 ID：图片上传时解析其所在目录（其下 assets/ 子目录）。 */
   fileId?: string
   versionId?: string
   comments?: DocumentComment[]
@@ -136,7 +136,7 @@ export interface RichTextEditorProps {
   onCollabState?: (snapshot: CollabSnapshot | null) => void
 }
 
-/** 解析 .dfdoc 内容：JSON 合法且为 {type:'doc'} 时原样使用，否则回退空段（不抛错——查看态损坏内容仍可打开编辑修复）。 */
+/** 解析 .ddoc 内容：JSON 合法且为 {type:'doc'} 时原样使用，否则回退空段（不抛错——查看态损坏内容仍可打开编辑修复）。 */
 function parseDocJSON(text: string): Record<string, unknown> {
   const trimmed = text.trim()
   if (trimmed) {
@@ -165,7 +165,7 @@ const CommentMark = Mark.create({
 })
 
 /** 文件卡片点击 → 查看弹窗内容（FileViewerDispatch 懒加载，避开
- * ViewerPage→DfdocEditorPage→RichTextEditor 静态循环依赖）。 */
+ * ViewerPage→DdocEditorPage→RichTextEditor 静态循环依赖）。 */
 const FileViewerDispatch = lazy(() =>
   import('../../pages/ViewerPage').then((m) => ({ default: m.FileViewerDispatch })),
 )

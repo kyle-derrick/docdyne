@@ -6,7 +6,7 @@
 //   目录可逐级进入（tree API），文件按类型内联预览（raw）或下载，html 用
 //   raw/share 新窗口打开；
 // - v2.4：目录/打包分享点击文件改为弹窗查看（PublicEntryViewer，与文件页
-//   查看弹窗同规格），补齐富文本(.dfrt/.dfdoc)/md/xmind/白板/mermaid/
+//   查看弹窗同规格），补齐富文本(.ddrt/.ddoc)/md/xmind/白板/mermaid/
 //   drawio 的只读渲染路径（内容经 /raw/share 白名单扩展获取）；
 // - 密码保护分享先解锁（HttpOnly 会话 cookie），水印开启时叠加全屏覆盖层。
 import { FormEvent, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
@@ -24,7 +24,7 @@ import {
   fetchPublicShareOffice,
   fetchPublicWebpkgPreview,
   getPublicShare,
-  isDfdocFile,
+  isDdocFile,
   isDrawioFile,
   isDrawioXmlContent,
   isExcalidrawFile,
@@ -45,7 +45,7 @@ import MermaidDiagram from '../components/MermaidDiagram'
 import XMindViewer from '../components/XMindViewer'
 import { useColorMode } from '../theme'
 
-// 富文本编辑器（Tiptap 产物 1MB+）懒加载独立 chunk（与 DfdocEditorPage 同法）。
+// 富文本编辑器（Tiptap 产物 1MB+）懒加载独立 chunk（与 DdocEditorPage 同法）。
 const RichTextEditor = lazy(() => import('../components/richtext/RichTextEditor'))
 
 /** 字节数可读格式（v2.6 统一 formatQuota 口径：B→KiB/MiB/GiB/TiB）。 */
@@ -224,12 +224,12 @@ function ViewerState({ text }: { text: string }) {
 
 /**
  * 单文件分享的富文本文档查看：同一 RichTextEditor 只读渲染；内容与
- * raw_base 均经 tree API 获取（单文件分享的根即文件自身，raw 直取 .dfrt
+ * raw_base 均经 tree API 获取（单文件分享的根即文件自身，raw 直取 .ddrt
  * 文本——/preview 端点对存储 mime=octet-stream 的文档会 415，raw 扩展名
  * 白名单更稳）。引用节点以 publicBase 走 raw/share 探测；单文件分享无
  * 兄弟资源授权，探测不到显示占位提示。
  */
-function PublicSingleDfdocViewer({ token }: { token: string }) {
+function PublicSingleDdocViewer({ token }: { token: string }) {
   const [state, setState] = useState<{ rawBase: string; docPath: string; text: string } | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -261,7 +261,7 @@ function PublicSingleDfdocViewer({ token }: { token: string }) {
 
 /**
  * 目录分享条目的弹窗查看内容（v2.4）：按扩展名分发只读渲染，与文件页
- * FileViewerDispatch 同口径——富文本(.dfrt/.dfdoc)/Markdown/mermaid/
+ * FileViewerDispatch 同口径——富文本(.ddrt/.ddoc)/Markdown/mermaid/
  * xmind/白板(drawio/excalidraw)/图片/PDF/纯文本。内容经 raw/share 获取
  * （后端白名单已扩展相应扩展名）；html 仍新窗口打开（点击处已分流）。
  */
@@ -274,9 +274,9 @@ function PublicEntryViewer({ rawBase, entry }: { rawBase: string; entry: ShareTr
   const [error, setError] = useState('')
   const endsXml = lower.endsWith('.xml')
 
-  // 文本类内容统一拉取（md/mermaid/drawio/xml 嗅探/dfrt/excalidraw/txt 等）。
+  // 文本类内容统一拉取（md/mermaid/drawio/xml 嗅探/ddrt/excalidraw/txt 等）。
   const needsText =
-    isDfdocFile(lower)
+    isDdocFile(lower)
     || lower.endsWith('.md') || lower.endsWith('.markdown')
     || isMermaidFile(lower)
     || isExcalidrawFile(lower)
@@ -297,7 +297,7 @@ function PublicEntryViewer({ rawBase, entry }: { rawBase: string; entry: ShareTr
 
   // 富文本（Tiptap JSON）readonly 渲染：同一 RichTextEditor 组件（嵌入块/
   // 图片/文件卡片按 publicBase 走 raw/share 公开端点解析）。
-  if (isDfdocFile(lower)) {
+  if (isDdocFile(lower)) {
     if (error) return <ViewerState text={error} />
     if (text === null) return <ViewerState text="正在加载文档…" />
     return (
@@ -680,7 +680,7 @@ export default function SharePage() {
   const metaForText = okState?.info
   const needDirectText = !!metaForText && metaForText.type !== 'folder' && (
     previewKind(metaForText.mime_type ?? '') === 'text'
-    || /\.(md|markdown|drawio|excalidraw|dfrt|dfdoc)$/i.test(metaForText.name)
+    || /\.(md|markdown|drawio|excalidraw|ddrt|ddoc)$/i.test(metaForText.name)
   )
   useEffect(() => {
     if (!okState || !needDirectText) return
@@ -775,10 +775,10 @@ export default function SharePage() {
     body = <iframe className="share-direct-frame" sandbox="allow-scripts" src={webpkgUrl} title={info.name} />
   } else if (isOfficeFile(info.name)) {
     body = <PublicOfficeViewer token={token} name={info.name} />
-  } else if (isDfdocFile(lower)) {
+  } else if (isDdocFile(lower)) {
     body = (
       <Suspense fallback={<p className="hint">正在加载查看器…</p>}>
-        <PublicSingleDfdocViewer token={token} />
+        <PublicSingleDdocViewer token={token} />
       </Suspense>
     )
   } else if (isExcalidrawFile(lower)) {

@@ -1961,15 +1961,15 @@ export function isExcalidrawFile(name: string): boolean {
 /** 空白板初始场景（新建 .excalidraw 文件与空/损坏内容容错共用）。 */
 export const EMPTY_EXCALIDRAW_JSON = '{"type":"excalidraw","version":2,"elements":[],"appState":{}}'
 
-// ---------- DocDyne 富文本文档（.dfrt 主后缀，.dfdoc 兼容别名：Tiptap JSON 存储） ----------
+// ---------- DocDyne 富文本文档（.ddrt 主后缀，.ddoc 兼容别名：Tiptap JSON 存储） ----------
 
-/** 仅富文本文档扩展名（.dfrt / 旧 .dfdoc）进入富文本编辑（Tiptap JSON 文档，查看/编辑同编辑器）。 */
-export function isDfdocFile(name: string): boolean {
+/** 仅富文本文档扩展名（.ddrt / 旧 .ddoc）进入富文本编辑（Tiptap JSON 文档，查看/编辑同编辑器）。 */
+export function isDdocFile(name: string): boolean {
   const lower = name.toLowerCase()
-  return lower.endsWith('.dfrt') || lower.endsWith('.dfdoc')
+  return lower.endsWith('.ddrt') || lower.endsWith('.ddoc')
 }
 
-/** 空富文本文档初始 JSON（新建 .dfrt 文件共用；一个空段）。 */
+/** 空富文本文档初始 JSON（新建 .ddrt 文件共用；一个空段）。 */
 export const EMPTY_DFDOC_JSON = '{"type":"doc","content":[{"type":"paragraph"}]}'
 
 // ---------- XMind 思维导图查看器（前端 fflate 解析 + Markmap 渲染） ----------

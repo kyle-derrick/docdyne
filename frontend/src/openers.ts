@@ -9,10 +9,10 @@
 import type { OpenWithPrefs } from './api'
 import { isDrawioFile, isExcalidrawFile } from './api'
 
-/** 查看方式枚举：raw=原始内容 / office=OnlyOffice / drawio=图表(转HTML) / excalidraw=白板(转图片) / xmind=思维导图 / richtext=富文本渲染（md 渲染或 .dfrt/.dfdoc）。 */
+/** 查看方式枚举：raw=原始内容 / office=OnlyOffice / drawio=图表(转HTML) / excalidraw=白板(转图片) / xmind=思维导图 / richtext=富文本渲染（md 渲染或 .ddrt/.ddoc）。 */
 export type ViewMethod = 'raw' | 'office' | 'drawio' | 'excalidraw' | 'xmind' | 'richtext'
 
-/** 编辑方式枚举：text=Monaco / office=OnlyOffice / drawio / excalidraw / richtext=Tiptap（.dfrt/.dfdoc 专属）/ none=不支持编辑。 */
+/** 编辑方式枚举：text=Monaco / office=OnlyOffice / drawio / excalidraw / richtext=Tiptap（.ddrt/.ddoc 专属）/ none=不支持编辑。 */
 export type EditMethod = 'text' | 'office' | 'drawio' | 'excalidraw' | 'richtext' | 'none'
 
 /** 一个扩展名的完整打开方式（查看 + 编辑）。 */
@@ -22,7 +22,7 @@ export interface OpenWithPair {
 }
 
 /** 查看方式展示名（中/英）；ext 提供时按语境取词：md 家族的 richtext
- * 查看方式显示「md 渲染」（.dfrt/.dfdoc 的富文本渲染另名）。 */
+ * 查看方式显示「md 渲染」（.ddrt/.ddoc 的富文本渲染另名）。 */
 export function viewMethodLabel(method: ViewMethod, zh: boolean, ext?: string): string {
   if (method === 'richtext' && (ext === 'md' || ext === 'markdown' || ext === 'mdx')) {
     return zh ? 'md 渲染' : 'Markdown'
@@ -98,8 +98,8 @@ const TEXT_EDITABLE_EXTS = new Set([
 /** Office 文档扩展名（内置 view/edit=office；OnlyOffice 查看与编辑）。 */
 const OFFICE_DOC_EXTS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'])
 
-/** 富文本文档扩展名（DocDyne 专属 .dfrt 主后缀 + 旧 .dfdoc 别名：Tiptap JSON 存储，查看/编辑均富文本）。 */
-const RICH_DOC_EXTS = new Set(['dfrt', 'dfdoc'])
+/** 富文本文档扩展名（DocDyne 专属 .ddrt 主后缀 + 旧 .ddoc 别名：Tiptap JSON 存储，查看/编辑均富文本）。 */
+const RICH_DOC_EXTS = new Set(['ddrt', 'ddoc'])
 
 /** 文本类文件（可进文本/代码编辑器安全编辑，非二进制）。 */
 export function isTextEditableFile(name: string): boolean {
@@ -132,8 +132,8 @@ export function textEditorKindFor(name: string): TextEditorKind | null {
  * 内置默认打开方式（v1.7 md/富文本分离后）：
  * - md,markdown：richtext / text —— .md 回归纯 Markdown：查看 = md 渲染，
  *   编辑 = Monaco 源码（不再用富文本编辑器编辑 .md）；
- * - dfrt,dfdoc：richtext / richtext —— DocDyne 富文本文档（Tiptap JSON
- *   存储；.dfrt 为主后缀，.dfdoc 为兼容别名）；
+ * - ddrt,ddoc：richtext / richtext —— DocDyne 富文本文档（Tiptap JSON
+ *   存储；.ddrt 为主后缀，.ddoc 为兼容别名）；
  * - doc,docx,xls,xlsx,ppt,pptx（含 odt/ods/odp）：office / office；
  * - drawio：drawio / drawio；excalidraw：excalidraw / excalidraw；
  * - xmind：xmind / none（仅查看）；
@@ -173,7 +173,7 @@ export function editOptionsFor(ext: string): EditMethod[] {
   const builtin = builtinOpenWith(ext)
   if (builtin.edit === 'none') return []
   const opts: EditMethod[] = [builtin.edit]
-  // 富文本文档（.dfrt/.dfdoc）编辑专属（Tiptap JSON 不进 Monaco）；其余
+  // 富文本文档（.ddrt/.ddoc）编辑专属（Tiptap JSON 不进 Monaco）；其余
   // 富文本可编辑类型（当前无——md 已回归 Monaco）可回落源码编辑。
   if (builtin.edit === 'richtext' && TEXT_EDITABLE_EXTS.has(ext) && !opts.includes('text')) {
     opts.push('text')
@@ -240,7 +240,7 @@ function disabledReason(m: string, legal: boolean, av: MethodAvailability | unde
 
 /** 设置页「打开方式」内置默认表预填的扩展名清单（按类别排序展示）。 */
 export const BUILTIN_OPENWITH_EXTS = [
-  'txt', 'md', 'markdown', 'dfrt', 'dfdoc',
+  'txt', 'md', 'markdown', 'ddrt', 'ddoc',
   'html', 'htm', 'css', 'js', 'json', 'csv', 'tsv', 'xml', 'svg', 'yaml',
   'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
   'drawio', 'excalidraw', 'xmind', 'pdf',
@@ -272,7 +272,7 @@ export function effectiveOpenWithFor(name: string, prefs: OpenWithPrefs): OpenWi
  * 富文本右键「编辑」、文件卡片弹窗「新窗口编辑」等引用场景使用——引用
  * 节点只有 fileId，无目录面包屑）。调用方自行拼接 `/{fileId}`。
  * - kind='view' 恒返回 '/view'（ViewerPage 按扩展名自动分发各查看器）；
- * - kind='edit' 按内置默认编辑方式分发：richtext → /dfdoc、drawio → /drawio、
+ * - kind='edit' 按内置默认编辑方式分发：richtext → /ddoc、drawio → /drawio、
  *   excalidraw → /excalidraw、office → /edit、md → /markdown、其余文本 →
  *   /text 或 /code；不支持编辑的类型回退 '/view'。
  */
@@ -281,7 +281,7 @@ export function editorRouteFor(name: string, kind: 'view' | 'edit'): string {
   const builtin = builtinOpenWith(extOf(name))
   switch (builtin.edit) {
     case 'richtext':
-      return '/dfdoc'
+      return '/ddoc'
     case 'drawio':
       return '/drawio'
     case 'excalidraw':

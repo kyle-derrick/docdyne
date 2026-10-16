@@ -99,7 +99,7 @@ test.describe.serial('文件全流程', () => {
       page.getByRole('button', { name: '创建并打开', exact: true }).click(),
     ])
     await expect(mdEditor).toHaveURL(/\/markdown\//)
-    // v2.x md 编辑器与文本同为 Monaco（.rich-text-content 已是 .dfrt 富文本专属）。
+    // v2.x md 编辑器与文本同为 Monaco（.rich-text-content 已是 .ddrt 富文本专属）。
     await expect(mdEditor.locator('.monaco-editor')).toBeVisible({ timeout: 30_000 })
     await mdEditor.close()
 

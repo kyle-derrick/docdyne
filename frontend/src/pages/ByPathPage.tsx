@@ -9,14 +9,14 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ApiError,
   ResolveNamespaceType,
-  isDfdocFile,
+  isDdocFile,
   isDrawioFile,
   isExcalidrawFile,
   isOfficeFile,
   resolvePath,
 } from '../api'
 import { textEditorKindFor } from '../openers'
-import DfdocEditorPage from './DfdocEditorPage'
+import DdocEditorPage from './DdocEditorPage'
 import DrawioPage from './DrawioPage'
 import EditorPage from './EditorPage'
 import ExcalidrawPage from './ExcalidrawPage'
@@ -215,8 +215,8 @@ export function EditByPathPage() {
 
   const lower = target.name.toLowerCase()
   // ?open= 强制编辑方式：text→Monaco（md 家族 markdown 源码）、richtext→
-  // .dfrt/.dfdoc 富文本（Tiptap JSON）；office/drawio/excalidraw→专项编辑器。
-  // force 兜底：非法「扩展名 × 引擎」组合（如 .dfrt 强制 office——OnlyOffice
+  // .ddrt/.ddoc 富文本（Tiptap JSON）；office/drawio/excalidraw→专项编辑器。
+  // force 兜底：非法「扩展名 × 引擎」组合（如 .ddrt 强制 office——OnlyOffice
   // fileType invalid 同类问题）回落按扩展名自动分发。
   const forceOk =
     (forceOpen === 'office' && (isOfficeFile(lower) || /\.(pdf|txt|rtf)$/.test(lower))) ||
@@ -229,7 +229,7 @@ export function EditByPathPage() {
   if (effForce === 'drawio') return <DrawioPage fileId={target.fileId} />
   if (effForce === 'excalidraw') return <ExcalidrawPage fileId={target.fileId} />
   if (effForce === 'richtext') {
-    if (isDfdocFile(lower)) return <DfdocEditorPage fileId={target.fileId} />
+    if (isDdocFile(lower)) return <DdocEditorPage fileId={target.fileId} />
     return <TextEditorPage kind="markdown" fileId={target.fileId} />
   }
   if (effForce === 'text') {
@@ -239,7 +239,7 @@ export function EditByPathPage() {
   if (isOfficeFile(lower)) return <EditorPage fileId={target.fileId} />
   if (isDrawioFile(lower)) return <DrawioPage fileId={target.fileId} />
   if (isExcalidrawFile(lower)) return <ExcalidrawPage fileId={target.fileId} />
-  if (isDfdocFile(lower)) return <DfdocEditorPage fileId={target.fileId} />
+  if (isDdocFile(lower)) return <DdocEditorPage fileId={target.fileId} />
   // 文本类（md/html/css/js 及全部可安全编辑的文本扩展名，见 openers.ts）。
   const textKind = textEditorKindFor(lower)
   if (textKind) return <TextEditorPage kind={textKind} fileId={target.fileId} />

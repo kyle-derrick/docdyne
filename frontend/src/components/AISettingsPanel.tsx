@@ -1128,8 +1128,8 @@ export default function AISettingsPanel({
         {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；RAG 配置将保留，启用 AI 后生效。' : 'AI is off; RAG settings are retained until AI is enabled.'}</p>}
         <p className="hint">
           {zh
-            ? '文档解析说明：平台内置文本抽取——md/txt/代码/dfrt 等文本类直接读取入索引；docx/pdf 经服务端解析后入索引；图片经「图片 OCR」开启后可提取文字入索引。'
-            : 'Parsing: md/txt/code/dfrt are read directly into the index; docx/pdf are parsed server-side before indexing; images can be OCR-ed into the index once "Image OCR" is enabled.'}
+            ? '文档解析说明：平台内置文本抽取——md/txt/代码/ddrt 等文本类直接读取入索引；docx/pdf 经服务端解析后入索引；图片经「图片 OCR」开启后可提取文字入索引。'
+            : 'Parsing: md/txt/code/ddrt are read directly into the index; docx/pdf are parsed server-side before indexing; images can be OCR-ed into the index once "Image OCR" is enabled.'}
         </p>
         <div className="ai-defaults-form">
           <label className="field"><span>{zh ? '模式' : 'Mode'}</span><Select value={rag.mode} disabled={readOnly} options={[{ value: 'keyword', label: zh ? '关键词检索' : 'Keyword' }, { value: 'hybrid', label: zh ? '混合检索（关键词+向量）' : 'Hybrid (keyword+vector)' }]} onChange={(mode) => setRag({ ...rag, mode })} /></label>

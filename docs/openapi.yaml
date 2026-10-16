@@ -4426,7 +4426,7 @@ paths:
         生效时附 web_sources/search_failed 可选字段）。
         请求体 context.query 触发检索增强（RAG-lite：全文检索 top-k 按当前
         用户权限过滤，来源带 /view/{id} 链接）；context.fileIds 把指定文件
-        抽取文本（office/pdf/drawio/excalidraw/dfdoc/文本，单文件 8000 字符）
+        抽取文本（office/pdf/drawio/excalidraw/ddoc/文本，单文件 8000 字符）
         拼入上下文。可选 think=true 开启推理思考（仅所选模型勾选
         capabilities.reasoning 时透传 Provider：openai_compatible 加
         reasoning_effort=medium；anthropic 加 thinking budget_tokens=2048
@@ -5604,7 +5604,7 @@ paths:
       operationId: aiSummarize
       summary: 文件 AI 摘要（全类型抽取）
       description: >-
-        抽取文件当前版本内容（md/txt/源码直读；.dfdoc Tiptap JSON 遍历；
+        抽取文件当前版本内容（md/txt/源码直读；.ddoc Tiptap JSON 遍历；
         drawio mxGraphModel value；excalidraw elements.text；docx/xlsx/pptx
         纯 Go 解析 zip+XML；pdf 简单字体流解析）后交 ChatService 生成摘要；
         不支持全文抽取的二进制类型按「标题+元信息+描述」占位如实标注。

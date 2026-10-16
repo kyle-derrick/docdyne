@@ -627,7 +627,7 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// AI 能力第一版：多 Provider 对话（SSE 流式，scope ai:chat，每用户
 	// 限流按所选 Provider 的 requests_per_min/daily_quota 执行、全局
 	// ai.per_user_per_min 兜底——限流在 handler 内感知请求体的 Provider）
-	// 与全类型文件摘要（office/pdf/drawio/excalidraw/dfdoc/文本）；未启用
+	// 与全类型文件摘要（office/pdf/drawio/excalidraw/ddoc/文本）；未启用
 	//（ai.enabled=false 或无可用 Provider）时 chat/summarize/models 404。
 	// status 恒可用（前端 AI 入口显隐）；models 为登录用户可读的可用模型
 	// 列表（含能力勾选，绝不回显 api_key）。

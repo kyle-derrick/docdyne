@@ -795,7 +795,7 @@ func aiErrorJSON(c *gin.Context, err error) {
 }
 
 // aiSummarize POST /api/v1/ai/summarize {fileId, stream?}：抽取全类型内容
-// （office/pdf/drawio/excalidraw/dfdoc/文本），交 ChatService 生成摘要；
+// （office/pdf/drawio/excalidraw/ddoc/文本），交 ChatService 生成摘要；
 // stream=true 时 SSE 输出（event: thinking（think 且模型支持时有）/
 // delta/done），否则 JSON。
 func (h *Handler) aiSummarize(c *gin.Context) {

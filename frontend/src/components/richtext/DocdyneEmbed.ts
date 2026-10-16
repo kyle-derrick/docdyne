@@ -1,7 +1,7 @@
 // DocDyne 富文本嵌入块节点（自定义 Tiptap node）：
 // - atom 块级节点，attrs { kind, fileId, title }，NodeView 渲染实际内容
 //   （见 EmbedView.tsx）；
-// - .dfdoc 为 Tiptap JSON 存储：嵌入块以本节点原生存进文档 JSON，
+// - .ddoc 为 Tiptap JSON 存储：嵌入块以本节点原生存进文档 JSON，
 //   无需 Markdown 序列化约定（v1.7 起 .md 不再走富文本编辑器，
 //   旧的 fenced code block 往返补丁已随 tiptap-markdown 一并移除）。
 import { Node, mergeAttributes, ReactNodeViewRenderer } from '@tiptap/react'

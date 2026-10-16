@@ -153,7 +153,7 @@ func TestPlatformToolsFor(t *testing.T) {
 // TestPlatformToolWriteExtAllowed 写入扩展名白名单：文本类放行、二进制/
 // 无扩展名拒绝、大小写不敏感。
 func TestPlatformToolWriteExtAllowed(t *testing.T) {
-	allow := []string{"a.md", "notes.txt", "main.go", "data.json", "config.yaml", "page.html", "style.css", "app.js", "index.ts", "script.py", "Main.java", "query.sql", "run.sh", "logo.svg", "data.csv", "flow.mermaid", "diagram.drawio", "board.excalidraw", "doc.dfdoc", "A.MD", "Chart.SVG"}
+	allow := []string{"a.md", "notes.txt", "main.go", "data.json", "config.yaml", "page.html", "style.css", "app.js", "index.ts", "script.py", "Main.java", "query.sql", "run.sh", "logo.svg", "data.csv", "flow.mermaid", "diagram.drawio", "board.excalidraw", "doc.ddoc", "A.MD", "Chart.SVG"}
 	for _, name := range allow {
 		if !PlatformToolWriteExtAllowed(name) {
 			t.Fatalf("%q 应在白名单内", name)

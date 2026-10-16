@@ -47,7 +47,7 @@ func (h *Handler) commentFile(c *gin.Context, id uuid.UUID, write bool) (files.F
 	if h.fileError(c, err) {
 		return files.File{}, false
 	}
-	if f.Type != "file" || !(strings.HasSuffix(strings.ToLower(f.Name), ".dfrt") || strings.HasSuffix(strings.ToLower(f.Name), ".dfdoc")) {
+	if f.Type != "file" || !(strings.HasSuffix(strings.ToLower(f.Name), ".ddrt") || strings.HasSuffix(strings.ToLower(f.Name), ".ddoc")) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "not a rich text document"})
 		return files.File{}, false
 	}

@@ -17,7 +17,7 @@ import {
   fetchFileText,
   fetchPreview,
   getFileMeta,
-  isDfdocFile,
+  isDdocFile,
   isDrawioFile,
   isDrawioXmlContent,
   isExcalidrawFile,
@@ -28,7 +28,7 @@ import {
   resolveFileById,
 } from '../api'
 import DrawioPage from './DrawioPage'
-import DfdocEditorPage from './DfdocEditorPage'
+import DdocEditorPage from './DdocEditorPage'
 import EditorPage from './EditorPage'
 import ExcalidrawPage from './ExcalidrawPage'
 import TextEditorPage from './TextEditorPage'
@@ -266,30 +266,30 @@ export function FileViewerDispatch({
   }, [fileId, endsXml])
 
   // force 兜底（与打开方式菜单门槛同规则）：非法「扩展名 × 引擎」组合
-  //（如 .dfrt 强制 office / .docx 强制 drawio）回落按扩展名自动分发，
+  //（如 .ddrt 强制 office / .docx 强制 drawio）回落按扩展名自动分发，
   // 不再把文件塞进不认识的引擎（OnlyOffice fileType invalid 同类问题）。
   const forceOk =
     (force === 'office' && (isOfficeFile(lower) || /\.(pdf|txt|rtf)$/.test(lower))) ||
     (force === 'drawio' && isDrawioFile(lower)) ||
     (force === 'excalidraw' && isExcalidrawFile(lower)) ||
     (force === 'xmind' && isXmindFile(lower)) ||
-    (force === 'richtext' && (isDfdocFile(lower) || /\.(md|markdown|mdx)$/.test(lower))) ||
+    (force === 'richtext' && (isDdocFile(lower) || /\.(md|markdown|mdx)$/.test(lower))) ||
     force === 'raw'
   const effForce = forceOk ? force : undefined
   if (effForce === 'office') return <EditorPage mode="view" fileId={fileId} />
   if (effForce === 'drawio') return <DrawioPage mode="view" fileId={fileId} />
   if (effForce === 'excalidraw') return <ExcalidrawPage mode="view" fileId={fileId} />
   if (effForce === 'xmind') return <XMindFileViewer fileId={fileId} name={name} />
-  // richtext 查看方式：.dfdoc → Tiptap 只读渲染；.md 家族 → Markdown 渲染。
+  // richtext 查看方式：.ddoc → Tiptap 只读渲染；.md 家族 → Markdown 渲染。
   if (effForce === 'richtext') {
-    if (isDfdocFile(lower)) return <DfdocEditorPage mode="view" fileId={fileId} />
+    if (isDdocFile(lower)) return <DdocEditorPage mode="view" fileId={fileId} />
     return <TextEditorPage kind="markdown" mode="view" fileId={fileId} />
   }
   if (effForce === 'raw') return <RawSourceViewer fileId={fileId} />
   if (isOfficeFile(lower)) return <EditorPage mode="view" fileId={fileId} />
   if (isDrawioFile(lower)) return <DrawioPage mode="view" fileId={fileId} />
   if (isExcalidrawFile(lower)) return <ExcalidrawPage mode="view" fileId={fileId} />
-  if (isDfdocFile(lower)) return <DfdocEditorPage mode="view" fileId={fileId} />
+  if (isDdocFile(lower)) return <DdocEditorPage mode="view" fileId={fileId} />
   if (isXmindFile(lower)) return <XMindFileViewer fileId={fileId} name={name} />
   if (isMermaidFile(lower)) return <MermaidFileViewer fileId={fileId} />
   if (endsXml) {
@@ -334,8 +334,8 @@ function RawSourceViewer({ fileId }: { fileId: string }) {
  * 按文件名/扩展名分发的编辑器组件（v2.7 弹窗内编辑复用）：与
  * FileViewerDispatch 同口径的编辑分发——office → EditorPage（弹窗内嵌
  * OnlyOffice，二次初始化已修：全新 placeholder + api.js 常驻）；drawio →
- * DrawioPage 编辑；excalidraw → ExcalidrawPage 编辑；.dfrt/.dfdoc →
- * DfdocEditorPage；md 家族 → TextEditorPage(markdown)；css/js → code；
+ * DrawioPage 编辑；excalidraw → ExcalidrawPage 编辑；.ddrt/.ddoc →
+ * DdocEditorPage；md 家族 → TextEditorPage(markdown)；css/js → code；
  * 其余文本 → TextEditorPage(text)。不支持编辑的类型回退查看。
  */
 export function FileEditorDispatch({ fileId, name, force }: { fileId: string; name: string; force?: string }) {
@@ -353,7 +353,7 @@ export function FileEditorDispatch({ fileId, name, force }: { fileId: string; na
   if (effForce === 'drawio') return <DrawioPage mode="edit" fileId={fileId} />
   if (effForce === 'excalidraw') return <ExcalidrawPage mode="edit" fileId={fileId} />
   if (effForce === 'richtext') {
-    if (isDfdocFile(lower)) return <DfdocEditorPage mode="edit" fileId={fileId} />
+    if (isDdocFile(lower)) return <DdocEditorPage mode="edit" fileId={fileId} />
     return <TextEditorPage kind="markdown" mode="edit" fileId={fileId} />
   }
   if (effForce === 'text') {
@@ -363,7 +363,7 @@ export function FileEditorDispatch({ fileId, name, force }: { fileId: string; na
   if (isOfficeFile(lower)) return <EditorPage mode="edit" fileId={fileId} />
   if (isDrawioFile(lower)) return <DrawioPage mode="edit" fileId={fileId} />
   if (isExcalidrawFile(lower)) return <ExcalidrawPage mode="edit" fileId={fileId} />
-  if (isDfdocFile(lower)) return <DfdocEditorPage mode="edit" fileId={fileId} />
+  if (isDdocFile(lower)) return <DdocEditorPage mode="edit" fileId={fileId} />
   if (lower.endsWith('.md') || lower.endsWith('.markdown')) return <TextEditorPage kind="markdown" mode="edit" fileId={fileId} />
   if (lower.endsWith('.css') || lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.json')) {
     return <TextEditorPage kind={lower.endsWith('.css') ? 'css' : 'javascript'} mode="edit" fileId={fileId} />
@@ -375,7 +375,7 @@ export function FileEditorDispatch({ fileId, name, force }: { fileId: string; na
  * UUID 直链编辑分发页（/edit/:fileId）：与 /view/:fileId 的 ViewerPage 同构
  * ——先取文件元数据，再按扩展名（及 ?open= 偏好，非法组合兜底回落）分发
  * 对应编辑器。此前该路由固定渲染 OnlyOffice（EditorPage），文件页在无命名
- * 空间/搜索模式下 routeFor 回退 UUID 直链时，txt/md/drawio/.dfrt 全被塞进
+ * 空间/搜索模式下 routeFor 回退 UUID 直链时，txt/md/drawio/.ddrt 全被塞进
  * OnlyOffice（"txt 变 word"、OnlyOffice fileType invalid 的根因）。
  */
 export function EditDispatchPage() {

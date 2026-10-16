@@ -388,19 +388,19 @@ func TestEditConfigPermissionAndBlobUnavailable(t *testing.T) {
 }
 
 // TestEditConfigRejectsUnsupportedFileType 验证 OnlyOffice 不支持的扩展
-// （如 .dfrt 富文本、.drawio）在生成配置前被 ErrInvalidFileType 拦截——
-// 此前会生成 fileType=dfrt 的配置，DocumentServer 报晦涩的
+// （如 .ddrt 富文本、.drawio）在生成配置前被 ErrInvalidFileType 拦截——
+// 此前会生成 fileType=ddrt 的配置，DocumentServer 报晦涩的
 // "document.fileType parameter is invalid"；Office/pdf/txt/无扩展名放行。
 func TestEditConfigRejectsUnsupportedFileType(t *testing.T) {
 	store := newFakeFileStore()
 	owner := uuid.New()
-	dfrt, _ := store.seedFile(owner, "文档.dfrt", "{}")
+	ddrt, _ := store.seedFile(owner, "文档.ddrt", "{}")
 	drawio, _ := store.seedFile(owner, "流程图.drawio", "<mxfile/>")
 	bare, _ := store.seedFile(owner, "README", "hi")
 	s := newTestService(store, newMemStorage(), nil, &fakeRecorder{}, nil)
 
-	if _, err := s.NewEditConfig(owner, dfrt.ID); !errors.Is(err, ErrInvalidFileType) {
-		t.Fatalf(".dfrt: err = %v, want ErrInvalidFileType", err)
+	if _, err := s.NewEditConfig(owner, ddrt.ID); !errors.Is(err, ErrInvalidFileType) {
+		t.Fatalf(".ddrt: err = %v, want ErrInvalidFileType", err)
 	}
 	if _, err := s.NewEditConfig(owner, drawio.ID); !errors.Is(err, ErrInvalidFileType) {
 		t.Fatalf(".drawio: err = %v, want ErrInvalidFileType", err)
@@ -409,8 +409,8 @@ func TestEditConfigRejectsUnsupportedFileType(t *testing.T) {
 	if _, err := s.NewEditConfig(owner, bare.ID); err != nil {
 		t.Fatalf("无扩展名应回退 txt 放行: %v", err)
 	}
-	if _, err := s.NewShareViewConfig(files.File{ID: dfrt.ID, Name: "文档.dfrt", Type: "file"}, files.FileVersion{}, SessionOptions{}); !errors.Is(err, ErrInvalidFileType) {
-		t.Fatalf("分享查看 .dfrt: err = %v, want ErrInvalidFileType", err)
+	if _, err := s.NewShareViewConfig(files.File{ID: ddrt.ID, Name: "文档.ddrt", Type: "file"}, files.FileVersion{}, SessionOptions{}); !errors.Is(err, ErrInvalidFileType) {
+		t.Fatalf("分享查看 .ddrt: err = %v, want ErrInvalidFileType", err)
 	}
 }
 

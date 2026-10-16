@@ -247,10 +247,10 @@ test.describe.serial('AI 基座验收', () => {
     await expect(page.locator('.monaco-editor').first()).toContainText('Mock AI 回复', { timeout: 10000 })
   })
 
-  // ------------------------------------------- 5d dfrt（Tiptap）编辑页：AI 插入/替换
-  test('5d dfrt 富文本编辑页：AI 摘要插入 + 选区替换（Tiptap insertContentAt）', async ({ page }) => {
-    // 上传一个最小 Tiptap JSON 的 .dfrt 文档。
-    const name = `AI-RT-${R()}.dfrt`
+  // ------------------------------------------- 5d ddrt（Tiptap）编辑页：AI 插入/替换
+  test('5d ddrt 富文本编辑页：AI 摘要插入 + 选区替换（Tiptap insertContentAt）', async ({ page }) => {
+    // 上传一个最小 Tiptap JSON 的 .ddrt 文档。
+    const name = `AI-RT-${R()}.ddrt`
     const doc = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '富文本 AI 验证原始段落。' }] }] })
     await openAuthed(page, '/')
     await page.locator('input[type="file"]').first().setInputFiles({
@@ -268,9 +268,9 @@ test.describe.serial('AI 基座验收', () => {
       }
       await page.waitForTimeout(1000)
     }
-    expect(file, '.dfrt 文件应可检索').toBeTruthy()
+    expect(file, '.ddrt 文件应可检索').toBeTruthy()
 
-    await openAuthed(page, `/dfdoc/${file!.id}`)
+    await openAuthed(page, `/ddoc/${file!.id}`)
     // 工具栏 AI 按钮（无选区 → 全文摘要 → 插入）。
     await page.getByRole('button', { name: /^AI$/ }).click()
     await page.getByRole('menuitem', { name: '摘要' }).click()

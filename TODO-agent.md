@@ -87,7 +87,7 @@
       - 附带（官方 drawio skill 方法论）：drawio 新增 auto_layout 工具
         （embed 协议 action:layout，实测存在；树/流程/力导向等 8 种），
         AI 可粗略坐标+连线后一键排版，替代手算坐标
-- [x] D2. 富文本 getTarget 返回选中块类型和内容（DfdocEditorPage 既有实现：
+- [x] D2. 富文本 getTarget 返回选中块类型和内容（DdocEditorPage 既有实现：
       tiptap 选区 → docToAIText，markdown 结构标记即块类型；D4 后进 system）
 - [x] D3. Word get_selection 已有；Excel/PPT 补齐（插件 v21：get_selection
       统一入口按 kind 分支——cell=Api.GetSelection().GetAddress()+值预览，

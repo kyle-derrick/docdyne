@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### 变更
-- **项目更名 DocFlow → DocDyne（全量、破坏性）**：消除与 Toss `docflow` npm 包、合合信息 TextIn DocFlow 商业产品等的命名空间冲突（四路查重：GitHub/npm/PyPI/商业产品均确认 docdyne 干净）。涉及：Go module path `github.com/kyle-derrick/docdyne`、npm scope `@docdyne/chat`、MCP 工具前缀 `df_`→`dd_`（25 个对外工具 + 站内 AI 平台工具）、PAT 前缀 `dfpat_`→`ddpat_`、webhook 签名头 `X-DocFlow-Signature`→`X-DocDyne-Signature`、Docker 镜像 `docdyne/backend|caddy`、环境变量 `DOCDYNE_IMAGE_TAG/DEV_API/URL`、compose 数据面标识（DB 名/用户/S3 bucket/ES 索引/RAG collection 前缀/Redis channel）、UI 品牌与文档全套。**兼容性**：旧 PAT 失效（前缀识别）、旧 webhook 接收方须改验签头名、既有部署数据卷需重建或手工迁移、浏览器 localStorage 偏好回落默认；`.dfrt`/`.dfdoc` 文件扩展名与 `/dfdoc` 路由作为数据格式协议保留不改；`migrations/` 历史文件按红线原样保留（其中 dfpat_ 仅存于注释）。
+- **项目更名 DocFlow → DocDyne（全量，发布前定名、无兼容包袱）**：消除与 Toss `docflow` npm 包、合合信息 TextIn DocFlow 商业产品等的命名空间冲突（四路查重：GitHub/npm/PyPI/商业产品均确认 docdyne 干净）。涉及：Go module path `github.com/kyle-derrick/docdyne`、npm scope `@docdyne/chat`、MCP 工具前缀 `df_`→`dd_`（25 个对外工具 + 站内 AI 平台工具）、PAT 前缀 `dfpat_`→`ddpat_`、webhook 签名头 `X-DocFlow-Signature`→`X-DocDyne-Signature`、富文本扩展名 `.dfdoc`/`.dfrt`→`.ddoc`/`.ddrt` 与路由 `/dfdoc`→`/ddoc`（含 `DfdocEditorPage`→`DdocEditorPage`）、Docker 镜像 `docdyne/backend|caddy`、环境变量 `DOCDYNE_IMAGE_TAG/DEV_API/URL`、compose 数据面标识（DB 名/用户/S3 bucket/ES 索引/RAG collection 前缀/Redis channel）、UI 品牌与文档全套，`migrations/` 注释同步新名。
 - **Agent 体系 P2 全量落地（对标 pi/opencode，设计采纳不引码；TODO-agent.md 留档）**：
   - 死代码清理（-835 行）：单轮指令通道（richtext-patch/docdyne-edit、白板/drawio 单轮提示、autoApply/undo、scope 选区）全删——Agent 工具循环为唯一编辑通道；引用文件接入 Agent（此前静默失效）
   - **子 Agent（C1）**：deep_search（独立只读小循环 ≤8 轮，同参连败 4 次熔断，只回结构化摘要不占主上下文）+ parallel_scan（≤3 目标并发）作为元工具注入执行通道

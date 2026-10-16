@@ -326,9 +326,9 @@ func TestExtractPptx(t *testing.T) {
 
 func TestExtractTiptapAndPlain(t *testing.T) {
 	doc := []byte(`{"type":"doc","content":[{"type":"heading","content":[{"type":"text","text":"标题"}]},{"type":"paragraph","content":[{"type":"text","text":"段落"}]},{"type":"codeBlock","content":[{"type":"text","text":"code()"}]}]}`)
-	text, ok := ExtractText("a.dfdoc", "", doc)
+	text, ok := ExtractText("a.ddoc", "", doc)
 	if !ok || !strings.Contains(text, "标题") || !strings.Contains(text, "段落") || !strings.Contains(text, "code()") {
-		t.Fatalf("dfdoc text = %q ok=%v", text, ok)
+		t.Fatalf("ddoc text = %q ok=%v", text, ok)
 	}
 	plain, ok := ExtractText("a.md", "text/markdown", []byte("# hello\n世界"))
 	if !ok || plain != "# hello\n世界" {

@@ -160,7 +160,7 @@ WebDAV 默认关闭；管理员需要在部署配置中设置 `webdav.enabled=tr
 
 ### 富文本多人实时协作
 
-`.dfrt` 富文本编辑页内置多人实时协作（ProseMirror prosemirror-collab 权威排序模型，服务端 `internal/collab`）：
+`.ddrt` 富文本编辑页内置多人实时协作（ProseMirror prosemirror-collab 权威排序模型，服务端 `internal/collab`）：
 
 - 同一文件的多个编辑页自动进入同一协作房间：实时同步编辑内容、远程光标（彩色竖线+名字）、在线成员头像与 leader 标记。
 - 后加入者不落磁盘旧文档：服务端短暂暂停编辑（sync-begin），由 leader 冲账上报实时文档快照，原子转正（init-doc）后恢复（sync-end），保证所有人从同一起点收敛。

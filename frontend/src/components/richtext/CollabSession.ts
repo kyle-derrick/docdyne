@@ -1,4 +1,4 @@
-// DocDyne 富文本多人实时协作会话（.dfrt/.dfdoc，Tiptap + prosemirror-collab）。
+// DocDyne 富文本多人实时协作会话（.ddrt/.ddoc，Tiptap + prosemirror-collab）。
 // - 传输：GET /api/v1/collab/:fileId/ws（升级为 WebSocket；JWT 经
 //   Sec-WebSocket-Protocol 的 bearer 子协议携带，与通知 WS 同一校验方式）；
 // - 消息协议（JSON 信封）：

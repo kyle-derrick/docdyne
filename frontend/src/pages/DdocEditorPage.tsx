@@ -1,4 +1,4 @@
-﻿// 富文本文档页（.dfrt 主后缀 / .dfdoc 兼容别名；路由 /dfdoc/:fileId）：
+﻿// 富文本文档页（.ddrt 主后缀 / .ddoc 兼容别名；路由 /ddoc/:fileId）：
 // DocDyne 专属富文本格式，Tiptap JSON 存储（见 RichTextEditor）——编辑态
 // 加载 JSON 进 Tiptap，保存整篇回写新版本；查看态 readonly 渲染同一编辑器
 //（嵌入块内联渲染 drawio/白板/图片等）。by-path 路由经 prop 传入 file_id。
@@ -173,7 +173,7 @@ function docFindText(doc: ProseMirrorNode, needleRaw: string): { from: number; t
   return null
 }
 
-export default function DfdocEditorPage({
+export default function DdocEditorPage({
   mode,
   fileId: fileIdProp,
 }: { mode?: 'edit' | 'view'; fileId?: string }) {
@@ -186,7 +186,7 @@ export default function DfdocEditorPage({
   const viewMode = mode === 'view' || searchParams.get('mode') === 'view'
   const locale = useLocale()
   const msg = (key: MessageKey) => t(locale, key)
-  const [name, setName] = useState('document.dfrt')
+  const [name, setName] = useState('document.ddrt')
   const [doc, setDoc] = useState('')
   const [versionId, setVersionId] = useState('')
   const [comments, setComments] = useState<DocumentComment[]>([])

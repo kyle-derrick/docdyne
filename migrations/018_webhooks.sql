@@ -1,7 +1,7 @@
 -- 018: Webhook 通知渠道（v1.1）。
 -- webhooks：用户自助注册的出站回调 URL，站内通知事件（与 notify 相同四类：
 -- upload.completed / upload.quarantined / share.accessed / file.updated）发生时
--- POST {event,timestamp,data} JSON 并附 X-DocFlow-Signature HMAC 签名头。
+-- POST {event,timestamp,data} JSON 并附 X-DocDyne-Signature HMAC 签名头。
 -- URL 的 http(s) 方案/主机等格式校验在应用层执行（内网/localhost 允许，
 -- 自托管场景）；events 白名单校验同样在应用层（notify.EventTypes）。
 -- 投递语义：超时 10s、内部重试 3 次（1s/5s/25s 退避，经 task:webhook-delivery

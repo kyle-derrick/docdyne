@@ -1,11 +1,11 @@
 // 公开分享态的富文本引用资源解析：
-// .dfrt 内的引用节点只存 fileId + title（文件名），公开分享页无认证 API，
+// .ddrt 内的引用节点只存 fileId + title（文件名），公开分享页无认证 API，
 // 按文件名在分享树内探测——文档同级 assets/ 子目录优先（编辑器上传图片/
 // 拖入文件的既定去向），其次文档同级目录（手动挑选/新建的图表）。
 // 探测失败（文件不在分享范围内）由调用方渲染占位提示。
 import type { RichTextPublicBase } from './RichTextPublicContext'
 
-/** dfrt 相对路径的目录段（'a/b/x.dfrt' → 'a/b'，根级 → ''）。 */
+/** ddrt 相对路径的目录段（'a/b/x.ddrt' → 'a/b'，根级 → ''）。 */
 function docDir(docPath: string): string {
   const i = docPath.lastIndexOf('/')
   return i >= 0 ? docPath.slice(0, i) : ''

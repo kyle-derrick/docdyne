@@ -22,7 +22,7 @@ import {
   fetchFileText,
   getFolderACL,
   getFileMeta,
-  isDfdocFile,
+  isDdocFile,
   listFiles,
   listSpaceFiles,
   listSpaces,
@@ -52,7 +52,7 @@ const PERM_LABEL_KEYS: Record<string, MessageKey> = {
 }
 
 /**
- * 扫描 .dfrt/.dfdoc（Tiptap JSON）内容收集引用的 file-id 集合：
+ * 扫描 .ddrt/.ddoc（Tiptap JSON）内容收集引用的 file-id 集合：
  * docdyneEmbed / docdyneImage / docdyneFileCard 三类引用节点的 attrs.fileId
  *（创建分享时经 ref_ids 并入 share grants，公开页按文件名解析引用资源）。
  * 解析失败/无引用返回空数组。
@@ -358,7 +358,7 @@ export default function FilesPage() {
   const [shareBusy, setShareBusy] = useState(false)
   const [shareError, setShareError] = useState('')
   const [copied, setCopied] = useState(false)
-  // v2.7 引用资源：.dfrt/.dfdoc 分享时扫描出的引用 file-id 列表（随创建
+  // v2.7 引用资源：.ddrt/.ddoc 分享时扫描出的引用 file-id 列表（随创建
   // 请求并入 share grants；弹窗展示「将包含 N 个引用资源」提示）。
   const [shareRefs, setShareRefs] = useState<string[]>([])
 
@@ -453,10 +453,10 @@ export default function FilesPage() {
     setShareResult(null)
     setShareError('')
     setCopied(false)
-    // v2.7 引用资源：.dfrt/.dfdoc 扫描文档 JSON 收集引用 file-id（弹窗提示
+    // v2.7 引用资源：.ddrt/.ddoc 扫描文档 JSON 收集引用 file-id（弹窗提示
     // 将包含的资源数，创建时并入 share grants）。
     setShareRefs([])
-    if (item.type === 'file' && isDfdocFile(item.name)) {
+    if (item.type === 'file' && isDdocFile(item.name)) {
       void fetchFileText(item.id)
         .then((text) => setShareRefs(collectDfrtRefIds(text)))
         .catch(() => setShareRefs([]))

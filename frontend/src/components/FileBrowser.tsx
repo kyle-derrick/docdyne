@@ -73,7 +73,7 @@ import {
   downloadFolderZip,
   drawioStatus,
   getFileMeta,
-  isDfdocFile,
+  isDdocFile,
   isDrawioFile,
   isExcalidrawFile,
   isHtmlFile,
@@ -898,7 +898,7 @@ export default function FileBrowser({
   const [folderOpen, setFolderOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [folderError, setFolderError] = useState('')
-  const [createKind, setCreateKind] = useState<'md' | 'dfdoc' | 'textfile' | 'drawio' | 'whiteboard' | 'word' | 'spreadsheet' | 'presentation' | null>(null)
+  const [createKind, setCreateKind] = useState<'md' | 'ddoc' | 'textfile' | 'drawio' | 'whiteboard' | 'word' | 'spreadsheet' | 'presentation' | null>(null)
   const [createName, setCreateName] = useState('')
   const [createError, setCreateError] = useState('')
 
@@ -1737,13 +1737,13 @@ export default function FileBrowser({
 
   const [docCreating, setDocCreating] = useState(false)
 
-  // 新建项规格：md（Markdown 文档）、dfrt（富文本文档 .dfrt，Tiptap JSON；
-  // kind 键名 dfdoc 为历史命名，路由 /dfdoc 同名复用）、textfile（文本文件
+  // 新建项规格：md（Markdown 文档）、ddrt（富文本文档 .ddrt，Tiptap JSON；
+  // kind 键名 ddoc 为历史命名，路由 /ddoc 同名复用）、textfile（文本文件
   // 合一：TXT/代码/HTML 由用户填写的扩展名决定）、drawio、白板与 office
   // 模板；XMind 已移除（前端仅解析查看、不支持编辑，空白创建价值低）。
   const createSpec = createKind ? {
     md: { label: 'Markdown 文档', ext: '.md', content: '# 新文档\n', mime: 'text/markdown', route: 'markdown' },
-    dfdoc: { label: '富文本文档', ext: '.dfrt', content: EMPTY_DFDOC_JSON, mime: 'application/json', route: 'dfdoc' },
+    ddoc: { label: '富文本文档', ext: '.ddrt', content: EMPTY_DFDOC_JSON, mime: 'application/json', route: 'ddoc' },
     // 「文本文件」：扩展名由用户自带（默认建议 untitled.txt），MIME 与
     // 创建后路由按扩展名推断（见 TEXT_FILE_MIME / textFileRoute）。
     textfile: { label: '文本文件', ext: '', content: '', mime: '', route: '' },
@@ -1756,7 +1756,7 @@ export default function FileBrowser({
 
   const beginNamedCreate = (kind: NonNullable<typeof createKind>) => {
     const defaults: Record<NonNullable<typeof createKind>, string> = {
-      md: '新文档.md', dfdoc: '新文档.dfrt', textfile: 'untitled.txt', drawio: '新图表.drawio',
+      md: '新文档.md', ddoc: '新文档.ddrt', textfile: 'untitled.txt', drawio: '新图表.drawio',
       whiteboard: '新白板.excalidraw', word: '新文档.docx',
       spreadsheet: '新表格.xlsx', presentation: '新演示文稿.pptx',
     }
@@ -2155,7 +2155,7 @@ export default function FileBrowser({
     const isTxtLike = isTextEditable(lower) || isCodeFile(lower)
     const isDrawio = isDrawioFile(lower)
     const isBoard = isExcalidrawFile(lower)
-    const isRichDoc = isDfdocFile(lower)
+    const isRichDoc = isDdocFile(lower)
     const viewOptions: Array<{ label: string; run: () => void }> = []
     if (isOffice && ooEnabled) viewOptions.push({ label: locale === 'zh-CN' ? '查看 Office' : 'View Office', run: () => openWithMethod(item, 'view', 'office') })
     if (isHtml) viewOptions.push({ label: locale === 'zh-CN' ? '查看网页' : 'View web', run: () => openWithMethod(item, 'view') })
@@ -2167,7 +2167,7 @@ export default function FileBrowser({
     if (isTxtLike) editOptions.push({ label: locale === 'zh-CN' ? '编辑文本' : 'Edit text', run: () => openWithMethod(item, 'edit', 'text') })
     if (isDrawio && drawioEnabled) editOptions.push({ label: locale === 'zh-CN' ? '图表编辑' : 'Edit diagram', run: () => openWithMethod(item, 'edit', 'drawio') })
     if (isBoard) editOptions.push({ label: locale === 'zh-CN' ? '白板编辑' : 'Edit whiteboard', run: () => openWithMethod(item, 'edit', 'excalidraw') })
-    // .dfrt/.dfdoc 富文本文档：编辑进 Tiptap（by-path 按扩展名分发）。
+    // .ddrt/.ddoc 富文本文档：编辑进 Tiptap（by-path 按扩展名分发）。
     if (isRichDoc) editOptions.push({ label: locale === 'zh-CN' ? '编辑富文本' : 'Edit rich text', run: () => openWithMethod(item, 'edit', 'richtext') })
     // 弹窗内编辑可用性：无对应编辑器组件的类型（集成未启用的 office/drawio）
     // 不提供弹窗内编辑。
@@ -2326,15 +2326,15 @@ export default function FileBrowser({
       }
       // 「打开方式 >」：全量查看方式组 + 分组线 + 全量编辑方式组。门槛：
       // 集成未启用（office/drawio）隐藏；office 仅对 OnlyOffice 支持的扩展
-      // 显示——.dfrt 等平台专属类型强制走 OnlyOffice 时后端 400（DS 会报
+      // 显示——.ddrt 等平台专属类型强制走 OnlyOffice 时后端 400（DS 会报
       // 晦涩的 fileType invalid），直接不提供该非法组合。其余非法方式仍可
       // 点（如 raw 看二进制给下载提示，兜底由查看分发层负责）。
       const ext = extOf(item.name)
       const av = { office: ooEnabled, drawio: drawioEnabled }
       // 非法组合门槛（与 OnlyOffice fileType 校验同思路）：每种引擎只对
       // 其支持的扩展名显示——office 白名单（pdf/txt/rtf 补充）、drawio/
-      // excalidraw/xmind 各自专属扩展、richtext 查看限 md 家族+dfrt/dfdoc、
-      // richtext 编辑限 dfrt/dfdoc。强制 URL（?open=）仍可能直达，分发层
+      // excalidraw/xmind 各自专属扩展、richtext 查看限 md 家族+ddrt/ddoc、
+      // richtext 编辑限 ddrt/ddoc。强制 URL（?open=）仍可能直达，分发层
       // 另有兜底（非法 force 回落自动分发）。
       const officeOk = isOfficeFile(item.name.toLowerCase()) || ext === 'pdf' || ext === 'txt' || ext === 'rtf'
       const mdFamily = ext === 'md' || ext === 'markdown' || ext === 'mdx'
@@ -2343,7 +2343,7 @@ export default function FileBrowser({
         (m === 'drawio' && (!drawioEnabled || ext !== 'drawio')) ||
         (m === 'excalidraw' && ext !== 'excalidraw') ||
         (m === 'xmind' && ext !== 'xmind') ||
-        (m === 'richtext' && !(mdFamily || ext === 'dfrt' || ext === 'dfdoc'))
+        (m === 'richtext' && !(mdFamily || ext === 'ddrt' || ext === 'ddoc'))
       const viewEntries = allViewEntries(ext, av, zh).filter(({ method }) => !gated(method))
       const editEntries = allEditEntries(ext, av, zh).filter(({ method }) => !gated(method))
       entries.push({
@@ -2630,10 +2630,10 @@ export default function FileBrowser({
                 ? [{ key: 'folder', label: locale === 'zh-CN' ? '文件夹' : 'Folder' }]
                 : []),
               ...uploadFn
-                ? (['md', 'dfdoc', 'textfile', 'drawio', 'whiteboard', 'word', 'spreadsheet', 'presentation'] as const).map((kind) => ({
+                ? (['md', 'ddoc', 'textfile', 'drawio', 'whiteboard', 'word', 'spreadsheet', 'presentation'] as const).map((kind) => ({
                     key: kind,
                     disabled: docCreating,
-                    label: { md: 'Markdown 文档（.md）', dfdoc: locale === 'zh-CN' ? '富文本（.dfrt）' : 'Rich text（.dfrt）', textfile: '文本文件（.txt/.html/.js…）', drawio: 'draw.io', whiteboard: '白板', word: 'Word', spreadsheet: 'Excel', presentation: 'PPT' }[kind],
+                    label: { md: 'Markdown 文档（.md）', ddoc: locale === 'zh-CN' ? '富文本（.ddrt）' : 'Rich text（.ddrt）', textfile: '文本文件（.txt/.html/.js…）', drawio: 'draw.io', whiteboard: '白板', word: 'Word', spreadsheet: 'Excel', presentation: 'PPT' }[kind],
                   }))
                 : [],
             ],

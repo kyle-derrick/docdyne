@@ -5537,7 +5537,7 @@ kbd {
   /* flex:1 补链（高度修复）：host 此前无 flex-grow，.rich-text-wrap（定高）
      内为内容高——.rich-text-editor-body 的 flex:1 与 .rich-text-content 的
      min-height:100% 均以 host 为基准，host 不长则编辑/只读内容区被压缩
-     （弹窗内 .dfrt 查看内容仅 ~103px/658px）。 */
+     （弹窗内 .ddrt 查看内容仅 ~103px/658px）。 */
   flex: 1;
   min-height: 0;
 }

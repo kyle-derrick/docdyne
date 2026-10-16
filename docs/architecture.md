@@ -411,7 +411,7 @@ Caddy:  header { -Cookie; Content-Security-Policy "sandbox allow-scripts"; nosni
 | --- | --- | --- |
 | 公开页 | `/login`、`/sso`、`/register/:token`、`/forgot`、`/reset/:token`、`/s/:token` | 无 |
 | 常规页 | `/`、`/files`、`/dashboard`、`/spaces`、`/shared`、`/admin/:section`、`/settings/:section` | TopBar + 全局 AI Drawer |
-| 独立编辑器 | `/view/:fileId`、`/edit/:fileId`、`/drawio/:fileId`、`/excalidraw/:fileId`、`/text/:fileId`、`/dfdoc/:fileId` 等 | `bare`（不挂顶栏） |
+| 独立编辑器 | `/view/:fileId`、`/edit/:fileId`、`/drawio/:fileId`、`/excalidraw/:fileId`、`/text/:fileId`、`/ddoc/:fileId` 等 | `bare`（不挂顶栏） |
 
 管理后台 12 个分区（`AdminPage.tsx`）：overview / people / spaces / audit / threat / backup / ai / mail / tls / system / security / config。重面板经 `React.lazy` 懒加载。
 

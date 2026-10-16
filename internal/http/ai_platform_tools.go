@@ -339,7 +339,7 @@ func (p *platformToolCtx) toolListDir(path string) (any, error) {
 }
 
 // toolReadFile dd_read_file：读文件文本（复用 ai.ExtractText 抽取链路：
-// 文本直读，pdf/docx/xlsx/pptx/drawio/excalidraw/dfdoc 转文本），截
+// 文本直读，pdf/docx/xlsx/pptx/drawio/excalidraw/ddoc 转文本），截
 // ai.PlatformToolReadMaxRunes 字符。
 func (p *platformToolCtx) toolReadFile(path string) (any, error) {
 	segments, err := segmentsOf(path)
