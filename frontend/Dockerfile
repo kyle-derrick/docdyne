@@ -5,6 +5,9 @@ FROM node:22-alpine AS frontend-build
 WORKDIR /src
 ARG NPM_REGISTRY=https://registry.npmjs.org/
 COPY package*.json ./
+# workspace 包清单须与根清单同批就位，npm ci 才能建立 @docdyne/chat 链接
+# （K2 拆包后遗留：镜像内构建此前从未跑过，CI 全量 checkout 不触发）。
+COPY packages/chat/package.json packages/chat/
 RUN npm config set registry "$NPM_REGISTRY" && npm ci
 COPY . .
 # tsc 类型检查 + vite 打包（antd6/monaco 等类型树）内存峰值高，默认堆会 OOM
