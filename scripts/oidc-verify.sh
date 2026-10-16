@@ -18,7 +18,7 @@ done
 
 echo '=== [3] kcadm: realm + client + user ==='
 KCC="$C exec -T keycloak /opt/keycloak/bin/kcadm.sh"
-$C exec -T keycloak /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password admin >/dev/null
+$C exec -T keycloak /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:18090 --realm master --user admin --password admin >/dev/null
 $C exec -T keycloak /opt/keycloak/bin/kcadm.sh create realms -s realm=docdyne -s enabled=true 2>/dev/null || echo 'realm exists'
 CLIENT_SECRET=$($C exec -T keycloak /opt/keycloak/bin/kcadm.sh create clients -r docdyne \
   -s clientId=docdyne -s enabled=true -s 'redirectUris=["http://127.0.0.1/api/v1/auth/oidc/callback"]' \
