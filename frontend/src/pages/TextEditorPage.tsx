@@ -573,10 +573,10 @@ export default function TextEditorPage({
               <div className="text-editor-back">
                 <Button type="text" size="small" onClick={exitWithConfirm}>{msg('back')}</Button>
               </div>
+              {/* 去掉类型大标题（与 DdocEditorPage v7.7 同法）——直接显示文件名 + 状态徽标。 */}
               <div>
-                <h1>{isMarkdown ? msg('markdownEditor') : `${name.split('.').pop()?.toUpperCase() ?? '文本'} 编辑器`}</h1>
+                <h1 className="text-editor-file-title">{name}</h1>
                 <div className="muted">
-                  {name}
                   {dirty && <span className="badge uploading text-editor-dirty-badge">{locale === 'zh-CN' ? '未保存' : 'Unsaved'}</span>}
                 </div>
               </div>
