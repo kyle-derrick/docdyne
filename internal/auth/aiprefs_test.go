@@ -341,3 +341,68 @@ func TestInheritAIPersonalMCPAuthHeaders(t *testing.T) {
 		t.Fatalf("current 为空不应改动: %v", fresh)
 	}
 }
+
+// TestValidateAIPersonalPrefsChatSkillsRulesOverrides 新子集校验：chat_skills
+// 上限/重复/内容边界、rules 长度、overrides 的 history 白名单/温度范围/
+// OCR 须指向个人池 vision 模型。
+func TestValidateAIPersonalPrefsChatSkillsRulesOverrides(t *testing.T) {
+	base := func() AIPersonalPrefs {
+		return AIPersonalPrefs{
+			Providers: []AIPersonalProvider{{
+				ID: "p1", Name: "个人", Kind: AIPersonalKindOpenAICompatible,
+				BaseURL: "https://x.example.com/v1",
+				Models:  []AIPersonalModel{{ID: "m1", Capabilities: settings.AIModelCapabilities{Kind: "chat", Vision: true}}},
+			}},
+		}
+	}
+	// chat_skills 合法 + 个人覆盖语义字段齐全。
+	ok := base()
+	ok.ChatSkills = []AIPersonalChatSkill{{ID: "s1", Name: "技能", Content: "指令"}}
+	ok.Rules = "个人规则"
+	web := true
+	hist := "vector"
+	temp := 0.7
+	ok.Overrides = &AIPersonalOverrides{WebSearch: &web, HistorySearch: &hist, Temperature: &temp, OCR: &AIPersonalModelRef{ProviderID: "p1", ModelID: "m1"}}
+	if err := ValidateAIPersonalPrefs(ok); err != nil {
+		t.Fatalf("valid prefs rejected: %v", err)
+	}
+	// 重复 id。
+	dup := base()
+	dup.ChatSkills = []AIPersonalChatSkill{{ID: "s", Name: "A", Content: "x"}, {ID: "s", Name: "B", Content: "y"}}
+	if err := ValidateAIPersonalPrefs(dup); err == nil {
+		t.Fatal("duplicate chat skill id accepted")
+	}
+	// 内容为空/超长。
+	bad := base()
+	bad.ChatSkills = []AIPersonalChatSkill{{ID: "s", Name: "A", Content: " "}}
+	if err := ValidateAIPersonalPrefs(bad); err == nil {
+		t.Fatal("empty content accepted")
+	}
+	// rules 超长。
+	bad = base()
+	bad.Rules = strings.Repeat("规", 2001)
+	if err := ValidateAIPersonalPrefs(bad); err == nil {
+		t.Fatal("oversized rules accepted")
+	}
+	// overrides.history_search 非法值。
+	badHist := base()
+	bh := "semantic"
+	badHist.Overrides = &AIPersonalOverrides{HistorySearch: &bh}
+	if err := ValidateAIPersonalPrefs(badHist); err == nil {
+		t.Fatal("invalid history_search accepted")
+	}
+	// overrides.temperature 越界。
+	badT := base()
+	bt := 2.5
+	badT.Overrides = &AIPersonalOverrides{Temperature: &bt}
+	if err := ValidateAIPersonalPrefs(badT); err == nil {
+		t.Fatal("out-of-range temperature accepted")
+	}
+	// overrides.ocr 指向非 vision 模型。
+	badOCR := base()
+	badOCR.Overrides = &AIPersonalOverrides{OCR: &AIPersonalModelRef{ProviderID: "p1", ModelID: "m1"}}
+	badOCR.Providers[0].Models[0].Capabilities.Vision = false
+	if err := ValidateAIPersonalPrefs(badOCR); err == nil {
+		t.Fatal("non-vision ocr model accepted")
+	}
+}

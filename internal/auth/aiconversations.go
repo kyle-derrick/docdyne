@@ -360,6 +360,40 @@ func (s *UserStore) syncConvoMsgIndex(convoID, userID uuid.UUID, kind string, it
 	return s.db.Create(&rows).Error
 }
 
+// ListAIConvoMsgsBatch 分批列举消息行（管理端会话向量重建用，跨用户）：
+// 按 (conversation_id, seq) 稳定排序 + offset 分页，返回本批行；不足 limit
+// 条即末批。供 POST /admin/settings/ai/history/reindex 全量重嵌入。
+func (s *UserStore) ListAIConvoMsgsBatch(offset, limit int) ([]AIConvoMsg, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	var rows []AIConvoMsg
+	err := s.db.Order("conversation_id, seq").Offset(offset).Limit(limit).Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// ConvoTitleMap 批量取会话标题（重建索引的 payload 用；缺行返回空标题）。
+func (s *UserStore) ConvoTitleMap(ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID    uuid.UUID
+		Title string
+	}
+	if err := s.db.Table("ai_conversations").Select("id, title").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.ID] = r.Title
+	}
+	return out, nil
+}
+
 // SearchAIConversationMsgs 跨会话检索消息行（dd_search_history 数据源，
 // v7.15 A6）：本人维度 + ILIKE 子串匹配（content 上的 pg_trgm GIN 加速），
 // created_at 倒序取 limit 条，片段以 pattern 首次命中位置为中心截取。

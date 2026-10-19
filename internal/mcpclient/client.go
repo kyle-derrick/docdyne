@@ -59,6 +59,9 @@ type Client struct {
 	// 的多认证头用）。与 AuthHeader 可并存；键为空或含非法字符的条目跳过。
 	Headers map[string]string
 	HTTP    *http.Client
+	// Timeout 单服务请求超时覆盖（0 = 默认 RequestTimeout 8s）。仅在 HTTP
+	// 未注入时生效（服务级配置经此传入；上限由配置校验钳制）。
+	Timeout time.Duration
 
 	mu        sync.Mutex
 	sessionID string // 响应头 MCP-Session-Id（可选）
@@ -72,6 +75,10 @@ var defaultHTTP = &http.Client{Timeout: RequestTimeout}
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
+	}
+	if c.Timeout > 0 {
+		// http.Client 轻量（复用共享 Transport），按调用构建无泄漏负担。
+		return &http.Client{Timeout: c.Timeout}
 	}
 	return defaultHTTP
 }

@@ -29,6 +29,10 @@ const (
 	// include_memory 开启时注入——system 仅带标题列表，详情按需查询）。
 	PlatformToolReadMemory  = "dd_read_memory"  // 查记忆详情
 	PlatformToolWriteMemory = "dd_write_memory" // 记录新记忆
+	// PlatformToolFetchURL 网页抓取（联网搜索配套）：读取一个网页正文，
+	// 供模型在搜索结果中选定链接后补读全文。SSRF 防护与内容白名单见
+	// internal/http 执行器。
+	PlatformToolFetchURL = "dd_fetch_url"
 )
 
 // 工具行为边界常量（执行器与声明共同引用）。
@@ -210,6 +214,24 @@ var platformToolsAll = []PlatformTool{
 				"content": map[string]any{
 					"type":        "string",
 					"description": "记忆内容（必填，一句完整陈述句）",
+				},
+			},
+		},
+	},
+	{
+		Name:        PlatformToolFetchURL,
+		Description: "抓取一个网页并返回正文文本（HTML 自动剥离为纯文本；JSON/Markdown/纯文本原样）。用于联网搜索结果中选定某个链接后补读全文，或用户给出的任意公开网页地址。url 须为绝对 http(s) 地址；max_chars 可限制返回长度（默认 8000，上限 20000）。",
+		Params: map[string]any{
+			"type":     "object",
+			"required": []string{"url"},
+			"properties": map[string]any{
+				"url": map[string]any{
+					"type":        "string",
+					"description": "要抓取的绝对 http(s) 网址（必填）",
+				},
+				"max_chars": map[string]any{
+					"type":        "integer",
+					"description": "返回正文的最大字符数（默认 8000，上限 20000）",
 				},
 			},
 		},

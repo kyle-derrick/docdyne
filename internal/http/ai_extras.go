@@ -42,11 +42,12 @@ import (
 
 // ---------- 平台人设 / 技能模板 ----------
 
-// aiPersonasList GET /api/v1/ai/personas（登录可用）：平台人设数组（热
-// 读取；未装配 settings 服务或读取失败返回空数组——配置数据 best-effort，
-// 不阻塞前端人设下拉）。
+// aiPersonasList GET /api/v1/ai/personas（登录可用）：人设数组（内置默认
+// 置顶 + 平台配置；热读取；未装配 settings 服务或读取失败仅返回内置——
+// 配置数据 best-effort，不阻塞前端人设下拉）。管理端 GET /admin/settings/
+// ai/personas 复用本端点（内置条目 builtin- 前缀只读，管理端编辑仅平台层）。
 func (h *Handler) aiPersonasList(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"personas": h.platformPersonas()})
+	c.JSON(http.StatusOK, gin.H{"personas": append([]settings.AIPersonaDef{ai.BuiltinPersona()}, h.platformPersonas()...)})
 }
 
 func (h *Handler) platformPersonas() []settings.AIPersonaDef {
@@ -58,6 +59,13 @@ func (h *Handler) platformPersonas() []settings.AIPersonaDef {
 		return []settings.AIPersonaDef{}
 	}
 	return list
+}
+
+// adminAIPersonasList GET /api/v1/admin/settings/ai/personas：管理端平台层
+// 全量（不含内置条目——内置只读、编辑仅平台层；登录侧 aiPersonasList
+// 才合并内置置顶）。
+func (h *Handler) adminAIPersonasList(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"personas": h.platformPersonas()})
 }
 
 // aiSkillsList GET /api/v1/ai/skills（登录可用）：平台技能数组（语义同
@@ -597,23 +605,40 @@ func (h *Handler) aiMCPList(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"services": services})
 }
 
-// aiMCPServiceView 管理端 MCP 服务视图：auth_header 只写不读，仅回显
-// configured 布尔（照 search.tavily 的掩码模式）。
+// aiMCPServiceView 管理端 MCP 服务视图：auth_header / headers 值只写
+// 不读，仅回显 configured 布尔与 headers 键名列表（照 search.tavily 与
+// 个人 MCP 的掩码模式）。
 type aiMCPServiceView struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	URL                  string `json:"url"`
-	Enabled              bool   `json:"enabled"`
-	AuthHeaderConfigured bool   `json:"auth_header_configured"`
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Description          string   `json:"description,omitempty"`
+	URL                  string   `json:"url"`
+	Enabled              bool     `json:"enabled"`
+	AuthHeaderConfigured bool     `json:"auth_header_configured"`
+	AuthHeaders          []string `json:"auth_headers,omitempty"`
+	HeadersConfigured    bool     `json:"headers_configured"`
+	TimeoutSec           int      `json:"timeout_sec,omitempty"`
+	DisabledTools        []string `json:"disabled_tools,omitempty"`
 }
 
 func aiMCPServiceViews(list []settings.AIMCPServiceDef) []aiMCPServiceView {
 	out := make([]aiMCPServiceView, 0, len(list))
 	for _, svc := range list {
-		out = append(out, aiMCPServiceView{
-			ID: svc.ID, Name: svc.Name, URL: svc.URL, Enabled: svc.Enabled,
-			AuthHeaderConfigured: svc.AuthHeader != "",
-		})
+		view := aiMCPServiceView{
+			ID: svc.ID, Name: svc.Name, Description: svc.Description, URL: svc.URL,
+			Enabled: svc.Enabled, AuthHeaderConfigured: svc.AuthHeader != "",
+			TimeoutSec: svc.TimeoutSec, DisabledTools: svc.DisabledTools,
+			HeadersConfigured: len(svc.Headers) > 0,
+		}
+		if len(svc.Headers) > 0 {
+			keys := make([]string, 0, len(svc.Headers))
+			for k := range svc.Headers {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			view.AuthHeaders = keys
+		}
+		out = append(out, view)
 	}
 	return out
 }
@@ -663,70 +688,283 @@ func (h *Handler) adminPutAIMCPServices(c *gin.Context) {
 }
 
 // aiMCPTestTimeout 连接测试总超时（覆盖 initialize → initialized →
-// tools/list 全程，单请求仍受 mcpclient 的 8s 超时约束）。
-const aiMCPTestTimeout = 10 * time.Second
+// tools/list 全程，单请求仍受 mcpclient 的默认超时约束）。
+const aiMCPTestTimeout = 15 * time.Second
 
-// aiMCPTestNameLimit 响应回显的工具名上限（只看前若干个即可判断连通与
-// 配置是否符合预期，避免超大工具列表撑爆响应）。
-const aiMCPTestNameLimit = 10
+// aiMCPTestToolsLimit 响应回显的工具详情上限（全量工具预览供「禁用单个
+// 工具」选择；超大列表截断，tools 计数仍为全量）。
+const aiMCPTestToolsLimit = 200
 
-// adminTestAIMCP POST /api/v1/admin/settings/ai/mcp/test {url, auth_header?}：
-// 用给定参数（支持测试未保存的草稿配置）实测 MCP 服务器连通性（共用实现
-// 见 aiMCPTestRespond；个人侧 /ai/personal/mcp-servers/test 同源）。
+// aiMCPTestDescLimit 单工具描述回显截断（rune 计）。
+const aiMCPTestDescLimit = 300
+
+// adminTestAIMCP POST /api/v1/admin/settings/ai/mcp/test {url, auth_header?,
+// headers?, timeout_sec?}：用给定参数（支持测试未保存的草稿配置）实测
+// MCP 服务器连通性（共用实现见 aiMCPTestRespond；个人侧同源）。返回全量
+// 工具预览（name + description 截断）。
 func (h *Handler) adminTestAIMCP(c *gin.Context) {
 	var req struct {
-		URL        string `json:"url"`
-		AuthHeader string `json:"auth_header"`
+		URL        string            `json:"url"`
+		AuthHeader string            `json:"auth_header"`
+		Headers    map[string]string `json:"headers"`
+		TimeoutSec int               `json:"timeout_sec"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	aiMCPTestRespond(c, req.URL, req.AuthHeader, nil)
+	aiMCPTestRespond(c, req.URL, req.AuthHeader, req.Headers, req.TimeoutSec)
 }
 
 // aiMCPTestRespond MCP 连通性实测的共用实现（平台单 auth_header 与个人
-// auth_headers 多头共用）：initialize + tools/list，返回工具数与前若干
-// 工具名与往返延迟。HTTP 恒 200，连接失败的信息在 body（ok=false +
-// error，中文友好，来自 mcpclient）。
-func aiMCPTestRespond(c *gin.Context, url, authHeader string, headers map[string]string) {
+// auth_headers 多头共用）：initialize + tools/list，返回工具数、全量工具
+// 预览（≤200 条，name+description）与前 10 个工具名（兼容旧 UI）与往返
+// 延迟。HTTP 恒 200，连接失败的信息在 body（ok=false + error，中文
+// 友好，来自 mcpclient）。
+func aiMCPTestRespond(c *gin.Context, url, authHeader string, headers map[string]string, timeoutSec int) {
 	url = strings.TrimSpace(url)
 	if url == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
 		return
 	}
+	client := &mcpclient.Client{URL: url, AuthHeader: strings.TrimSpace(authHeader), Headers: headers}
+	if timeoutSec > 0 {
+		client.Timeout = time.Duration(timeoutSec) * time.Second
+	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), aiMCPTestTimeout)
 	defer cancel()
 	start := time.Now()
-	tools, err := (&mcpclient.Client{URL: url, AuthHeader: strings.TrimSpace(authHeader), Headers: headers}).ListTools(ctx)
+	tools, err := client.ListTools(ctx)
 	// 实测必然有耗时；本地环回可能整段 <1ms，下限取 1 保证延迟语义非零。
 	latency := max(int64(1), time.Since(start).Milliseconds())
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"ok": false, "tools": 0, "names": []string{},
+			"ok": false, "tools": 0, "names": []string{}, "tool_list": []gin.H{},
 			"latency_ms": latency, "error": err.Error(),
 		})
 		return
 	}
-	names := make([]string, 0, min(len(tools), aiMCPTestNameLimit))
-	for _, t := range tools {
-		if len(names) >= aiMCPTestNameLimit {
-			break
+	toolList := make([]gin.H, 0, min(len(tools), aiMCPTestToolsLimit))
+	names := make([]string, 0, min(len(tools), 10))
+	for i, t := range tools {
+		if i < aiMCPTestToolsLimit {
+			desc := []rune(strings.TrimSpace(t.Description))
+			if len(desc) > aiMCPTestDescLimit {
+				desc = append(desc[:aiMCPTestDescLimit], []rune("…")...)
+			}
+			toolList = append(toolList, gin.H{"name": t.Name, "description": string(desc)})
 		}
-		names = append(names, t.Name)
+		if len(names) < 10 {
+			names = append(names, t.Name)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"ok": true, "tools": len(tools), "names": names, "latency_ms": latency,
+		"ok": true, "tools": len(tools), "names": names, "tool_list": toolList, "latency_ms": latency,
 	})
 }
 
+// ---------- MCP JSON 快速导入 / 导出（{mcpServers} 通用格式） ----------
+
+// aiMCPImportMaxBytes 导入载荷上限。
+const aiMCPImportMaxBytes = 64 << 10
+
+// aiMCPImportEntry {mcpServers} 格式的单服务条目（兼容 stdio 字段——
+// 命令型条目跳过并说明理由）。
+type aiMCPImportEntry struct {
+	URL         string            `json:"url"`
+	Command     string            `json:"command"`
+	Args        []string          `json:"args"`
+	Env         map[string]string `json:"env"`
+	Headers     map[string]string `json:"headers"`
+	Description string            `json:"description"`
+}
+
+// adminImportAIMCP POST /api/v1/admin/settings/ai/mcp/import {content}：
+// 粘贴 {"mcpServers":{name:{url,headers,...}}} 快速导入（Claude/Cherry
+// 通用的 mcpServers 格式）。stdio 条目（有 command 无 url）跳过并说明；
+// http(s) 条目 upsert（同名 id 覆盖）；密钥值不导入（headers 值留空 =
+// 继承现值，新键需在编辑框补值）。返回 {imported, updated, skipped}。
+func (h *Handler) adminImportAIMCP(c *gin.Context) {
+	store := h.mcpStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "settings service is not configured"})
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+		return
+	}
+	if len(req.Content) > aiMCPImportMaxBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content too large (max 64KB)"})
+		return
+	}
+	var parsed struct {
+		MCPServers map[string]aiMCPImportEntry `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(req.Content), &parsed); err != nil || len(parsed.MCPServers) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json: expect {\"mcpServers\":{name:{url,...}}}"})
+		return
+	}
+	existing, err := store.AIMCPServices()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load ai mcp services"})
+		return
+	}
+	type skip struct {
+		Name   string `json:"name"`
+		Reason string `json:"reason"`
+	}
+	skipped := make([]skip, 0)
+	byID := make(map[string]settings.AIMCPServiceDef, len(existing))
+	order := make([]string, 0, len(existing))
+	for _, svc := range existing {
+		if _, ok := byID[svc.ID]; !ok {
+			order = append(order, svc.ID)
+		}
+		byID[svc.ID] = svc
+	}
+	// 名称稳定排序（map 迭代随机，导入结果须可复现）。
+	names := make([]string, 0, len(parsed.MCPServers))
+	for name := range parsed.MCPServers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	imported, updated := 0, 0
+	for _, name := range names {
+		entry := parsed.MCPServers[name]
+		id := strings.TrimSpace(name)
+		if entry.URL == "" {
+			if entry.Command != "" {
+				skipped = append(skipped, skip{Name: name, Reason: "stdio 命令型服务不支持（仅 Streamable HTTP）"})
+			} else {
+				skipped = append(skipped, skip{Name: name, Reason: "缺少 url"})
+			}
+			continue
+		}
+		if id == "" || len([]rune(id)) > settings.AIPlatformMaxIDRunes {
+			skipped = append(skipped, skip{Name: name, Reason: "名称作为 id 须为 1..64 字符"})
+			continue
+		}
+		svc := settings.AIMCPServiceDef{
+			ID: id, Name: id, URL: strings.TrimSpace(entry.URL), Enabled: true,
+			Description: strings.TrimSpace(entry.Description),
+		}
+		// headers 值按导入原文（空值 = 继承现值语义交给 SetAIMCPServices）。
+		if len(entry.Headers) > 0 {
+			headers := make(map[string]string, len(entry.Headers))
+			for k, v := range entry.Headers {
+				headers[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+			svc.Headers = headers
+		}
+		if _, exists := byID[id]; exists {
+			updated++
+		} else {
+			imported++
+			order = append(order, id)
+		}
+		byID[id] = svc
+	}
+	merged := make([]settings.AIMCPServiceDef, 0, len(order))
+	for _, id := range order {
+		merged = append(merged, byID[id])
+	}
+	saved, err := store.SetAIMCPServices(merged, userID(c))
+	if err != nil {
+		if errors.Is(err, settings.ErrInvalidValue) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_AI_MCP"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to save ai mcp services"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"imported": imported, "updated": updated, "skipped": skipped,
+		"services": aiMCPServiceViews(saved), "total": len(saved),
+	})
+}
+
+// adminExportAIMCP GET /api/v1/admin/settings/ai/mcp/export：导出
+// {"mcpServers":{name:{url,headers:{key:""}}}}——结构对齐通用导入格式；
+// 密钥不导出（headers 值恒空串，导入侧补值）。
+func (h *Handler) adminExportAIMCP(c *gin.Context) {
+	store := h.mcpStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "settings service is not configured"})
+		return
+	}
+	list, err := store.AIMCPServices()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load ai mcp services"})
+		return
+	}
+	servers := make(map[string]gin.H, len(list))
+	for _, svc := range list {
+		entry := gin.H{"url": svc.URL}
+		if svc.Description != "" {
+			entry["description"] = svc.Description
+		}
+		if len(svc.Headers) > 0 {
+			headers := make(map[string]string, len(svc.Headers))
+			for k := range svc.Headers {
+				headers[k] = "" // 密钥不导出
+			}
+			entry["headers"] = headers
+		}
+		servers[svc.Name] = entry
+	}
+	c.Header("Content-Disposition", "attachment; filename=docdyne-mcp-servers.json")
+	c.JSON(http.StatusOK, gin.H{"mcpServers": servers, "exported_at": time.Now().UTC().Format(time.RFC3339)})
+}
+
 // agentPackagesForKind 返回编辑器 Agent 技能包（内置 + 平台定义合并；
-// kind 非空时过滤适用包）。内置包按编辑类型提供领域专家规范。
+// kind 非空时过滤适用包）。内置包按编辑类型提供领域专家规范（多段式：
+// 角色定位 / 操作纪律 / 输出规范 / 自检清单）。
 func (h *Handler) agentPackagesForKind(kind string) []settings.AIAgentPackageDef {
 	packs := []settings.AIAgentPackageDef{
-		{ID: "builtin-excel-analyst", Name: "Excel 报表专家", Kinds: []string{"text"}, SystemExtra: "你是 Excel 报表专家：整表用 write_table（含表头行二维数组）；数字/百分比/日期列设 numberFormat；关键行加条件格式；表头冻结；完成后 read_range 校验行列。"},
-		{ID: "builtin-diagram-architect", Name: "图表架构师", Kinds: []string{"excalidraw-json", "drawio-xml"}, SystemExtra: "你是图表架构师（参照成熟 excalidraw/drawio skill 方法论）：先 read_scene/list_cells 掌握现状再动笔；设计遵循「图要论证而非罗列」——每个概念用匹配其行为的视觉模式（扇出/汇聚/树/环/时间线），忌等大的盒子阵列；留白即层级（焦点元素最大、周围最空）。新增优先 insert_elements/insert_cells（大图分节多次插入，可用 at 锚点精确落点）；加连线一律 connect {fromId,toId}（白板）或带 source/target 的边（drawio），勿手算坐标；改色改字用 update_elements/update_cells，不整图重画；重构连线=只删旧箭头再重连，节点不动。【自检循环（硬性）】每完成一节/一次修改后必须重读（read_scene/list_cells）验证：无重叠、无悬空连线、标签完整未截断、间距均匀、对齐网格；发现问题先修复再继续，全部通过才 FINAL。语言：始终使用中文（过程说明与总结）。"},
-		{ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, SystemExtra: "你是严谨的文档审校（成熟 docx/pdf skill 方法论）：逐条定位（find 用 10-80 字唯一片段，逐字复制原文）；改动最小化（格式调整用 format_text/set_block_type，不整段替换；嵌入占位行 [DocDyne-*] 一律不动）；标题层级连续（不跳级）、列表风格统一、中英文间距一致。【自检循环（硬性）】每批修改后 read_document 抽查改动点：格式未破坏、无重复段落、占位行完整；发现问题先修复再继续。语言：始终使用中文。"},
+		{
+			ID: "builtin-excel-analyst", Name: "Excel 报表专家", Kinds: []string{"text"}, Version: 2,
+			Description: "整表产出导向的 Excel 规范：数据理解 → write_table 一次成型 → 格式与校验",
+			SystemExtra: "你是 Excel 报表专家，目标是产出用户可直接使用的整表（而非零散单元格）。\n\n" +
+				"【数据理解纪律】\n" +
+				"- 动笔前先 read_range 扫描表头与前几行样例，确认每列语义；列义不明时先向用户确认，不要猜测。\n" +
+				"- 用户给出的是行式数据时，整理为「首行表头 + 一行一条记录」的标准形态。\n\n" +
+				"【写表规范】\n" +
+				"- 整表一律用 write_table：给含表头行的完整二维数组（行列全 1 基：[1,1]=A1），由机制保证行列不偏移；禁止逐格 write_cells 拼整表。\n" +
+				"- 数字/百分比/货币/日期列设置 numberFormat（如 0.00%、#,##0、yyyy-mm-dd）；关键行可加条件格式突出；表头冻结。\n" +
+				"- 合计/占比等派生值优先自行计算后写入结果值（必要时附公式列），避免整表跨引用的脆弱公式链。\n\n" +
+				"【自检清单（硬性）】完成后 read_range 回读核对：行列数与预期一致、表头完整、numberFormat 生效、抽查 2-3 个合计值正确；发现问题先修复再交付。\n\n" +
+				"【输出约定】过程说明与总结使用中文；末尾用 ≤3 行说明产出了什么表、做了哪些格式化。",
+		},
+		{
+			ID: "builtin-diagram-architect", Name: "图表架构师", Kinds: []string{"excalidraw-json", "drawio-xml"}, Version: 2,
+			Description: "白板/图示方法论：视觉模式选型 → 分节插入 → 连线纪律 → 重读自检",
+			SystemExtra: "你是图表架构师（成熟 excalidraw/drawio skill 方法论）。\n\n" +
+				"【规划先行】动笔前 read_scene/list_cells 掌握现状；新图先在心中列出元素清单与层级（谁是焦点、谁分组），再开始插入。\n\n" +
+				"【视觉模式速查】图要论证而非罗列——每个概念选匹配其行为的视觉模式：层级/从属→树；流程/时序→时间线箭头链；因果/依赖→有向箭头；中心辐射→扇出；对比→并排+分隔；忌等大的盒子阵列。留白即层级：焦点元素最大、周围最空。\n\n" +
+				"【插入与连线纪律】\n" +
+				"- 新增优先 insert_elements/insert_cells（大图分节多次插入，可用 at 锚点精确落点），禁止整图重画。\n" +
+				"- 加连线一律 connect {fromId,toId}（白板）或带 source/target 的边（drawio），勿手算坐标。\n" +
+				"- 改色改字用 update_elements/update_cells；重构连线=只删旧箭头再重连，节点不动。\n\n" +
+				"【自检循环（硬性）】每完成一节/一次修改后必须重读（read_scene/list_cells）验证：无重叠、无悬空连线、标签完整未截断、间距均匀、对齐网格；发现问题先修复再继续，全部通过才 FINAL。\n\n" +
+				"【输出约定】始终使用中文（过程说明与总结）。",
+		},
+		{
+			ID: "builtin-doc-reviewer", Name: "文档审校", Kinds: []string{"richtext-patch", "text"}, Version: 2,
+			Description: "最小改动审校：检查维度清单 → 唯一片段定位 → 逐条输出 → 回读自检",
+			SystemExtra: "你是严谨的文档审校（成熟 docx/pdf skill 方法论）。\n\n" +
+				"【检查维度清单】错别字与语病 / 术语全文一致（同一概念同一译名）/ 数字与单位准确 / 标点全半角统一 / 标题层级连续（不跳级）/ 列表风格统一（顿号/圆点不混用）/ 中英文之间留空格。\n\n" +
+				"【定位纪律】逐条定位修改点：find/search_text 用 10-80 字的原文唯一片段，逐字复制（含原文的空格与标点），禁止凭记忆转写。\n\n" +
+				"【最小改动原则】\n" +
+				"- 格式调整优先 format_text/set_block_type/set_paragraph_style，不整段替换正文。\n" +
+				"- 嵌入占位行（[DocDyne-Embed …] 等 [DocDyne-*] 标记）一律原样保留、逐字不动。\n" +
+				"- 不擅自增删段落内容；确需增删时先向用户说明理由。\n\n" +
+				"【输出格式】逐条输出「位置 - 问题 - 建议/已改动」；无法定位的问题单列说明。\n\n" +
+				"【自检循环（硬性）】每批修改后 read_document 抽查改动点：格式未破坏、无重复段落、占位行完整；发现问题先修复再继续。语言：始终使用中文。",
+		},
 	}
 	if h.settings != nil {
 		if svc, ok := h.settings.(interface {

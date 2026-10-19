@@ -53,23 +53,57 @@ func (s *Service) ResolveEmbedding() (EmbeddingProvider, string, error) {
 	if !ok || p.Kind != settings.AIKindOpenAICompatible {
 		return nil, "", fmt.Errorf("rag embedding provider %q not configured (pick an embedding-capable model)", cfg.RAG.EmbeddingProvider)
 	}
-	// 缓存键含 base/key：管理员改密钥或网关地址（模型 ID 不变）后同样
-	// 立即生效。
+	return embeddingProviderFor(p, model), EmbeddingCollection(prefix, p.ID, model), nil
+}
+
+// ResolveConvVectors 解析会话向量档（ai.history_search=vector）的 embedding
+// 与派生 collection：与文件 RAG 同 embedding 身份、conv_ 变体名隔离。
+// mock embedding 的向量无语义召回意义（sha256 散列）——返回
+// ErrVectorDisabled 由调用方降级关键词检索（不报错、不建库）。
+func (s *Service) ResolveConvVectors() (EmbeddingProvider, string, error) {
+	cfg, err := s.Config()
+	if err != nil {
+		return nil, "", fmt.Errorf("read ai config: %w", err)
+	}
+	if cfg.RAG.EmbeddingProvider == "mock" {
+		return nil, "", ErrVectorDisabled
+	}
+	p, model, ok := cfg.ResolveEmbeddingTarget()
+	if !ok || p.Kind != settings.AIKindOpenAICompatible {
+		return nil, "", ErrVectorDisabled
+	}
+	return embeddingProviderFor(p, model), ConvCollection(cfg.RAG.CollectionPrefix, p.ID, model), nil
+}
+
+// embeddingProviderFor 取（或缓存）OpenAI 兼容 embedding 客户端。缓存键含
+// base/key：管理员改密钥或网关地址（模型 ID 不变）后同样立即生效。
+func embeddingProviderFor(p settings.AIProvider, model string) EmbeddingProvider {
 	key := p.ID + "\x00" + model + "\x00" + p.BaseURL + "\x00" + p.APIKey
 	embeddingClientsMu.Lock()
+	defer embeddingClientsMu.Unlock()
 	provider, cached := embeddingClients[key]
 	if !cached {
 		provider = NewOpenAIEmbeddingProvider(p.BaseURL, p.APIKey, model, nil)
 		embeddingClients[key] = provider
 	}
-	embeddingClientsMu.Unlock()
-	return provider, EmbeddingCollection(prefix, p.ID, model), nil
+	return provider
+}
+
+// embeddingIdentityHash provider+model 身份哈希（collection 派生共用）。
+func embeddingIdentityHash(providerID, modelID string) string {
+	sum := sha256.Sum256([]byte(providerID + "::" + modelID))
+	return hex.EncodeToString(sum[:])[:10]
 }
 
 // EmbeddingCollection 派生向量 collection 名：
 // prefix + "g_" + sha256(providerID + "::" + modelID) 前 10 hex——同
 // provider+model 恒定同名（重启亦然），换模型即换名。
 func EmbeddingCollection(prefix, providerID, modelID string) string {
-	sum := sha256.Sum256([]byte(providerID + "::" + modelID))
-	return prefix + "g_" + hex.EncodeToString(sum[:])[:10]
+	return prefix + "g_" + embeddingIdentityHash(providerID, modelID)
+}
+
+// ConvCollection 会话向量集合名（prefix+"conv_"+同身份哈希）：与文件 RAG
+// 库同 embedding 身份但完全隔离（重建/删除互不影响），切模型同样换名。
+func ConvCollection(prefix, providerID, modelID string) string {
+	return prefix + "conv_" + embeddingIdentityHash(providerID, modelID)
 }

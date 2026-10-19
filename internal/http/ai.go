@@ -169,6 +169,10 @@ type aiChatRequest struct {
 	// ai_memory（手动维护，migration 050）拼入 system 上下文「以下是用户
 	// 的长期偏好记忆…」；未配置/无记忆静默跳过。
 	IncludeMemory *bool `json:"include_memory"`
+	// ChatSkill 对话技能 id（可选，Cherry Studio 式 Skills）：在合并视图
+	//（内置/平台启用/个人，按 id 个人覆盖平台）中解析，未命中/停用 400
+	// INVALID_CHAT_SKILL；命中则技能 Markdown 内容整段注入本轮 system。
+	ChatSkill string `json:"chat_skill"`
 	// IncludeDocs 开启「我的文件」检索（默认 false）：普通对话模式下以
 	// 最后一条 user 消息为查询，检索本人可见文档（关键词/混合按平台
 	// RAG 配置，rerank 生效）注入 system 上下文，来源经 sources 事件与
@@ -384,6 +388,46 @@ func (h *Handler) aiChat(c *gin.Context) {
 	//（v7.15 A7，aiMemoryContextBlock），详情经 dd_read_memory 按需读取；
 	// 记忆工具执行器独立于文件栈（use_files 关闭时仍可用）。
 	memoryOn := req.IncludeMemory != nil && *req.IncludeMemory
+	// ---- 双层配置注入（对话技能 / 规则 / 个人覆盖）----
+	prefs, _ := h.loadAIPersonalPrefs(user)
+	// 对话技能（chat_skill）：合并视图按 id 解析（内置 builtin- → 平台启用
+	// → 个人，个人覆盖平台同 id）；未命中/停用 400。内容作为本轮技能指令
+	// 注入 system（先于记忆/文件/检索等数据块——指令在前、数据在后）。
+	if skillID := strings.TrimSpace(req.ChatSkill); skillID != "" {
+		merged := h.mergedChatSkills(user)
+		var skill *ai.EffectiveChatSkill
+		for i := range merged {
+			if merged[i].ID == skillID {
+				skill = &merged[i]
+				break
+			}
+		}
+		if skill == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "chat skill not found or disabled", "code": "INVALID_CHAT_SKILL"})
+			return
+		}
+		messages = appendContextSystem(messages, "以下是本轮对话要遵循的技能指令（用户选择技能「"+skill.Name+"」）：\n"+skill.Content)
+	}
+	// 规则（叠加型：平台 ai.rules + 个人 prefs.rules 拼接注入；仅对话链，
+	// 摘要为固定文档管线不注入）。两端皆空时零开销跳过。
+	if rules := ai.EffectiveRules(h.platformAIRules(), prefs.Rules); rules != "" {
+		messages = appendContextSystem(messages, rules)
+	}
+	// 个人覆盖（覆盖型，未设置=nil 跟随平台）：温度进 ChatRequest；OCR
+	// 目标（个人池 vision 模型）供附件图片的非 vision 兜底识图。
+	var tempOverride *float64
+	var ocrOverride *settings.AIProvider
+	var ocrOverrideModel string
+	if o := prefs.Overrides; o != nil {
+		tempOverride = o.Temperature
+		if o.OCR != nil {
+			if p, ok := ai.ResolvePersonalProvider(prefs, o.OCR.ProviderID); ok {
+				if m, ok2 := p.ModelWithID(o.OCR.ModelID); ok2 && m.Capabilities.Vision && m.Capabilities.IsChat() {
+					ocrOverride, ocrOverrideModel = &p, m.ID
+				}
+			}
+		}
+	}
 	var memExec ai.ToolExecutorFunc
 	if memoryOn && h.aiMemory != nil {
 		if block := h.aiMemoryContextBlock(user); block != "" {
@@ -464,7 +508,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	var inputImages []ai.InputImage
 	if req.Context != nil {
 		if len(req.Context.FileIDs) > 0 {
-			block, srcs, imgs, err := h.aiFileContextBlock(c.Request.Context(), userSvc, user, req.Context.FileIDs, userSvc.ModelSupportsVision(provider.ID, model))
+			block, srcs, imgs, err := h.aiFileContextBlock(c.Request.Context(), userSvc, user, req.Context.FileIDs, userSvc.ModelSupportsVision(provider.ID, model), ocrOverride, ocrOverrideModel)
 			if err != nil {
 				aiErrorJSON(c, err)
 				return
@@ -563,7 +607,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	}
 
 	if !stream {
-		res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{ProviderID: provider.ID, Model: model, Messages: messages, Think: think, Effort: effort, UseMCP: useMCP, PlatformTools: platformTools, ToolExecutor: toolExec, Stream: false, Images: inputImages}, nil)
+		res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{ProviderID: provider.ID, Model: model, Messages: messages, Think: think, Effort: effort, UseMCP: useMCP, PlatformTools: platformTools, ToolExecutor: toolExec, Stream: false, Images: inputImages, Temperature: tempOverride}, nil)
 		if err != nil {
 			auditDone(audit.StatusFailure, "", "")
 			aiErrorJSON(c, err)
@@ -613,7 +657,7 @@ func (h *Handler) aiChat(c *gin.Context) {
 	}
 	res, err := userSvc.Chat(c.Request.Context(), ai.ChatRequest{
 		ProviderID: provider.ID, Model: model, Messages: messages, Think: think, Effort: effort, UseMCP: useMCP,
-		PlatformTools: platformTools, ToolExecutor: toolExec, Stream: true, OnTool: onTool, Images: inputImages,
+		PlatformTools: platformTools, ToolExecutor: toolExec, Stream: true, OnTool: onTool, Images: inputImages, Temperature: tempOverride,
 		// 推理思考增量（openai reasoning_content / anthropic thinking_delta）
 		// 独立流出，前端折叠思考区展示（不计入正文 delta）。
 		OnThinking: func(text string) {
@@ -656,7 +700,7 @@ func appendContextSystem(messages []ai.Message, block string) []ai.Message {
 // 跳过）。v7.9 图片附件两级支持：所选模型具备视觉能力（visionOK）→ 原生
 // 多模态（返回 images 由调用方并入 ChatRequest.Images，模型直接看图）；
 // 否则经 OCR 转文字纳入上下文（ai.ocr 配置的视觉模型）；再不行回落占位说明。
-func (h *Handler) aiFileContextBlock(ctx context.Context, svc *ai.Service, user uuid.UUID, fileIDs []string, visionOK bool) (string, []ai.Source, []ai.InputImage, error) {
+func (h *Handler) aiFileContextBlock(ctx context.Context, svc *ai.Service, user uuid.UUID, fileIDs []string, visionOK bool, ocrOverride *settings.AIProvider, ocrOverrideModel string) (string, []ai.Source, []ai.InputImage, error) {
 	src := aiFileContentSource{files: h.aiFiles, storage: h.storage}
 	if h.aiFiles == nil || h.storage == nil {
 		return "", nil, nil, nil
@@ -683,9 +727,18 @@ func (h *Handler) aiFileContextBlock(ctx context.Context, svc *ai.Service, user 
 			sources = append(sources, ai.Source{FileID: meta.ID.String(), Name: meta.Name, URL: "/view/" + meta.ID.String()})
 			continue
 		case !ok && isImage:
-			// 非视觉模型：OCR 转文字（ai.ocr 视觉模型；未配置/失败回落占位）。
+			// 非视觉模型：OCR 转文字。优先用户个人池 vision 模型覆盖
+			//（overrides.ocr），失败回退平台 ai.ocr 配置；均未配置/失败
+			// 回落占位行。
 			if _, blob, berr := h.aiFiles.CurrentVersion(user, id); berr == nil && blob.StorageKey != "" {
-				if ocrText, oerr := svc.ExtractImageText(ctx, blob.StorageKey, meta.MimeType, meta.Name, meta.Size); oerr == nil && ocrText != "" {
+				ocrText, oerr := "", error(nil)
+				if ocrOverride != nil {
+					ocrText, oerr = svc.ExtractImageTextWith(ctx, blob.StorageKey, meta.MimeType, meta.Name, meta.Size, ocrOverride, ocrOverrideModel)
+				}
+				if (ocrOverride == nil || oerr != nil) && ocrText == "" {
+					ocrText, oerr = svc.ExtractImageText(ctx, blob.StorageKey, meta.MimeType, meta.Name, meta.Size)
+				}
+				if oerr == nil && ocrText != "" {
 					text, ok = ocrText, true
 				}
 			}
@@ -732,7 +785,8 @@ func aiWebSourcesJSON(sources []ai.WebSearchResult) []gin.H {
 }
 
 // aiSearchConfig 读取联网搜索生效配置（system_settings 的 ai.search.* 覆盖，
-// 热读取；未装配 settings 服务或读取失败按未配置处理 = 静默跳过）。
+// 热读取；proxy_url 库值优先、env AI_OUTBOUND_PROXY 兜底基线；未装配
+// settings 服务或读取失败按未配置处理 = 静默跳过）。
 func (h *Handler) aiSearchConfig() (settings.AISearchConfig, bool) {
 	if h.settings == nil {
 		return settings.AISearchConfig{}, false
@@ -740,6 +794,9 @@ func (h *Handler) aiSearchConfig() (settings.AISearchConfig, bool) {
 	cfg, _, err := h.settings.AIOverrides()
 	if err != nil {
 		return settings.AISearchConfig{}, false
+	}
+	if strings.TrimSpace(cfg.Search.ProxyURL) == "" && h.aiEnv.Search.ProxyURL != "" {
+		cfg.Search.ProxyURL = h.aiEnv.Search.ProxyURL
 	}
 	return cfg.Search, true
 }
@@ -919,8 +976,11 @@ type aiSettingsResponse struct {
 	// PUT /admin/settings/ai——载荷未带 = 保持现值，语义同 rag 块）。
 	Personas []settings.AIPersonaDef `json:"personas"`
 	// HistorySearch 对话历史检索开关（v7.15 A8，ai.history_search 键）：
-	// keyword（默认）/off。
+	// keyword（默认）/vector（Qdrant 语义召回，不可用自动降级 keyword）/off。
 	HistorySearch string `json:"history_search"`
+	// DefaultPersona 默认人设 id（ai.default_persona 键；nil = 未设置=
+	// 不注入，指向 builtin- 前缀或平台 personas id）。
+	DefaultPersona *string `json:"default_persona,omitempty"`
 	// FallbackModels 备选模型链（H2，ai.fallback_models 键）：普通对话
 	// 首选模型上游失败且零增量时依序切换。
 	FallbackModels []settings.AIModelRef `json:"fallback_models"`
@@ -942,6 +1002,9 @@ type aiSearchSettingsView struct {
 	SearxngURL             string `json:"searxng_url"`
 	MaxResults             int    `json:"max_results"`
 	TavilyAPIKeyConfigured bool   `json:"tavily_api_key_configured"`
+	// ProxyURL 出站代理（非密钥明文回显；已含 env AI_OUTBOUND_PROXY
+	// 兜底合并——aiEffectiveSettings）。
+	ProxyURL string `json:"proxy_url"`
 }
 
 func aiSearchSettingsViewOf(cfg settings.AIConfig) aiSearchSettingsView {
@@ -949,7 +1012,7 @@ func aiSearchSettingsViewOf(cfg settings.AIConfig) aiSearchSettingsView {
 	if s.MaxResults <= 0 {
 		s.MaxResults = settings.AISearchMaxResultsDefault
 	}
-	return aiSearchSettingsView{Provider: s.Provider, SearxngURL: s.SearxngURL, MaxResults: s.MaxResults, TavilyAPIKeyConfigured: s.TavilyAPIKey != ""}
+	return aiSearchSettingsView{Provider: s.Provider, SearxngURL: s.SearxngURL, MaxResults: s.MaxResults, TavilyAPIKeyConfigured: s.TavilyAPIKey != "", ProxyURL: s.ProxyURL}
 }
 
 // aiEffectiveSettings 合并 env 基线与 DB 覆盖，产出管理端视图。
@@ -960,6 +1023,11 @@ func (h *Handler) aiEffectiveSettings() (settings.AIConfig, error) {
 	db, _, err := h.settings.AIOverrides()
 	if err != nil {
 		return settings.AIConfig{}, err
+	}
+	// 出站代理 env 兜底（库值 ai.search.proxy_url 优先；管理端视图与
+	// 运行时 aiSearchConfig 同口径）。
+	if strings.TrimSpace(db.Search.ProxyURL) == "" && h.aiEnv.Search.ProxyURL != "" {
+		db.Search.ProxyURL = h.aiEnv.Search.ProxyURL
 	}
 	if len(db.Providers) == 0 {
 		db.Providers = h.aiEnv.Providers
@@ -1045,10 +1113,20 @@ func (h *Handler) aiModels(c *gin.Context) {
 			defaults[scenario] = gin.H{"provider_id": p.ID, "model_id": m.ID}
 		}
 	}
-	// personas 为平台人设（ai.personas，非敏感明文——管理员配给全员选用
-	// 的 system 提示模板，本人可见 system_prompt 无妨）：对话入口据此合并
-	// 人设下拉（平台 tag），选中后前端以其 system_prompt 作为首条 system。
-	c.JSON(http.StatusOK, gin.H{"providers": providers, "default_models": defaults, "personas": h.platformPersonas(), "agent_packages": h.agentPackagesForKind("")})
+	// personas 为合并人设（内置默认置顶 + 平台 ai.personas + 个人
+	// prefs.personas 标 personal:true——前端下拉以 me: 前缀区分）：
+	// 非敏感明文，选中后前端以其 system_prompt 作为首条 system。
+	personas := make([]gin.H, 0, 4)
+	personas = append(personas, gin.H{"id": ai.BuiltinPersona().ID, "name": ai.BuiltinPersona().Name, "system_prompt": ai.BuiltinPersona().SystemPrompt})
+	for _, p := range h.platformPersonas() {
+		personas = append(personas, gin.H{"id": p.ID, "name": p.Name, "system_prompt": p.SystemPrompt})
+	}
+	if prefs, ok := h.aiPersonalFor(c); ok {
+		for _, p := range prefs.Personas {
+			personas = append(personas, gin.H{"id": p.ID, "name": p.Name, "system_prompt": p.SystemPrompt, "personal": true})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"providers": providers, "default_models": defaults, "personas": personas, "agent_packages": h.agentPackagesForKind("")})
 }
 
 // getAISettings GET /admin/settings/ai：读生效配置（密钥掩码）。
@@ -1072,6 +1150,7 @@ func (h *Handler) getAISettings(c *gin.Context) {
 		OCR:             cfg.OCR,
 		Personas:        aiPersonasOrEmpty(h.platformPersonas()),
 		HistorySearch:   cfg.HistorySearch,
+		DefaultPersona:  cfg.DefaultPersona,
 		Env: gin.H{
 			"enabled":  len(h.aiEnv.Providers) > 0,
 			"base_url": envOrDefault("AI_BASE_URL", "https://api.openai.com/v1"),
@@ -1121,6 +1200,7 @@ func (h *Handler) putAISettings(c *gin.Context) {
 		OCR:             merged.OCR,
 		Personas:        aiPersonasOrEmpty(merged.Personas),
 		HistorySearch:   merged.HistorySearch,
+		DefaultPersona:  merged.DefaultPersona,
 		Env: gin.H{
 			"enabled":  len(h.aiEnv.Providers) > 0,
 			"base_url": envOrDefault("AI_BASE_URL", "https://api.openai.com/v1"),

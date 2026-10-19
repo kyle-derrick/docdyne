@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -146,7 +146,8 @@ const (
 	KeyAISearchTavilyKey  = "ai.search.tavily_api_key"
 	KeyAISearchMaxResults = "ai.search.max_results"
 	// KeyAIHistorySearch 对话历史检索开关（v7.15 A8）：keyword（默认，消息
-	// 行表 + pg_trgm 子串检索）/ off（关闭——dd_search_history 不注入）。
+	// 行表 + pg_trgm 子串检索）/ vector（会话消息向量化 + Qdrant 检索，不可
+	// 用时自动降级 keyword）/ off（关闭——dd_search_history 不注入）。
 	// 管理端 /admin/settings/ai 维护；不进 Definitions（专用 AI 设置页读写）。
 	KeyAIHistorySearch = "ai.history_search"
 	// KeyAIOCR 为图片 OCR 配置（整体 JSON 块：enabled/provider_id/model_id/
@@ -171,6 +172,38 @@ const (
 	// 现值，读路径永不回显）。同 ai.personas 模式：不进 Definitions
 	//（通用设置列表不展示、通用写入口不可写）。EffectImmediate。
 	KeyAIMCPServices = "ai.mcp"
+	// KeyAIChatSkills 平台对话技能（ai.chat_skills，JSON 数组整体读替）：
+	// Cherry Studio 式 Skills——带 Markdown 指令内容的技能条目，对话中选用
+	// 后整段注入 system 提示（区别于 ai.skills 快捷指令=填 prompt 进输入框）。
+	// 同 ai.personas 模式：不进 Definitions，专用端点整块读写；EffectImmediate。
+	KeyAIChatSkills = "ai.chat_skills"
+	// KeyAIRules 平台 AI 规则（ai.rules，字符串）：追加注入所有对话的
+	// system 提示段（平台规则 + 用户个人规则叠加，非覆盖）。非密钥明文回显。
+	KeyAIRules = "ai.rules"
+	// KeyAIDefaultPersona 默认人设 id（ai.default_persona，字符串）：空 = 不
+	// 注入默认人设；值为 builtin- 前缀（编译期内置）或 ai.personas 现存 id。
+	// 用户个人偏好（overrides.default_persona）覆盖平台值。
+	KeyAIDefaultPersona = "ai.default_persona"
+	// KeyAISearchProxyURL AI 出站代理（ai.search.proxy_url，字符串）：
+	// 联网搜索 / 网页抓取出站 HTTP 可选走代理（如 http://127.0.0.1:20170）；
+	// 空 = 直连。非密钥明文回显；env AI_OUTBOUND_PROXY 为兜底基线（库值优先）。
+	KeyAISearchProxyURL = "ai.search.proxy_url"
+)
+
+// AI 人设 id 的内置前缀：编译期内置条目（builtin-assistant 默认助理等）
+// 恒存在于生效列表（不入库、管理端只读），default_persona 校验放行该前缀。
+const AIPersonaBuiltinPrefix = "builtin-"
+
+// 平台规则 / 对话技能校验边界。
+const (
+	// AIRulesMaxRunes 平台规则长度上限（rune 计）。
+	AIRulesMaxRunes = 4000
+	// AIChatSkillMaxContentRunes 技能指令内容长度上限。
+	AIChatSkillMaxContentRunes = 4000
+	// AIChatSkillMaxDescRunes 技能 description 长度上限。
+	AIChatSkillMaxDescRunes = 200
+	// AIChatSkillMaxIconRunes 技能图标名长度上限（lucide 图标名，前端缺省兜底）。
+	AIChatSkillMaxIconRunes = 40
 )
 
 // 平台人设/技能校验边界（settings 键 ai.personas / ai.skills）。
@@ -267,9 +300,13 @@ func ValidateAISkills(list []AISkillDef) error {
 }
 
 // AISearchProvider 取值（ai.search.provider）：空 = 禁用联网搜索。
+// duckduckgo / bing 为内置免 Key 引擎（非官方页面解析，可能随页面改版
+// 失效；DDG 国内直连通常不可达，可配 ai.search.proxy_url 出站代理）。
 const (
-	AISearchProviderSearxng = "searxng"
-	AISearchProviderTavily  = "tavily"
+	AISearchProviderSearxng    = "searxng"
+	AISearchProviderTavily     = "tavily"
+	AISearchProviderDuckDuckGo = "duckduckgo"
+	AISearchProviderBing       = "bing"
 )
 
 // 外部 MCP 服务器配置（settings 键 ai.mcp）校验边界。
@@ -282,22 +319,40 @@ const (
 	// AIMCPMaxAuthHeaderRunes auth_header 长度上限（形如
 	// "Authorization: Bearer <token>"）。
 	AIMCPMaxAuthHeaderRunes = 1000
+	// AIMCPMaxDescriptionRunes 服务描述长度上限。
+	AIMCPMaxDescriptionRunes = 200
+	// AIMCPMaxHeaders 单服务附加认证头条数上限（同个人 MCP）。
+	AIMCPMaxHeaders = 8
+	// AIMCPMaxDisabledTools 单服务禁用工具数上限（原始工具名，非 mcp_ 前缀名）。
+	AIMCPMaxDisabledTools = 50
+	// AIMCPTimeoutSecMax 单服务请求超时上限（秒）；0 = 默认 8s。
+	AIMCPTimeoutSecMax = 60
 )
 
 // AIMCPServiceDef 为一个外部 MCP 服务器条目（ai.mcp JSON 数组元素）：
 // URL 为 Streamable HTTP 端点；AuthHeader 形如 "Authorization: Bearer x"
-// （写入时留空 = 按 ID 继承现值，读路径永不回显）。对话入口 use_mcp 开启
+// （写入时留空 = 按 ID 继承现值，读路径永不回显），Headers 为附加多认证头
+// （值同样只写不读：留空 = 按 ID+键继承现值）。DisabledTools 为禁用的原始
+// 工具名列表（注入对话时跳过声明；缓存后过滤，不影响工具列表缓存）。
+// TimeoutSec 单服务请求超时（0 = 默认 8s，上限 60s）。对话入口 use_mcp 开启
 // 时逐服务 initialize → tools/list 聚合工具供上游模型调用。
 type AIMCPServiceDef struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	URL        string `json:"url"`
-	AuthHeader string `json:"auth_header,omitempty"`
-	Enabled    bool   `json:"enabled"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description,omitempty"`
+	URL           string            `json:"url"`
+	AuthHeader    string            `json:"auth_header,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	TimeoutSec    int               `json:"timeout_sec,omitempty"`
+	DisabledTools []string          `json:"disabled_tools,omitempty"`
+	Enabled       bool              `json:"enabled"`
 }
 
 // ValidateAIMCPServices 校验 MCP 服务列表：≤8 条、id 1..64 且唯一、
-// name 1..64、url 为绝对 http(s) 地址且 ≤500、auth_header ≤1000。
+// name 1..64、description ≤200、url 为绝对 http(s) 地址且 ≤500、
+// auth_header ≤1000、headers ≤8 个（键 1..64 无冒号/换行、值非空 ≤1000，
+// 空值语义为继承现值——继承合并后仍空在此报错）、timeout 0 或 1..60、
+// disabled_tools ≤50 个且不重复。
 func ValidateAIMCPServices(list []AIMCPServiceDef) error {
 	if len(list) > AIMCPMaxServices {
 		return fmt.Errorf("%w: ai.mcp 最多 %d 条", ErrInvalidValue, AIMCPMaxServices)
@@ -314,6 +369,9 @@ func ValidateAIMCPServices(list []AIMCPServiceDef) error {
 		if name := strings.TrimSpace(s.Name); name == "" || len([]rune(name)) > AIPlatformMaxNameRunes {
 			return fmt.Errorf("%w: mcp[%d].name 须为 1..%d 个字符", ErrInvalidValue, i, AIPlatformMaxNameRunes)
 		}
+		if len([]rune(s.Description)) > AIMCPMaxDescriptionRunes {
+			return fmt.Errorf("%w: mcp[%d].description 过长（≤%d 字符）", ErrInvalidValue, i, AIMCPMaxDescriptionRunes)
+		}
 		u, err := url.Parse(strings.TrimSpace(s.URL))
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 			return fmt.Errorf("%w: mcp[%d].url 须为绝对 http(s) 地址", ErrInvalidValue, i)
@@ -323,6 +381,39 @@ func ValidateAIMCPServices(list []AIMCPServiceDef) error {
 		}
 		if len([]rune(s.AuthHeader)) > AIMCPMaxAuthHeaderRunes {
 			return fmt.Errorf("%w: mcp[%d].auth_header 过长（≤%d 字符）", ErrInvalidValue, i, AIMCPMaxAuthHeaderRunes)
+		}
+		if len(s.Headers) > AIMCPMaxHeaders {
+			return fmt.Errorf("%w: mcp[%d].headers 最多 %d 个", ErrInvalidValue, i, AIMCPMaxHeaders)
+		}
+		for k, v := range s.Headers {
+			kt := strings.TrimSpace(k)
+			if kt == "" || len([]rune(kt)) > 64 || strings.ContainsAny(kt, ":\r\n") {
+				return fmt.Errorf("%w: mcp[%d].headers.%s 键须为 1..64 字符且不含冒号/换行", ErrInvalidValue, i, k)
+			}
+			vt := strings.TrimSpace(v)
+			if vt == "" {
+				return fmt.Errorf("%w: mcp[%d].headers.%s 值不能为空（留空 = 继承现值）", ErrInvalidValue, i, k)
+			}
+			if len([]rune(vt)) > AIMCPMaxAuthHeaderRunes {
+				return fmt.Errorf("%w: mcp[%d].headers.%s 值过长（≤%d 字符）", ErrInvalidValue, i, k, AIMCPMaxAuthHeaderRunes)
+			}
+		}
+		if s.TimeoutSec < 0 || s.TimeoutSec > AIMCPTimeoutSecMax {
+			return fmt.Errorf("%w: mcp[%d].timeout_sec 须为 0 或 1..%d 秒", ErrInvalidValue, i, AIMCPTimeoutSecMax)
+		}
+		if len(s.DisabledTools) > AIMCPMaxDisabledTools {
+			return fmt.Errorf("%w: mcp[%d].disabled_tools 最多 %d 个", ErrInvalidValue, i, AIMCPMaxDisabledTools)
+		}
+		seenTool := make(map[string]bool, len(s.DisabledTools))
+		for _, t := range s.DisabledTools {
+			tt := strings.TrimSpace(t)
+			if tt == "" || len([]rune(tt)) > 128 {
+				return fmt.Errorf("%w: mcp[%d].disabled_tools 条目须为 1..128 字符", ErrInvalidValue, i)
+			}
+			if seenTool[tt] {
+				return fmt.Errorf("%w: mcp[%d].disabled_tools 条目 %q 重复", ErrInvalidValue, i, tt)
+			}
+			seenTool[tt] = true
 		}
 	}
 	return nil
@@ -500,10 +591,14 @@ type AIConfig struct {
 	// AgentPackages 为技能包（ai.agent_packages 键）：合并语义同 Personas。
 	AgentPackages []AIAgentPackageDef `json:"agent_packages,omitempty"`
 	// HistorySearch 对话历史检索（v7.15 A8，ai.history_search 键）：
-	// "keyword"（默认，含空值——消息行表 + pg_trgm 子串检索）或 "off"
-	//（关闭：dd_search_history 工具不注入）。vector 预留值位：会话消息
-	// 向量化需按轮 embedding（成本/链路另行评估），当前未启用。
+	// "keyword"（默认，含空值——消息行表 + pg_trgm 子串检索）、"vector"
+	//（会话消息向量化 + Qdrant 检索；embedding/向量不可用时自动降级
+	// keyword）或 "off"（关闭：dd_search_history 工具不注入）。
 	HistorySearch string `json:"history_search,omitempty"`
+	// DefaultPersona 默认人设 id（ai.default_persona 键）：nil = 载荷未带
+	//（SetAI 保持现值）；指向非空值（含 ""=不注入）时须为 builtin- 前缀
+	// 或 Personas 现存 id。运行时由用户个人偏好（overrides）覆盖。
+	DefaultPersona *string `json:"default_persona,omitempty"`
 	// FallbackModels 为备选模型链（H2，ai.fallback_models 键）：普通对话
 	//（无工具）首选模型上游失败且尚未流出任何增量时，依序切换重试。
 	// 条目须指向启用 Provider 的 chat 能力模型；仅对话链生效——工具循环
@@ -533,11 +628,14 @@ type AIRAGConfig struct {
 
 // AISearchConfig 为联网搜索配置（chat 的 web_search 增强）。Provider 为 ""
 // = 禁用；TavilyAPIKey 仅在 PUT 请求携带（空 = 保持现值），读路径永不回显。
+// ProxyURL 为出站代理（duckduckgo/bing/searxng 的 HTTP 客户端可选走代理；
+// 非密钥明文回显，env AI_OUTBOUND_PROXY 为兜底基线，库值优先）。
 type AISearchConfig struct {
 	Provider     string `json:"provider"`
 	SearxngURL   string `json:"searxng_url"`
 	TavilyAPIKey string `json:"tavily_api_key,omitempty"`
 	MaxResults   int    `json:"max_results"`
+	ProxyURL     string `json:"proxy_url,omitempty"`
 }
 
 // AIOCRConfig 为图片 OCR 配置（ai.ocr 键整体 JSON 块）：开启后索引管道对
@@ -779,15 +877,38 @@ func ValidateAI(c AIConfig) error {
 			return fmt.Errorf("%w: collection_prefix required", ErrInvalidValue)
 		}
 	}
-	if c.HistorySearch != "" && c.HistorySearch != "keyword" && c.HistorySearch != "off" {
-		return fmt.Errorf("%w: ai.history_search must be keyword or off", ErrInvalidValue)
+	if c.HistorySearch != "" && c.HistorySearch != "keyword" && c.HistorySearch != "vector" && c.HistorySearch != "off" {
+		return fmt.Errorf("%w: ai.history_search must be keyword, vector or off", ErrInvalidValue)
+	}
+	if err := validateDefaultPersona(c); err != nil {
+		return err
 	}
 	return validateAISearch(c.Search)
 }
 
+// validateDefaultPersona 校验默认人设引用：空 = 不注入（合法）；否则须为
+// builtin- 前缀（编译期内置）或 Personas 现存 id。dangling 引用不阻塞保存
+// 之外的路径——运行时解析未命中按未设置处理。
+func validateDefaultPersona(c AIConfig) error {
+	if c.DefaultPersona == nil {
+		return nil
+	}
+	id := strings.TrimSpace(*c.DefaultPersona)
+	if id == "" || strings.HasPrefix(id, AIPersonaBuiltinPrefix) {
+		return nil
+	}
+	for _, p := range c.Personas {
+		if p.ID == id {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: ai.default_persona %q 不在平台人设中（或非 builtin- 内置）", ErrInvalidValue, id)
+}
+
 // validateAISearch 校验联网搜索配置：provider 取值合法；searxng 须配
-// 绝对 http(s) 的 searxng_url；tavily 须配 api_key；max_results 范围
-// 1-10（0 = 默认 5，由合并方回退后再校验）。
+// 绝对 http(s) 的 searxng_url；tavily 须配 api_key；duckduckgo/bing 内置
+// 免 Key 无必填项；proxy_url 空 或绝对 http(s)；max_results 范围 1-10
+// （0 = 默认 5，由合并方回退后再校验）。
 func validateAISearch(s AISearchConfig) error {
 	switch s.Provider {
 	case "":
@@ -801,8 +922,15 @@ func validateAISearch(s AISearchConfig) error {
 		if strings.TrimSpace(s.TavilyAPIKey) == "" {
 			return fmt.Errorf("%w: ai.search.tavily_api_key is required when provider is tavily", ErrInvalidValue)
 		}
+	case AISearchProviderDuckDuckGo, AISearchProviderBing:
+		// 内置免 Key 引擎（非官方页面解析）；出站代理可选。
 	default:
-		return fmt.Errorf("%w: ai.search.provider must be empty, searxng or tavily", ErrInvalidValue)
+		return fmt.Errorf("%w: ai.search.provider must be empty, searxng, tavily, duckduckgo or bing", ErrInvalidValue)
+	}
+	if p := strings.TrimSpace(s.ProxyURL); p != "" {
+		if u, err := url.Parse(p); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("%w: ai.search.proxy_url must be an absolute http(s) URL", ErrInvalidValue)
+		}
 	}
 	if s.MaxResults < 0 || s.MaxResults > AISearchMaxResultsLimit {
 		return fmt.Errorf("%w: ai.search.max_results must be 0-%d", ErrInvalidValue, AISearchMaxResultsLimit)
@@ -1616,11 +1744,24 @@ func (s *Store) AIOverrides() (AIConfig, bool, error) {
 	if err := readInt(KeyAISearchMaxResults, &out.Search.MaxResults); err != nil {
 		return out, set, err
 	}
+	if err := readString(KeyAISearchProxyURL, &out.Search.ProxyURL); err != nil {
+		return out, set, err
+	}
 	if err := readString(KeyAIHistorySearch, &out.HistorySearch); err != nil {
 		return out, set, err
 	}
 	if out.HistorySearch == "" {
-		out.HistorySearch = "keyword" // v7.15 A8 默认（vector 预留位，未启用）
+		out.HistorySearch = "keyword" // v7.15 A8 默认（vector 不可用时运行时降级 keyword）
+	}
+	// default_persona：未入库 = nil（不注入）；入库值（含显式 ""=清除）原样。
+	if row, err := s.repo.GetRow(KeyAIDefaultPersona); err == nil {
+		var v string
+		if err := json.Unmarshal([]byte(row.ValueJSON), &v); err != nil {
+			return out, set, err
+		}
+		out.DefaultPersona = &v
+	} else if !errors.Is(err, ErrNotSet) {
+		return out, set, err
 	}
 	if out.Search.MaxResults <= 0 {
 		out.Search.MaxResults = AISearchMaxResultsDefault
@@ -1708,6 +1849,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		RAG:             in.RAG,
 		Search:          in.Search,
 		OCR:             in.OCR,
+		DefaultPersona:  in.DefaultPersona,
 	}
 	if merged.DefaultModels == nil {
 		merged.DefaultModels = current.DefaultModels // 载荷未带 = 保持现值
@@ -1755,6 +1897,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 	} else {
 		merged.Search.Provider = strings.TrimSpace(merged.Search.Provider)
 		merged.Search.SearxngURL = strings.TrimSpace(merged.Search.SearxngURL)
+		merged.Search.ProxyURL = strings.TrimSpace(merged.Search.ProxyURL)
 		if merged.Search.TavilyAPIKey == "" {
 			merged.Search.TavilyAPIKey = current.Search.TavilyAPIKey
 		}
@@ -1766,13 +1909,21 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		merged.Search.MaxResults = AISearchMaxResultsDefault
 	}
 	// history_search 合并（v7.15 A8）：载荷空（旧客户端不带）= 保持现值；
-	// 仍空回退默认 keyword。合法值 keyword/off（ValidateAI 校验）。
+	// 仍空回退默认 keyword。合法值 keyword/vector/off（ValidateAI 校验）。
 	merged.HistorySearch = strings.TrimSpace(merged.HistorySearch)
 	if merged.HistorySearch == "" {
 		merged.HistorySearch = current.HistorySearch
 	}
 	if merged.HistorySearch == "" {
 		merged.HistorySearch = "keyword"
+	}
+	// default_persona 合并：载荷 nil（旧客户端不带）= 保持现值（含未设置）；
+	// 非 nil（含指向 ""）trim 后交 ValidateAI（builtin- 前缀或现存 personas id）。
+	if merged.DefaultPersona == nil {
+		merged.DefaultPersona = current.DefaultPersona
+	} else {
+		v := strings.TrimSpace(*merged.DefaultPersona)
+		merged.DefaultPersona = &v
 	}
 	// ocr 合并（同 search 整体块零值=保持现值语义）：载荷未带（零值块，
 	// 旧客户端/其他入口不带 ocr）= 保持现值；带载荷 trim 规整 id/model，
@@ -1898,6 +2049,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		{KeyAISearchSearxngURL, merged.Search.SearxngURL, TypeString},
 		{KeyAISearchTavilyKey, merged.Search.TavilyAPIKey, TypeString},
 		{KeyAISearchMaxResults, int64(merged.Search.MaxResults), TypeInt},
+		{KeyAISearchProxyURL, merged.Search.ProxyURL, TypeString},
 		{KeyAIHistorySearch, merged.HistorySearch, TypeString},
 		{KeyAIOCR, merged.OCR, TypeString},
 	}
@@ -1908,6 +2060,17 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		}
 		row := Setting{Key: w.key, ValueJSON: string(raw), ValueType: w.typ, Description: "AI runtime override", UpdatedBy: &actor, UpdatedAt: now}
 		if err := s.repo.UpsertRow(row); err != nil {
+			return AIConfig{}, err
+		}
+	}
+	// default_persona 仅非 nil 时落库（nil = 载荷未带，保持未设置语义；
+	// 指向 "" = 显式清除——入库空串，读取侧还原为「不注入」）。
+	if merged.DefaultPersona != nil {
+		raw, err := json.Marshal(*merged.DefaultPersona)
+		if err != nil {
+			return AIConfig{}, err
+		}
+		if err := s.repo.UpsertRow(Setting{Key: KeyAIDefaultPersona, ValueJSON: string(raw), ValueType: TypeString, Description: "AI runtime override", UpdatedBy: &actor, UpdatedAt: now}); err != nil {
 			return AIConfig{}, err
 		}
 	}
@@ -1930,7 +2093,7 @@ func (s *Store) SetAI(in AIConfig, env AIConfig, actor uuid.UUID) (AIConfig, err
 		Temperature:    merged.Temperature, MaxTokens: merged.MaxTokens, PerUserPerMin: merged.PerUserPerMin, RAG: merged.RAG,
 		Search:        auditedSearch,
 		OCR:           merged.OCR,
-		HistorySearch: merged.HistorySearch,
+		HistorySearch: merged.HistorySearch, DefaultPersona: merged.DefaultPersona,
 	}})
 	_ = s.audit.Record(audit.Entry{UserID: &actor, Action: audit.ActionSettingsUpdate, ResourceType: audit.ResourceSettings, ResourceID: "ai", Status: audit.StatusSuccess, Metadata: string(metadata)})
 	return merged, nil
@@ -1978,7 +2141,9 @@ func (s *Store) SetAIAgentPackages(in []AIAgentPackageDef, actor uuid.UUID) ([]A
 }
 
 // SetAIPersonas 校验并整块写入平台人设（trim 规整 id/name），成功后写
-// settings.update 审计；返回归一化后的列表。
+// settings.update 审计；返回归一化后的列表。写入后顺带清理悬空的
+// default_persona（指向已删除人设且非 builtin- 前缀时置空，避免残留
+// 无效引用）。
 func (s *Store) SetAIPersonas(in []AIPersonaDef, actor uuid.UUID) ([]AIPersonaDef, error) {
 	normalized := make([]AIPersonaDef, 0, len(in))
 	for _, p := range in {
@@ -1989,6 +2154,25 @@ func (s *Store) SetAIPersonas(in []AIPersonaDef, actor uuid.UUID) ([]AIPersonaDe
 	}
 	if err := s.writeAIListRow(KeyAIPersonas, normalized, actor); err != nil {
 		return nil, err
+	}
+	// 清理悬空 default_persona（静默：运行时未命中本就按未设置处理）。
+	if row, err := s.repo.GetRow(KeyAIDefaultPersona); err == nil {
+		var v string
+		if json.Unmarshal([]byte(row.ValueJSON), &v) == nil && v != "" && !strings.HasPrefix(v, AIPersonaBuiltinPrefix) {
+			found := false
+			for _, p := range normalized {
+				if p.ID == v {
+					found = true
+					break
+				}
+			}
+			if !found {
+				empty := ""
+				if raw, merr := json.Marshal(empty); merr == nil {
+					_ = s.repo.UpsertRow(Setting{Key: KeyAIDefaultPersona, ValueJSON: string(raw), ValueType: TypeString, Description: "AI runtime override", UpdatedBy: &actor, UpdatedAt: s.now().UTC()})
+				}
+			}
+		}
 	}
 	return normalized, nil
 }
@@ -2069,28 +2253,62 @@ func (s *Store) AIMCPServices() ([]AIMCPServiceDef, error) {
 	return list, nil
 }
 
-// SetAIMCPServices 校验并整块写入 MCP 服务列表（trim 规整 id/name/url/
-// auth_header），成功后写 settings.update 审计（auth_header 打码 "******"，
-// 绝不记录明文）。AuthHeader 留空 = 从现值按 ID 继承（密钥只写不读语义，
-// 参照 providers api_key 模式——管理端回显掩码由 HTTP 层处理）。返回
-// 归一化后的列表。
+// SetAIMCPServices 校验并整块写入 MCP 服务列表（trim 规整 id/name/
+// description/url/auth_header/disabled_tools），成功后写 settings.update
+// 审计（auth_header 与 headers 值打码 "******"，绝不记录明文）。
+// AuthHeader 留空 = 从现值按 ID 继承；Headers 值留空 = 从现值按 ID+键
+// 继承（密钥只写不读语义，参照 providers api_key 模式——管理端回显掩码
+// 由 HTTP 层处理）。返回归一化后的列表。
 func (s *Store) SetAIMCPServices(in []AIMCPServiceDef, actor uuid.UUID) ([]AIMCPServiceDef, error) {
 	current, err := s.AIMCPServices()
 	if err != nil {
 		return nil, err
 	}
 	prevAuth := make(map[string]string, len(current))
+	prevHeaders := make(map[string]map[string]string, len(current))
 	for _, c := range current {
 		prevAuth[c.ID] = c.AuthHeader
+		if len(c.Headers) > 0 {
+			headers := make(map[string]string, len(c.Headers))
+			for k, v := range c.Headers {
+				headers[k] = v
+			}
+			prevHeaders[c.ID] = headers
+		}
 	}
 	normalized := make([]AIMCPServiceDef, 0, len(in))
 	for _, svc := range in {
 		svc.ID = strings.TrimSpace(svc.ID)
 		svc.Name = strings.TrimSpace(svc.Name)
+		svc.Description = strings.TrimSpace(svc.Description)
 		svc.URL = strings.TrimSpace(svc.URL)
 		svc.AuthHeader = strings.TrimSpace(svc.AuthHeader)
 		if svc.AuthHeader == "" {
 			svc.AuthHeader = prevAuth[svc.ID] // 留空 = 继承现值
+		}
+		if len(svc.Headers) > 0 {
+			prev := prevHeaders[svc.ID]
+			headers := make(map[string]string, len(svc.Headers))
+			for k, v := range svc.Headers {
+				k = strings.TrimSpace(k)
+				v = strings.TrimSpace(v)
+				if v == "" && prev != nil {
+					v = prev[k] // 值留空 = 按 ID+键继承现值
+				}
+				if k != "" && v != "" {
+					headers[k] = v
+				}
+			}
+			svc.Headers = headers
+		}
+		if len(svc.DisabledTools) > 0 {
+			tools := make([]string, 0, len(svc.DisabledTools))
+			for _, t := range svc.DisabledTools {
+				if t = strings.TrimSpace(t); t != "" {
+					tools = append(tools, t)
+				}
+			}
+			svc.DisabledTools = tools
 		}
 		normalized = append(normalized, svc)
 	}
@@ -2104,7 +2322,8 @@ func (s *Store) SetAIMCPServices(in []AIMCPServiceDef, actor uuid.UUID) ([]AIMCP
 }
 
 // writeAIMCRow 把 MCP 服务列表整块 upsert 并写审计（审计载荷中
-// auth_header 打码，区别于 writeAIListRow 的明文——密钥不入审计日志）。
+// auth_header 与 headers 值打码，区别于 writeAIListRow 的明文——
+// 密钥不入审计日志）。
 func (s *Store) writeAIMCRow(list []AIMCPServiceDef, actor uuid.UUID) error {
 	raw, err := json.Marshal(list)
 	if err != nil {
@@ -2117,6 +2336,13 @@ func (s *Store) writeAIMCRow(list []AIMCPServiceDef, actor uuid.UUID) error {
 	for i, svc := range list {
 		if svc.AuthHeader != "" {
 			svc.AuthHeader = "******"
+		}
+		if len(svc.Headers) > 0 {
+			headers := make(map[string]string, len(svc.Headers))
+			for k := range svc.Headers {
+				headers[k] = "******"
+			}
+			svc.Headers = headers
 		}
 		audited[i] = svc
 	}

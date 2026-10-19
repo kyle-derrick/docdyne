@@ -543,6 +543,9 @@ func main() {
 	// 044），管理面板按用户聚合。
 	aiEnvBaseline := settings.DefaultAIConfig()
 	aiEnvBaseline.RAG = settings.AIRAGConfig{Mode: cfg.RAGMode, VectorEnabled: cfg.RAGVectorEnabled, QdrantURL: cfg.RAGQdrantURL, CollectionPrefix: cfg.RAGCollectionPrefix, EmbeddingProvider: cfg.RAGEmbeddingProvider, EmbeddingModel: cfg.RAGEmbeddingModel, TopK: cfg.RAGTopK, ChunkSize: cfg.RAGChunkSize, ChunkOverlap: cfg.RAGChunkOverlap}
+	// AI 出站代理兜底基线（AI_OUTBOUND_PROXY）：联网搜索/网页抓取可选
+	// 走代理；库键 ai.search.proxy_url 优先（HTTP 层 aiSearchConfig 合并）。
+	aiEnvBaseline.Search.ProxyURL = strings.TrimSpace(cfg.AIOutboundProxy)
 	if cfg.AIEnabled {
 		aiEnvBaseline.Providers = []settings.AIProvider{{
 			ID: "env", Name: "Env (AI_*)", Kind: settings.AIKindOpenAICompatible,
@@ -636,6 +639,18 @@ func main() {
 		aiService.SetHybridRetriever(hybrid, ragEffective)
 	}
 	handler.SetAIService(aiService, aiEnvBaseline, aiUsageStore)
+	// 会话历史向量索引（ai.history_search=vector 档）：独立于文件 RAG 开关
+	// ——只看 embedding 是否可用（mock → ErrVectorDisabled 降级关键词）；
+	// 未部署 Qdrant（ai-vector profile）时不注入，vector 档整体降级。
+	if vectorClient != nil {
+		handler.SetConvVectorIndexer(&ai.ConvVectorIndexer{Resolve: func() (ai.EmbeddingProvider, ai.VectorStore, error) {
+			embedding, collection, err := aiService.ResolveConvVectors()
+			if err != nil {
+				return nil, nil, ai.ErrVectorDisabled
+			}
+			return embedding, vectorClient.Scope(collection), nil
+		}})
+	}
 	// 图片 OCR 自动入索引：aiService 读 blob 需要存储读取器；把它挂到
 	// 索引器（*ai.Service 满足 search.OCRExtractor，编译期保证），OCR
 	// 未开启时 ExtractImageText 安静返回空、索引行为不变。

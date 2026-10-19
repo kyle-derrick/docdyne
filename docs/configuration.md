@@ -120,6 +120,7 @@ DocDyne 采用**两级配置模型**：
 | `AI_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容服务基地址 | 可指向任意兼容网关（OneAPI / vLLM / DeepSeek 等）；须为绝对 http(s) URL |
 | `AI_API_KEY` | 空 | 上游 API Key | `AI_ENABLED=true` 时**必填**；安全敏感 |
 | `AI_MODEL` | `gpt-4o-mini` | 默认摘要模型 | |
+| `AI_OUTBOUND_PROXY` | 空 = 直连 | AI 出站代理（联网搜索/网页抓取，如 `http://127.0.0.1:20170`） | 兜底基线；运行时键 `ai.search.proxy_url` 优先（DuckDuckGo 等内置引擎国内直连通常需配） |
 
 ### 安全与防爆破（限流 / 锁定 / 病毒扫描）
 
@@ -216,14 +217,19 @@ DocDyne 采用**两级配置模型**：
 | `ai.rag.top_k` | `8` | 即时 | 向量召回条数（面板保存按 1–10 校验；通用设置端点允许 1–100） |
 | `ai.rag.chunk_size` | `1000` | 重启 | 分块大小（100–10000） |
 | `ai.rag.chunk_overlap` | `100` | 重启 | 分块重叠（0–5000 且 < chunk_size） |
-| `ai.search.provider` | 空 = 禁用 | 即时 | 联网搜索后端：`searxng` \| `tavily` |
+| `ai.search.provider` | 空 = 禁用 | 即时 | 联网搜索后端：`searxng` \| `tavily` \| `duckduckgo`（内置免 Key，Cherry Studio 同款；国内直连通常不可达，需配代理）\| `bing`（内置免 Key，国内可直连；非官方页面解析，可能随改版失效） |
 | `ai.search.searxng_url` | 空 | 即时 | SearXNG 基地址（须开启 JSON API；compose `--profile ai-search` 内为 `http://searxng:8080`） |
 | `ai.search.tavily_api_key` | 空 | 即时 | Tavily API Key（provider=tavily 时必填；只写不读） |
+| `ai.search.proxy_url` | 空 = 直连 | 即时 | AI 出站代理（联网搜索/网页抓取）：`http://host:port`；env `AI_OUTBOUND_PROXY` 为兜底基线，库值优先。搜索结果中的链接可由模型经内置 `dd_fetch_url` 工具补读全文（SSRF 防护：拒内网/环回地址） |
 | `ai.search.max_results` | `5` | 即时 | 每次查询召回条数（1–10） |
-| `ai.ocr` | 禁用 | 即时 | 图片 OCR（整体 JSON 块）：`enabled/provider_id/model_id/max_image_bytes`（默认 8MiB，硬顶 32MiB）。开启后索引管道调「视觉图片」能力模型提取图片文字入全文+向量索引 |
-| `ai.personas` | `[]` | 即时 | 平台人设模板（≤50 条）：`id/name/system_prompt`（≤4000 字符），全员对话可选 |
-| `ai.skills` | `[]` | 即时 | 平台技能/快捷指令模板（≤50 条）：`id/name/description(≤200)/prompt(≤4000)`，prompt 支持 `{selection}`（编辑器选区）/ `{file}`（当前文件名）占位符 |
-| `ai.mcp` | `[]` | 即时 | 外部 MCP 服务器（≤8 条，Streamable HTTP）：`id/name/url/auth_header/enabled`；auth_header 只写不读；对话开启「MCP 工具」后聚合调用（单次对话 ≤5 轮） |
+| `ai.history_search` | `keyword` | 即时 | 对话历史检索：`keyword`（pg_trgm 子串检索）\| `vector`（会话消息向量化 + Qdrant 语义召回；embedding 为 mock 或未部署 Qdrant 时自动降级 keyword）\| `off`。用户可经个人偏好覆盖（`prefs.overrides.history_search`） |
+| `ai.ocr` | 禁用 | 即时 | 图片 OCR（整体 JSON 块）：`enabled/provider_id/model_id/max_image_bytes`（默认 8MiB，硬顶 32MiB）。语义：对话模型勾选「视觉」能力时图片直接内联发给模型（不走 OCR）；仅非视觉模型带图时才用此配置的视觉模型兜底转文字（另用于图片文件建索引）。用户可经 `prefs.overrides.ocr` 用个人池视觉模型覆盖 |
+| `ai.personas` | `[]` | 即时 | 平台人设模板（≤50 条）：`id/name/system_prompt`（≤4000 字符），全员对话可选。生效列表恒含编译期内置 `builtin-assistant`（默认助理，置顶只读）；用户个人人设（`prefs.personas`）在 /ai/models 合并下发 |
+| `ai.default_persona` | 空 = 不注入 | 即时 | 默认人设 id：`builtin-` 前缀或 `ai.personas` 现存 id；用户可经 `prefs.overrides.default_persona` 覆盖 |
+| `ai.skills` | `[]` | 即时 | 平台快捷指令/提示词模板（≤50 条）：`id/name/description(≤200)/prompt(≤4000)`，prompt 支持 `{selection}`（编辑器选区）/ `{file}`（当前文件名）占位符，选中填入输入框（区别于对话技能的 system 注入） |
+| `ai.chat_skills` | `[]` | 即时 | 平台对话技能（Cherry Studio 式 Skills，≤50 条）：`id/name/description(≤200)/icon(≤40)/content(≤4000, Markdown)/enabled`。三层增量合并：内置（翻译/润色/总结/头脑风暴，`builtin-` 只读）→ 平台启用项 → 个人（`prefs.chat_skills` ≤30，按 id 个人覆盖平台）；对话 `chat_skill` 参数选用后整段注入该轮 system |
+| `ai.rules` | 空 | 即时 | 平台 AI 规则（≤4000 字符）：**叠加**注入所有对话的 system 提示（与用户个人规则 `prefs.rules` ≤2000 拼接，非覆盖） |
+| `ai.mcp` | `[]` | 即时 | 外部 MCP 服务器（≤8 条，Streamable HTTP——服务端容器不 spawn 本地进程，stdio 不支持）：`id/name/description(≤200)/url/auth_header/headers(≤8 头，值只写不读留空继承)/timeout_sec(0=8s，≤60)/disabled_tools(≤50)/enabled`；对话开启「MCP 工具」后聚合调用（与个人 `prefs.mcp_servers` 合并加载）。管理端支持 `{mcpServers}` JSON 快速导入/导出与全量工具预览 |
 | `ai.agent_packages` | `[]` | 即时 | Agent 技能包（≤50 条）：`id/name/description/system_extra(≤4000)/tools/kinds/version/changelog`——限定编辑页 Agent 的附加指令与 dd_* 工具白名单、applyKind 适用范围；`builtin-` 前缀 id 为编译期内置包不可覆盖。管理端支持 JSON/YAML 导入导出（交换格式见 `docs/schema/agent-packages.schema.json`），调用统计见管理端「AI 设置 → 使用统计」 |
 
 另见 [docs/mcp.md](mcp.md)（DocDyne 自身作为 MCP Server 对外暴露文档工具）。

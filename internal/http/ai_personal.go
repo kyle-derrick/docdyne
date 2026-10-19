@@ -49,8 +49,8 @@ func (h *Handler) aiPersonalFor(c *gin.Context) (auth.AIPersonalPrefs, bool) {
 // loadAIPersonalPrefs 读取并解析指定用户的个人配置（best-effort：未注入
 // 存储 / 无记录 / 解析失败一律返回零值与 false——个人池故障不阻塞平台 AI
 // 链路）。已入库但校验不过的存量数据同样按无个人池处理（fail closed）。
-// 仅配置了技能/MCP 服务（无 Provider）同样视为有个人配置——技能弹层与
-// use_mcp 合并加载只依赖对应子集。
+// 仅配置了技能/MCP 服务/对话技能/规则/覆盖偏好（无 Provider）同样视为有
+// 个人配置——各消费路径只依赖对应子集。
 func (h *Handler) loadAIPersonalPrefs(userID uuid.UUID) (auth.AIPersonalPrefs, bool) {
 	if h.aiPrefs == nil {
 		return auth.AIPersonalPrefs{}, false
@@ -63,7 +63,8 @@ func (h *Handler) loadAIPersonalPrefs(userID uuid.UUID) (auth.AIPersonalPrefs, b
 	if err := json.Unmarshal(raw, &prefs); err != nil {
 		return auth.AIPersonalPrefs{}, false
 	}
-	if len(prefs.Providers) == 0 && len(prefs.Skills) == 0 && len(prefs.MCPServers) == 0 {
+	if len(prefs.Providers) == 0 && len(prefs.Skills) == 0 && len(prefs.MCPServers) == 0 &&
+		len(prefs.ChatSkills) == 0 && prefs.Rules == "" && prefs.Overrides == nil {
 		return auth.AIPersonalPrefs{}, false
 	}
 	return prefs, true

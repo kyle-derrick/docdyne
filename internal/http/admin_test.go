@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // fakeSettingsService 是 settingsService 的内存实现。
@@ -30,6 +30,27 @@ type fakeSettingsService struct {
 	personas      []settings.AIPersonaDef
 	skills        []settings.AISkillDef
 	agentPackages []settings.AIAgentPackageDef
+	// chatSkills / rules 支撑对话技能与规则端点的测试（可配置读写内存）。
+	chatSkills []settings.AIChatSkillDef
+	rules      string
+}
+
+// AIChatSkills / SetAIChatSkills / AIRules / SetAIRules 实现对话技能/规则
+// 读写切片（chatSkillsStore 断言的四个方法；内存实现）。
+func (f *fakeSettingsService) AIChatSkills() ([]settings.AIChatSkillDef, error) {
+	return f.chatSkills, nil
+}
+
+func (f *fakeSettingsService) SetAIChatSkills(list []settings.AIChatSkillDef, actor uuid.UUID) ([]settings.AIChatSkillDef, error) {
+	f.chatSkills = list
+	return list, nil
+}
+
+func (f *fakeSettingsService) AIRules() (string, error) { return f.rules, nil }
+
+func (f *fakeSettingsService) SetAIRules(text string, actor uuid.UUID) (string, error) {
+	f.rules = text
+	return text, nil
 }
 
 func (f *fakeSettingsService) GetAll() ([]settings.SettingView, error) { return f.views, nil }

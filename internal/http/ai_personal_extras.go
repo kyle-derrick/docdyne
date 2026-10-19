@@ -147,18 +147,19 @@ func respondAIPersonalError(c *gin.Context, err error) {
 // ---------- 个人 MCP 测试连接（与平台 /admin/settings/ai/mcp/test 共用实现） ----------
 
 // testAIPersonalMCP POST /api/v1/ai/personal/mcp-servers/test
-// {url, auth_headers?}：用给定参数（支持未保存的草稿）实测个人 MCP 服务
-// 器连通性（initialize + tools/list，返回工具数/工具名/延迟）。auth_headers
-// 为多认证头集合（键 = header 名，值 = 凭据）；HTTP 恒 200，连接失败的
-// 信息在 body（ok=false + error）。
+// {url, auth_headers?, timeout_sec?}：用给定参数（支持未保存的草稿）实测
+// 个人 MCP 服务器连通性（initialize + tools/list，返回工具数/工具预览/
+// 延迟）。auth_headers 为多认证头集合（键 = header 名，值 = 凭据）；
+// HTTP 恒 200，连接失败的信息在 body（ok=false + error）。
 func (h *Handler) testAIPersonalMCP(c *gin.Context) {
 	var req struct {
 		URL         string            `json:"url"`
 		AuthHeaders map[string]string `json:"auth_headers"`
+		TimeoutSec  int               `json:"timeout_sec"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	aiMCPTestRespond(c, req.URL, "", req.AuthHeaders)
+	aiMCPTestRespond(c, req.URL, "", req.AuthHeaders, req.TimeoutSec)
 }

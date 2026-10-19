@@ -38,7 +38,7 @@ func requiredOf(t *testing.T, params map[string]any) []string {
 // schema 结构合法且必填参数正确。
 func TestPlatformToolsDeclarations(t *testing.T) {
 	tools := PlatformTools()
-	want := []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search", "dd_search_history", "dd_read_memory", "dd_write_memory"}
+	want := []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search", "dd_search_history", "dd_read_memory", "dd_write_memory", "dd_fetch_url"}
 	if len(tools) != len(want) {
 		t.Fatalf("工具数 = %d, want %d（%v）", len(tools), len(want), tools)
 	}
@@ -99,7 +99,7 @@ func TestPlatformToolsDeclarations(t *testing.T) {
 // TestPlatformToolNames 名称集合与声明一致。
 func TestPlatformToolNames(t *testing.T) {
 	names := PlatformToolNames()
-	want := []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search", "dd_search_history", "dd_read_memory", "dd_write_memory"}
+	want := []string{"dd_list_dir", "dd_read_file", "dd_write_file", "dd_mkdir", "dd_search", "dd_search_history", "dd_read_memory", "dd_write_memory", "dd_fetch_url"}
 	if len(names) != len(want) {
 		t.Fatalf("名称集合大小 = %d, want %d", len(names), len(want))
 	}
@@ -127,20 +127,23 @@ func TestPlatformToolsFor(t *testing.T) {
 		return out
 	}
 	full := names(PlatformToolsFor(true, true))
-	if len(full) != 8 {
+	if len(full) != 9 {
 		t.Fatalf("全集 = %d, want 8", len(full))
 	}
 	noHist := names(PlatformToolsFor(false, true))
-	if noHist[PlatformToolSearchHistory] || len(noHist) != 7 {
+	if noHist[PlatformToolSearchHistory] || len(noHist) != 8 {
 		t.Fatalf("history=false 应剔 dd_search_history: %v", noHist)
 	}
 	noMem := names(PlatformToolsFor(true, false))
-	if noMem[PlatformToolReadMemory] || noMem[PlatformToolWriteMemory] || len(noMem) != 6 {
+	if noMem[PlatformToolReadMemory] || noMem[PlatformToolWriteMemory] || len(noMem) != 7 {
 		t.Fatalf("memory=false 应剔记忆双工具: %v", noMem)
 	}
 	memOnly := names(PlatformToolsFor(false, false))
-	if len(memOnly) != 5 || memOnly[PlatformToolSearchHistory] || memOnly[PlatformToolReadMemory] {
-		t.Fatalf("双关均关应只剩 5 个文件工具: %v", memOnly)
+	if len(memOnly) != 6 || memOnly[PlatformToolSearchHistory] || memOnly[PlatformToolReadMemory] {
+		t.Fatalf("双关均关应只剩 6 个文件工具: %v", memOnly)
+	}
+	if !memOnly[PlatformToolFetchURL] {
+		t.Fatal("dd_fetch_url 属文件/网络工具栈，不受 history/memory 开关影响")
 	}
 	if !IsMemoryToolName(PlatformToolReadMemory) || !IsMemoryToolName(PlatformToolWriteMemory) {
 		t.Fatal("IsMemoryToolName 应识别记忆双工具")

@@ -207,6 +207,7 @@ func (h *Handler) aiConvoDelete(c *gin.Context) {
 		return
 	}
 	h.deleteConversationAttachments(userID(c), messages)
+	h.aiConvoVectorDelete(id) // vector 档：异步清理该会话的向量点
 	c.Status(http.StatusNoContent)
 }
 
@@ -246,5 +247,7 @@ func (h *Handler) aiConvoEvents(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
+	// vector 档：异步嵌入本轮消息（best-effort，不阻塞响应）。
+	h.aiConvoVectorIndex(userID(c), id, req.Kind, req.Messages)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

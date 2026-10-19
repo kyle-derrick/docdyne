@@ -32,10 +32,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/mcpclient"
 	"github.com/kyle-derrick/docdyne/internal/settings"
-	"github.com/google/uuid"
 )
 
 var (
@@ -1255,7 +1255,10 @@ func (s *Service) mcpServices() []mcpServiceEntry {
 			continue
 		}
 		services = append(services, mcpServiceEntry{
-			def:     settings.AIMCPServiceDef{ID: m.ID, Name: m.Name, URL: m.URL, Enabled: true},
+			def: settings.AIMCPServiceDef{
+				ID: m.ID, Name: m.Name, URL: m.URL, Enabled: true,
+				Description: m.Description, TimeoutSec: m.TimeoutSec, DisabledTools: m.DisabledTools,
+			},
 			headers: m.AuthHeaders,
 		})
 	}
@@ -1277,15 +1280,47 @@ func (s *Service) collectMCPTools(ctx context.Context) *mcpToolContext {
 			continue
 		}
 		cli := &mcpclient.Client{URL: svc.URL, AuthHeader: svc.AuthHeader, Headers: entry.headers}
-		cctx, cancel := context.WithTimeout(ctx, mcpclient.RequestTimeout)
+		if svc.TimeoutSec > 0 {
+			cli.Timeout = time.Duration(svc.TimeoutSec) * time.Second
+		}
+		// 多认证头合并：平台 def.Headers 与个人 auth_headers 并存（键冲突
+		// 个人优先——个人池为用户自备凭据）。
+		if len(svc.Headers) > 0 {
+			merged := make(map[string]string, len(cli.Headers)+len(svc.Headers))
+			for k, v := range cli.Headers {
+				merged[k] = v
+			}
+			for k, v := range svc.Headers {
+				if strings.TrimSpace(v) != "" {
+					merged[k] = v
+				}
+			}
+			cli.Headers = merged
+		}
+		listTimeout := time.Duration(0)
+		if cli.Timeout > 0 {
+			listTimeout = cli.Timeout
+		} else {
+			listTimeout = mcpclient.RequestTimeout
+		}
+		cctx, cancel := context.WithTimeout(ctx, listTimeout)
 		tools, err := cli.ListTools(cctx)
 		cancel()
 		if err != nil {
 			log.Printf("ai mcp: 服务 %s(%s) 工具列表获取失败，已跳过: %v", svc.Name, svc.ID, err)
 			continue
 		}
+		// 按原始工具名过滤禁用项（缓存后过滤——工具列表缓存按 URL 共享，
+		// 禁用集合每服务独立）。
+		disabled := make(map[string]bool, len(svc.DisabledTools))
+		for _, t := range svc.DisabledTools {
+			disabled[strings.TrimSpace(t)] = true
+		}
 		for _, tl := range tools {
 			if strings.TrimSpace(tl.Name) == "" {
+				continue
+			}
+			if disabled[tl.Name] {
 				continue
 			}
 			fn := mcpToolFnName(svc.ID, tl.Name)

@@ -66,16 +66,31 @@ func (s *Service) SetStorageReader(r StorageReader) {
 //
 // 热配置：每次调用读当前生效配置，管理端改 ai.ocr 即时生效无需重启。
 func (s *Service) ExtractImageText(ctx context.Context, storageKey, mimeType, name string, size int64) (string, error) {
+	return s.ExtractImageTextWith(ctx, storageKey, mimeType, name, size, nil, "")
+}
+
+// ExtractImageTextWith 与 ExtractImageText 同，但支持显式覆盖 OCR 目标
+// （用户个人池的 vision 模型覆盖平台 ai.ocr 配置——非 vision 模型对话
+// 带图时优先个人模型识图）。override 非空时不走 ai.ocr.enabled 门与
+// 平台 Provider 校验（个人 Key 用户自担），size 上限与 mock 拒绝仍生效。
+func (s *Service) ExtractImageTextWith(ctx context.Context, storageKey, mimeType, name string, size int64, override *settings.AIProvider, overrideModel string) (string, error) {
 	cfg, err := s.Config()
 	if err != nil {
 		return "", err
 	}
-	if !cfg.OCR.Enabled {
-		return "", nil
-	}
-	provider, ok := cfg.ProviderByID(cfg.OCR.ProviderID)
-	if !ok || !provider.Enabled {
-		return "", errors.New("ocr provider not available")
+	var provider settings.AIProvider
+	var modelID string
+	if override != nil && strings.TrimSpace(overrideModel) != "" {
+		provider, modelID = *override, strings.TrimSpace(overrideModel)
+	} else {
+		if !cfg.OCR.Enabled {
+			return "", nil
+		}
+		p, ok := cfg.ProviderByID(cfg.OCR.ProviderID)
+		if !ok || !p.Enabled {
+			return "", errors.New("ocr provider not available")
+		}
+		provider, modelID = p, cfg.OCR.ModelID
 	}
 	if provider.Kind == settings.AIKindMock {
 		return "", errors.New("mock provider does not support vision ocr")
@@ -113,9 +128,9 @@ func (s *Service) ExtractImageText(ctx context.Context, storageKey, mimeType, na
 	var promptTokens, completionTokens int
 	switch provider.Kind {
 	case settings.AIKindOpenAICompatible:
-		text, promptTokens, completionTokens, err = s.ocrOpenAI(reqCtx, provider, cfg.OCR.ModelID, b64, mimeType)
+		text, promptTokens, completionTokens, err = s.ocrOpenAI(reqCtx, provider, modelID, b64, mimeType)
 	case settings.AIKindAnthropic:
-		text, promptTokens, completionTokens, err = s.ocrAnthropic(reqCtx, provider, cfg.OCR.ModelID, b64, mimeType)
+		text, promptTokens, completionTokens, err = s.ocrAnthropic(reqCtx, provider, modelID, b64, mimeType)
 	default:
 		return "", fmt.Errorf("ocr: unsupported provider kind %q", provider.Kind)
 	}
@@ -124,7 +139,7 @@ func (s *Service) ExtractImageText(ctx context.Context, storageKey, mimeType, na
 	}
 	// 用量记账复用对话链路的 recordUsage（按 provider+model 维度；无 usage
 	// 回包时按字符近似折算），失败 best-effort 不影响结果。
-	s.recordUsage(provider, cfg.OCR.ModelID, ChatRequest{Messages: []Message{{Role: "user", Content: ocrPrompt}}}, ChatResult{
+	s.recordUsage(provider, modelID, ChatRequest{Messages: []Message{{Role: "user", Content: ocrPrompt}}}, ChatResult{
 		Content: text, PromptTokens: promptTokens, CompletionTokens: completionTokens, DurationMS: time.Since(start).Milliseconds(),
 	})
 	text = strings.TrimSpace(text)

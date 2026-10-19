@@ -469,12 +469,13 @@ func TestAIModelsPersonas(t *testing.T) {
 			t.Fatalf("body 缺 %q: %s", want, body)
 		}
 	}
-	// 未配置时 personas 为空数组（非 null）。
+	// 未配置平台人设时，内置默认人设（builtin-assistant）仍恒在列表首位
+	//（保证前端下拉非空）；个人人设未配置不追加。
 	r2 := newAIExtrasRouter(newAIv1Service(100), &fakeSettingsService{}, nil, uuid.New())
 	w2 := httptest.NewRecorder()
 	r2.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/api/v1/ai/models", nil))
-	if !strings.Contains(w2.Body.String(), `"personas":[]`) {
-		t.Fatalf("空配置应回显空数组: %s", w2.Body.String())
+	if !strings.Contains(w2.Body.String(), "builtin-assistant") || strings.Contains(w2.Body.String(), `"personal":true`) {
+		t.Fatalf("空配置应仅含内置人设: %s", w2.Body.String())
 	}
 }
 

@@ -53,6 +53,11 @@ const (
 	AIPersonalMaxMCPHeaderValueRunes = 1000
 	// AIPersonalMaxMCPURLRunes 个人 MCP 服务 url 长度上限（同平台）。
 	AIPersonalMaxMCPURLRunes = 500
+	// AIPersonalMaxChatSkills 个人对话技能条数上限（低于平台 50：个人池
+	// 够用且防滥用）。
+	AIPersonalMaxChatSkills = 30
+	// AIPersonalMaxRulesRunes 个人 AI 规则长度上限（低于平台 4000）。
+	AIPersonalMaxRulesRunes = 2000
 )
 
 // ErrInvalidAIPrefs 表示个人 AI 配置非法（HTTP 400 语义；错误消息含具体
@@ -115,6 +120,41 @@ type AIPersonalMCPServer struct {
 	Name        string            `json:"name"`
 	URL         string            `json:"url"`
 	AuthHeaders map[string]string `json:"auth_headers,omitempty"`
+	// Description 服务描述（可选，≤200 字符；管理侧展示用，非密钥）。
+	Description string `json:"description,omitempty"`
+	// TimeoutSec 单服务请求超时（0 = 默认 8s，上限 60；同平台）。
+	TimeoutSec int `json:"timeout_sec,omitempty"`
+	// DisabledTools 禁用的原始工具名列表（同平台；注入对话时跳过声明）。
+	DisabledTools []string `json:"disabled_tools,omitempty"`
+}
+
+// AIPersonalChatSkill 为用户自定义对话技能（语义同平台 ai.chat_skills，
+// 仅本人维度）：Content 为 Markdown 指令，对话中选用后注入 system 提示。
+// 与平台技能按 id 增量合并（个人覆盖平台同 id 条目）。
+type AIPersonalChatSkill struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+	Content     string `json:"content"`
+}
+
+// AIPersonalOverrides 为用户对「覆盖型」AI 配置的个人覆盖集（双层配置：
+// 字段未设置（nil）= 跟随平台值；设置后覆盖平台值）。全部非密钥，掩码
+// 视图原样回显。
+type AIPersonalOverrides struct {
+	// WebSearch 对话联网搜索的默认开关（仅影响聊天输入框的初始状态）。
+	WebSearch *bool `json:"web_search,omitempty"`
+	// HistorySearch 对话历史检索模式（keyword/vector/off）。
+	HistorySearch *string `json:"history_search,omitempty"`
+	// DefaultPersona 默认人设 id（""=不注入；可为 builtin-/平台/个人人设 id，
+	// 运行时未命中按未设置处理——平台侧 id 空间在合并后才能确定）。
+	DefaultPersona *string `json:"default_persona,omitempty"`
+	// Temperature 对话温度覆盖（0..2）。
+	Temperature *float64 `json:"temperature,omitempty"`
+	// OCR 图片兜底识图模型（指向个人池的 vision 能力 chat 模型；非 vision
+	// 模型对话带图时优先用此模型识图，失败回退平台 ai.ocr 配置）。
+	OCR *AIPersonalModelRef `json:"ocr,omitempty"`
 }
 
 // AIPersonalPrefs 为用户个人 AI 配置全集（user_ai_prefs.prefs 的 JSON 结构）。
@@ -127,6 +167,14 @@ type AIPersonalPrefs struct {
 	Skills         []AIPersonalSkill             `json:"skills,omitempty"`
 	MCPServers     []AIPersonalMCPServer         `json:"mcp_servers,omitempty"`
 	PreferPersonal bool                          `json:"prefer_personal"`
+	// ChatSkills 个人对话技能（与平台 ai.chat_skills 按 id 增量合并，个人
+	// 覆盖平台）。存量 JSON 无此字段反序列化为空，无需迁移。
+	ChatSkills []AIPersonalChatSkill `json:"chat_skills,omitempty"`
+	// Rules 个人 AI 规则（≤2000 字符）：与平台规则**叠加**注入对话 system
+	// 提示（非覆盖）。非密钥，掩码视图原样回显。
+	Rules string `json:"rules,omitempty"`
+	// Overrides 覆盖型个人偏好（nil = 全部跟随平台）；见 AIPersonalOverrides。
+	Overrides *AIPersonalOverrides `json:"overrides,omitempty"`
 	// MemoryAuto 开启「AI 记忆自动提取」（默认零值 false=关闭）：每轮对话
 	// 完成后由服务端后台提取长期偏好写入 ai_memory（kind=auto）。布尔非
 	// 密钥，掩码视图原样回显；存量 JSON 无此字段反序列化为 false，无需
@@ -310,6 +358,89 @@ func ValidateAIPersonalPrefs(p AIPersonalPrefs) error {
 				return fmt.Errorf("%w: %s.auth_headers.%s %v", ErrInvalidAIPrefs, field, k, err)
 			}
 		}
+		if len([]rune(svc.Description)) > 200 {
+			return fmt.Errorf("%w: %s.description 过长（≤200 字符）", ErrInvalidAIPrefs, field)
+		}
+		if svc.TimeoutSec < 0 || svc.TimeoutSec > 60 {
+			return fmt.Errorf("%w: %s.timeout_sec 须为 0 或 1..60 秒", ErrInvalidAIPrefs, field)
+		}
+		if len(svc.DisabledTools) > 50 {
+			return fmt.Errorf("%w: %s.disabled_tools 最多 50 个", ErrInvalidAIPrefs, field)
+		}
+		seenDisabled := make(map[string]bool, len(svc.DisabledTools))
+		for _, t := range svc.DisabledTools {
+			tt := strings.TrimSpace(t)
+			if tt == "" || len([]rune(tt)) > 128 {
+				return fmt.Errorf("%w: %s.disabled_tools 条目须为 1..128 字符", ErrInvalidAIPrefs, field)
+			}
+			if seenDisabled[tt] {
+				return fmt.Errorf("%w: %s.disabled_tools 条目 %q 重复", ErrInvalidAIPrefs, field, tt)
+			}
+			seenDisabled[tt] = true
+		}
+	}
+	// chat_skills：≤30（id 唯一、name/description/icon/content 长度边界；
+	// content 为 Markdown 指令，此处不做内容校验）。
+	if len(p.ChatSkills) > AIPersonalMaxChatSkills {
+		return fmt.Errorf("%w: chat_skills 最多 %d 个", ErrInvalidAIPrefs, AIPersonalMaxChatSkills)
+	}
+	seenChatSkill := make(map[string]bool, len(p.ChatSkills))
+	for i, skill := range p.ChatSkills {
+		field := fmt.Sprintf("chat_skills[%d]", i)
+		if !validAIPrefsID(skill.ID, 64) {
+			return fmt.Errorf("%w: %s.id 须为 1..64 位字母/数字/_-.: 字符", ErrInvalidAIPrefs, field)
+		}
+		if seenChatSkill[skill.ID] {
+			return fmt.Errorf("%w: %s.id %q 重复", ErrInvalidAIPrefs, field, skill.ID)
+		}
+		seenChatSkill[skill.ID] = true
+		if !validAIPrefsID(skill.Name, 100) {
+			return fmt.Errorf("%w: %s.name 须为 1..100 个字符", ErrInvalidAIPrefs, field)
+		}
+		if len([]rune(skill.Description)) > 200 {
+			return fmt.Errorf("%w: %s.description 过长（≤200 字符）", ErrInvalidAIPrefs, field)
+		}
+		if len([]rune(skill.Icon)) > 40 {
+			return fmt.Errorf("%w: %s.icon 过长（≤40 字符）", ErrInvalidAIPrefs, field)
+		}
+		if strings.TrimSpace(skill.Content) == "" || len([]rune(skill.Content)) > 4000 {
+			return fmt.Errorf("%w: %s.content 须为 1..4000 字符", ErrInvalidAIPrefs, field)
+		}
+	}
+	// rules：≤2000 字符（与平台规则叠加注入，非覆盖）。
+	if len([]rune(strings.TrimSpace(p.Rules))) > AIPersonalMaxRulesRunes {
+		return fmt.Errorf("%w: rules 过长（≤%d 字符）", ErrInvalidAIPrefs, AIPersonalMaxRulesRunes)
+	}
+	// overrides：覆盖型偏好校验（history 模式白名单、温度范围、OCR 须指向
+	// 个人池 vision 能力 chat 模型；default_persona 为自由 id，合并后未命中
+	// 按未设置处理，此处仅限长度）。
+	if o := p.Overrides; o != nil {
+		if o.HistorySearch != nil {
+			switch *o.HistorySearch {
+			case "keyword", "vector", "off":
+			default:
+				return fmt.Errorf("%w: overrides.history_search 须为 keyword/vector/off", ErrInvalidAIPrefs)
+			}
+		}
+		if o.Temperature != nil && (*o.Temperature < 0 || *o.Temperature > 2) {
+			return fmt.Errorf("%w: overrides.temperature 须为 0..2", ErrInvalidAIPrefs)
+		}
+		if o.DefaultPersona != nil && len([]rune(*o.DefaultPersona)) > 64 {
+			return fmt.Errorf("%w: overrides.default_persona 过长（≤64 字符）", ErrInvalidAIPrefs)
+		}
+		if o.OCR != nil {
+			prov, ok := p.PersonalProviderByID(o.OCR.ProviderID)
+			if !ok {
+				return fmt.Errorf("%w: overrides.ocr.provider_id %q 不在个人 Provider 中", ErrInvalidAIPrefs, o.OCR.ProviderID)
+			}
+			m, ok := prov.PersonalModelWithID(o.OCR.ModelID)
+			if !ok {
+				return fmt.Errorf("%w: overrides.ocr.model_id %q 不在 Provider %q 中", ErrInvalidAIPrefs, o.OCR.ModelID, prov.ID)
+			}
+			if !m.Capabilities.IsChat() || !m.Capabilities.Vision {
+				return fmt.Errorf("%w: overrides.ocr 模型 %q 缺少 chat+vision 能力", ErrInvalidAIPrefs, o.OCR.ModelID)
+			}
+		}
 	}
 	return nil
 }
@@ -411,12 +542,15 @@ type AIPersonalMCPServerView struct {
 	URL         string   `json:"url"`
 	AuthHeaders []string `json:"auth_headers,omitempty"`
 	// AuthHeadersConfigured 为 true 表示已配置至少一个认证头。
-	AuthHeadersConfigured bool `json:"auth_headers_configured"`
+	AuthHeadersConfigured bool     `json:"auth_headers_configured"`
+	Description           string   `json:"description,omitempty"`
+	TimeoutSec            int      `json:"timeout_sec,omitempty"`
+	DisabledTools         []string `json:"disabled_tools,omitempty"`
 }
 
 // maskedAIPersonalMCPView 生成单条掩码视图（键名按字典序，回显稳定）。
 func maskedAIPersonalMCPView(svc AIPersonalMCPServer) AIPersonalMCPServerView {
-	view := AIPersonalMCPServerView{ID: svc.ID, Name: svc.Name, URL: svc.URL, AuthHeadersConfigured: len(svc.AuthHeaders) > 0}
+	view := AIPersonalMCPServerView{ID: svc.ID, Name: svc.Name, URL: svc.URL, AuthHeadersConfigured: len(svc.AuthHeaders) > 0, Description: svc.Description, TimeoutSec: svc.TimeoutSec, DisabledTools: svc.DisabledTools}
 	if len(svc.AuthHeaders) > 0 {
 		keys := make([]string, 0, len(svc.AuthHeaders))
 		for k := range svc.AuthHeaders {
@@ -436,6 +570,10 @@ type AIPersonalPrefsView struct {
 	Skills         []AIPersonalSkill             `json:"skills,omitempty"`
 	MCPServers     []AIPersonalMCPServerView     `json:"mcp_servers,omitempty"`
 	PreferPersonal bool                          `json:"prefer_personal"`
+	// ChatSkills / Rules / Overrides 均非密钥，原样回显。
+	ChatSkills []AIPersonalChatSkill `json:"chat_skills,omitempty"`
+	Rules      string                `json:"rules,omitempty"`
+	Overrides  *AIPersonalOverrides  `json:"overrides,omitempty"`
 	// MemoryAuto 原样回显（非密钥，不受掩码逻辑触碰）。
 	MemoryAuto bool `json:"memory_auto,omitempty"`
 }
@@ -463,6 +601,12 @@ func (p AIPersonalPrefs) Masked() AIPersonalPrefsView {
 	}
 	out.Personas = append(out.Personas, p.Personas...)
 	out.Skills = append(out.Skills, p.Skills...)
+	out.ChatSkills = append(out.ChatSkills, p.ChatSkills...)
+	out.Rules = p.Rules
+	if p.Overrides != nil {
+		o := *p.Overrides
+		out.Overrides = &o
+	}
 	out.MCPServers = make([]AIPersonalMCPServerView, 0, len(p.MCPServers))
 	for _, svc := range p.MCPServers {
 		out.MCPServers = append(out.MCPServers, maskedAIPersonalMCPView(svc))

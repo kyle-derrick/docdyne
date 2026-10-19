@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/ai"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
@@ -33,8 +35,6 @@ import (
 	"github.com/kyle-derrick/docdyne/internal/upload"
 	"github.com/kyle-derrick/docdyne/internal/webhook"
 	"github.com/kyle-derrick/docdyne/internal/webpkg"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -240,6 +240,11 @@ type Handler struct {
 	// aiLimiter 为 AI 端点的每用户限流器（热读取 Provider 级
 	// requests_per_min/daily_quota，全局 ai.per_user_per_min 兜底）。
 	aiLimiter *dynamicRateLimiter
+	// aiConvVectors 为会话历史向量索引（ai.history_search=vector 档，
+	// SetConvVectorIndexer 注入）：事件追加路径异步嵌入 Qdrant 会话集合，
+	// dd_search_history 优先向量召回（不可用自动降级关键词）。nil = 向量
+	// 档不可用（未配 Qdrant/embedding），全链路降级关键词。
+	aiConvVectors *ai.ConvVectorIndexer
 	// csrfStrict 控制 refresh/logout 同源严格校验（C10，CSRF_STRICT 默认
 	// true）：true 时缺失 Origin/Referer 一律 403，见 csrf.go。
 	csrfStrict bool
@@ -449,6 +454,13 @@ func (h *Handler) SetAIService(svc *ai.Service, envBase settings.AIConfig, usage
 	}
 }
 
+// SetConvVectorIndexer 注入会话历史向量索引（幂等；nil = 向量档降级）。
+func (h *Handler) SetConvVectorIndexer(ix *ai.ConvVectorIndexer) {
+	if ix != nil {
+		h.aiConvVectors = ix
+	}
+}
+
 // SetInvites 注入邀请制注册服务与邮件通道（幂等）；publicBaseURL 用于拼接
 // 邀请/重置邮件中的绝对链接（空则输出相对路径）。mailer 为 nil 时回退
 // Noop（仅日志输出链接）。未注入 invites 时邀请管理与注册/重置端点 503。
@@ -649,6 +661,17 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	api.GET("/ai/personal/mcp-servers", h.getAIPersonalMCPServers)
 	api.PUT("/ai/personal/mcp-servers", h.putAIPersonalMCPServers)
 	api.POST("/ai/personal/mcp-servers/test", h.testAIPersonalMCP)
+	// 个人对话技能 / 个人规则（Cherry Studio 式 Skills 与叠加型规则，
+	// prefs.chat_skills / prefs.rules 子集整表读写；chat_skills 与平台
+	// ai.chat_skills 按 id 增量合并——个人覆盖平台）。
+	api.GET("/ai/personal/chat-skills", h.getAIPersonalChatSkills)
+	api.PUT("/ai/personal/chat-skills", h.putAIPersonalChatSkills)
+	api.GET("/ai/personal/rules", h.getAIPersonalRules)
+	api.PUT("/ai/personal/rules", h.putAIPersonalRules)
+	// 对话技能合并视图（内置 builtin- → 平台 → 个人，source 徽标；配置
+	// 数据不随 AI 总开关 404）+ 双层生效配置（覆盖型字段 + 来源）。
+	api.GET("/ai/chat-skills", h.aiChatSkillsList)
+	api.GET("/ai/effective-config", h.aiEffectiveConfig)
 	// 平台人设/技能模板（ai.personas / ai.skills，管理员维护、登录可读；
 	// 配置数据不随 AI 总开关 404——前端人设下拉/技能弹层恒可拉取）。
 	api.GET("/ai/personas", h.aiPersonasList)
@@ -805,11 +828,18 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// 平台人设/技能模板（system_settings 的 ai.personas / ai.skills 键）：
 	// 登录侧 GET /ai/personas|/ai/skills 读取；管理端整块读替（校验见
 	// settings 包：≤50 条、id 唯一、name ≤64、prompt ≤4000）。
-	admin.GET("/settings/ai/personas", h.aiPersonasList)
+	admin.GET("/settings/ai/personas", h.adminAIPersonasList)
 	admin.PUT("/settings/ai/personas", h.adminPutAIPersonas)
 	// 管理端列表不过滤停用项（aiSkillsList 仅返回启用项给登录侧）。
 	admin.GET("/settings/ai/skills", h.adminAISkillsList)
 	admin.PUT("/settings/ai/skills", h.adminPutAISkills)
+	// 平台对话技能（ai.chat_skills，Cherry Studio 式 Skills）与平台规则
+	//（ai.rules，叠加注入 system）：管理端整块/全文读替（登录侧合并视图
+	// GET /ai/chat-skills）。
+	admin.GET("/settings/ai/chat-skills", h.adminAIChatSkillsList)
+	admin.PUT("/settings/ai/chat-skills", h.adminPutAIChatSkills)
+	admin.GET("/settings/ai/rules", h.adminGetAIRules)
+	admin.PUT("/settings/ai/rules", h.adminPutAIRules)
 	// 编辑器 Agent 技能包（system_settings 的 ai.agent_packages 键，I 批次）：
 	// 管理端整块读替 + 导出（json/yaml，可含内置包供分享）+ 导入
 	//（upsert/replace，builtin- 前缀拒绝——内置包编译期内置）。
@@ -819,10 +849,17 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	admin.POST("/settings/ai/agent-packages/import", h.adminImportAIAgentPackages)
 	// 外部 MCP 服务器（system_settings 的 ai.mcp 键）：登录侧 GET /ai/mcp
 	// 读启用项；管理端整块读替（auth_header 只写不读、留空继承，回显
-	// configured 布尔；校验见 settings 包：≤8 条、id 唯一、url http(s)）。
+	// configured 布尔；校验见 settings 包：≤8 条、id 唯一、url http(s)）；
+	// test 实测连通（全量工具预览）；import/export 为 {mcpServers} JSON
+	// 快速导入导出（stdio 条目跳过并说明）。
 	admin.GET("/settings/ai/mcp", h.adminGetAIMCPServices)
 	admin.PUT("/settings/ai/mcp", h.adminPutAIMCPServices)
 	admin.POST("/settings/ai/mcp/test", h.adminTestAIMCP)
+	admin.POST("/settings/ai/mcp/import", h.adminImportAIMCP)
+	admin.GET("/settings/ai/mcp/export", h.adminExportAIMCP)
+	// 会话历史向量重建（vector 档：把 ai_conversation_msgs 全量重嵌入
+	// Qdrant 会话集合；未配置向量时 400）。
+	admin.POST("/settings/ai/history/reindex", h.adminReindexHistoryVector)
 	admin.GET("/ai/usage", h.adminAIUsage)
 	// G3：ai.tool 审计按工具名聚合（调用量/成功率/平均耗时/最近使用）。
 	admin.GET("/ai/tool-stats", h.adminAIToolStats)

@@ -6,8 +6,10 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -363,5 +365,183 @@ func TestValidateAISearch(t *testing.T) {
 	badMax.Search = settings.AISearchConfig{Provider: settings.AISearchProviderSearxng, SearxngURL: "http://s", MaxResults: 11}
 	if err := settings.ValidateAI(badMax); err == nil {
 		t.Fatal("max_results 超上限应报错")
+	}
+}
+
+// ---------- 内置免 Key 引擎（DuckDuckGo / Bing，HTML 页面解析） ----------
+
+// ddgFixture 模拟 html.duckduckgo.com/html/ 结果页（含 uddg 跳转解包、
+// 广告行 y.js、result__snippet 配对）。
+const ddgFixture = `<!DOCTYPE html><html><body>
+<div class="results">
+  <div class="result results_links web-result">
+    <h2 class="result__title"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=abc">DocDyne 部署指南</a></h2>
+    <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa">一步一步教你部署 DocDyne</a>
+  </div>
+  <div class="result result--ad">
+    <h2 class="result__title"><a class="result__a" href="//duckduckgo.com/y.js?ad_provider=foo">广告行应跳过</a></h2>
+  </div>
+  <div class="result results_links web-result">
+    <h2 class="result__title"><a class="result__a" href="https://example.com/b">直链结果</a></h2>
+    <a class="result__snippet" href="#">第二条摘要</a>
+  </div>
+  <div class="result">
+    <h2 class="result__title"><a class="result__a" href="javascript:void(0)">非法 scheme 应丢弃</a></h2>
+  </div>
+</div></body></html>`
+
+// TestDuckDuckGoSearcherParse DDG HTML 端点：POST form q=、浏览器 UA、
+// uddg 解包、广告/非法链接跳过、snippet 配对、maxResults 截断。
+func TestDuckDuckGoSearcherParse(t *testing.T) {
+	var gotMethod, gotUA string
+	var gotFormQ string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotUA = r.Header.Get("User-Agent")
+		_ = r.ParseForm()
+		gotFormQ = r.PostForm.Get("q")
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(ddgFixture))
+	}))
+	defer srv.Close()
+	s := &DuckDuckGoSearcher{BaseURL: srv.URL + "/"}
+	results, err := s.Search(context.Background(), "docdyne", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %s, want POST", gotMethod)
+	}
+	if gotFormQ != "docdyne" {
+		t.Fatalf("form q = %q", gotFormQ)
+	}
+	if !strings.Contains(gotUA, "Mozilla/5.0") {
+		t.Fatalf("User-Agent = %q, want browser UA", gotUA)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2（广告与非法链接丢弃）", len(results))
+	}
+	if results[0].URL != "https://example.com/a" || results[0].Title != "DocDyne 部署指南" {
+		t.Fatalf("results[0] = %+v（uddg 解包失败？）", results[0])
+	}
+	if results[0].Content != "一步一步教你部署 DocDyne" {
+		t.Fatalf("results[0].Content = %q", results[0].Content)
+	}
+	if results[1].URL != "https://example.com/b" {
+		t.Fatalf("results[1] = %+v", results[1])
+	}
+	// maxResults 截断。
+	cut, err := s.Search(context.Background(), "docdyne", 1)
+	if err != nil || len(cut) != 1 {
+		t.Fatalf("maxResults=1 → %d results, err=%v", len(cut), err)
+	}
+}
+
+// bingFixture 模拟 bing.com/search 结果页（b_algo 块、h2>a、b_caption p、
+// 站内链接跳过）。
+const bingFixture = `<!DOCTYPE html><html><body><ol id="b_results">
+  <li class="b_algo">
+    <h2><a href="https://example.com/a" h="ID=SERP">DocDyne 文档平台</a></h2>
+    <div class="b_caption"><p>开源企业文档管理平台</p></div>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://www.bing.com/aclick?ld=eii">站内广告跳过</a></h2>
+    <div class="b_caption"><p>广告摘要</p></div>
+  </li>
+  <li class="b_algo">
+    <h2><a href="https://example.org/c">第三个结果</a></h2>
+    <div class="b_caption"><p>摘要 C</p></div>
+  </li>
+  <li class="b_pag"><a href="https://www.bing.com/page2">分页块非 b_algo</a></li>
+</ol></body></html>`
+
+// TestBingSearcherParse Bing 结果页：GET q=/mkt=zh-CN、浏览器 UA、
+// b_algo 提取、bing.com 站内链接跳过。
+func TestBingSearcherParse(t *testing.T) {
+	var gotUA string
+	var gotMkt string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search" {
+			t.Errorf("path = %q, want /search", r.URL.Path)
+		}
+		gotUA = r.Header.Get("User-Agent")
+		gotMkt = r.URL.Query().Get("mkt")
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(bingFixture))
+	}))
+	defer srv.Close()
+	s := &BingSearcher{BaseURL: srv.URL}
+	results, err := s.Search(context.Background(), "docdyne", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.Contains(gotUA, "Mozilla/5.0") {
+		t.Fatalf("User-Agent = %q", gotUA)
+	}
+	if gotMkt != "zh-CN" {
+		t.Fatalf("mkt = %q", gotMkt)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2（站内广告跳过）", len(results))
+	}
+	if results[0].Title != "DocDyne 文档平台" || results[0].URL != "https://example.com/a" || results[0].Content != "开源企业文档管理平台" {
+		t.Fatalf("results[0] = %+v", results[0])
+	}
+	if results[1].URL != "https://example.org/c" {
+		t.Fatalf("results[1] = %+v", results[1])
+	}
+}
+
+// TestOutboundProxyClientRouting 代理客户端：SearxngSearcher 走 ProxyURL
+// 时请求经代理服务器转发（目标主机名出现在代理侧 Host）。
+func TestOutboundProxyClientRouting(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"title":"t","url":"https://example.com/x","content":"c"}]}`))
+	}))
+	defer target.Close()
+	proxyHost := ""
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyHost = r.Host
+		// 极简 CONNECT-less 正向代理：http.Client 走 http 代理时请求行为
+		// 绝对 URI（r.RequestURI），据此原样转发 GET。
+		req, err := http.NewRequest(http.MethodGet, r.RequestURI, nil)
+		if err != nil {
+			t.Errorf("proxy forward: %v", err)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Errorf("proxy forward: %v", err)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+	targetURL, _ := url.Parse(target.URL)
+	s := &SearxngSearcher{BaseURL: target.URL, ProxyURL: proxySrv.URL}
+	results, err := s.Search(context.Background(), "q", 5)
+	if err != nil {
+		t.Fatalf("Search via proxy: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if proxyHost != targetURL.Host {
+		t.Fatalf("proxy saw host %q, want target %q", proxyHost, targetURL.Host)
+	}
+}
+
+// TestNewWebSearcherBuiltinProviders 内置引擎按 provider 构造。
+func TestNewWebSearcherBuiltinProviders(t *testing.T) {
+	if _, ok := NewWebSearcher(settings.AISearchConfig{Provider: settings.AISearchProviderDuckDuckGo}).(*DuckDuckGoSearcher); !ok {
+		t.Fatal("duckduckgo provider should build DuckDuckGoSearcher")
+	}
+	if _, ok := NewWebSearcher(settings.AISearchConfig{Provider: settings.AISearchProviderBing}).(*BingSearcher); !ok {
+		t.Fatal("bing provider should build BingSearcher")
 	}
 }

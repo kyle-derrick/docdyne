@@ -125,6 +125,15 @@ func (s *scopedQdrantStore) Search(ctx context.Context, vector []float32, limit 
 func (s *scopedQdrantStore) DeleteFile(ctx context.Context, fileID uuid.UUID) error {
 	return s.client.deleteFile(ctx, s.collection, fileID)
 }
+
+// DeleteByFilter 按 payload 过滤删点（会话向量集合的 snapshot 重建/会话
+// 删除清理用；filter 形如 {"must":[{key,match}]}）。
+func (s *scopedQdrantStore) DeleteByFilter(ctx context.Context, filter map[string]any) error {
+	if len(filter) == 0 {
+		return fmt.Errorf("empty delete filter")
+	}
+	return s.client.request(ctx, http.MethodPost, "/collections/"+s.collection+"/points/delete?wait=true", map[string]any{"filter": filter}, nil)
+}
 func (q *QdrantClient) request(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {

@@ -188,6 +188,29 @@ func (p *platformToolCtx) toolSearchHistory(query string) (any, error) {
 	if p.h == nil || p.h.aiConversations == nil {
 		return gin.H{"results": []any{}, "total": 0, "note": "无活跃会话可搜索"}, nil
 	}
+	// vector 档（该用户生效 ai.history_search=vector）：语义召回优先；
+	// 向量不可用（未注入/embedding 为 mock/Qdrant 失败）自动降级关键词
+	// 并标注 degraded=keyword（模型与前端可感知降级）。
+	if p.h.aiHistorySearchModeFor(p.user) == ai.HistorySearchVector {
+		if hits, err := p.historyVectorSearch(query); err == nil {
+			return gin.H{"results": hits, "total": len(hits), "query": query, "mode": "vector"}, nil
+		}
+		if searcher, ok := p.h.aiConversations.(aiConvoMsgSearcher); ok {
+			if hits, kerr := searcher.SearchAIConversationMsgs(p.user, query, ai.PlatformToolHistorySearchLimit); kerr == nil {
+				results := make([]map[string]any, 0, len(hits))
+				for _, h := range hits {
+					results = append(results, map[string]any{
+						"conversation_title": h.Title,
+						"source":             h.Source,
+						"role":               h.Role,
+						"fragment":           h.Fragment,
+						"created_at":         h.CreatedAt,
+					})
+				}
+				return gin.H{"results": results, "total": len(results), "query": query, "mode": "keyword", "degraded": "keyword"}, nil
+			}
+		}
+	}
 	if searcher, ok := p.h.aiConversations.(aiConvoMsgSearcher); ok {
 		hits, err := searcher.SearchAIConversationMsgs(p.user, query, ai.PlatformToolHistorySearchLimit)
 		if err != nil {
@@ -203,7 +226,7 @@ func (p *platformToolCtx) toolSearchHistory(query string) (any, error) {
 				"created_at":         h.CreatedAt,
 			})
 		}
-		return gin.H{"results": results, "total": len(results), "query": query, "indexed": true}, nil
+		return gin.H{"results": results, "total": len(results), "query": query, "mode": "keyword", "indexed": true}, nil
 	}
 	// 旧路径（无索引能力）：最近 10 个 assistant 会话 ILIKE 扫描。
 	convs, err := p.h.aiConversations.ListAIConversations(p.user, nil, "assistant", 10)
@@ -583,6 +606,18 @@ func (p *platformToolCtx) executePlatformTool(name string, argsJSON json.RawMess
 			err = fmt.Errorf("query 为必填参数")
 		} else {
 			result, err = p.toolSearch(query)
+		}
+	case ai.PlatformToolFetchURL:
+		target := str("url")
+		maxChars := 0
+		if v, ok := args["max_chars"].(float64); ok {
+			maxChars = int(v)
+		}
+		summary = "url=" + target
+		if target == "" {
+			err = fmt.Errorf("url 为必填参数")
+		} else {
+			result, err = p.toolFetchURL(target, maxChars)
 		}
 	default:
 		return "", fmt.Errorf("未知内置工具 %q", name)
