@@ -6,7 +6,7 @@ ifeq ($(OS),Windows_NT)
 INIT_ENV = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-env.ps1
 DEPLOY_CMD = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile
 else
-INIT_ENV = bash scripts/gen-env.sh
+INIT_ENV = bash scripts/configure.sh
 DEPLOY_CMD = bash scripts/deploy.sh --profile
 endif
 

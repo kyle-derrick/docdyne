@@ -96,8 +96,10 @@ docker push <registry>/docdyne/caddy:1.0.0
 无需预先存在 DocDyne 镜像，部署入口会校验 Docker Compose、创建（但不覆盖）`.env`、构建前端/Caddy 与 backend 镜像，并按 `postgres → migrate → seed → backend → caddy` 依赖顺序启动。**跨平台**：`make` 会自动分发——Windows 走 `scripts/deploy.ps1`，Linux/macOS 服务器走 `scripts/deploy.sh`（两版同构）。
 
 ```bash
-# 交互式：.env 缺失时逐项「回车 = 随机生成 / m = 手动输入 / s = 跳过」；
-# 已存在时部署前展示非敏感配置摘要（回车部署 / e 编辑 .env / q 退出）。
+# 交互式（TUI）：一次性展示全部配置项（密钥已自动生成、值字段带默认值），
+# ↑↓ 选择要改的条目回车编辑，其余不用管；「✅ 完成」保存并继续部署。
+# 已有 .env 时直接复用（绝不轮换既有密钥），部署前展示非敏感摘要
+#（回车部署 / e 编辑 .env / c 重新配置 / q 退出）。
 make deploy-minimal
 make deploy-full
 # 无人值守（密钥全部随机生成，适合脚本/CI）：

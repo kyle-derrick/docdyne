@@ -47,8 +47,8 @@ if ($missing) {
         $patch = ($ans -ne 'm')
     }
     if ($patch -and (Test-Path $genEnv)) {
-        $autoArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $genEnv, '-Patch')
-        if ($Auto) { $autoArgs += '-Auto' }
+        # -Patch 恒携 -Auto：占位补齐不重复问答（与 deploy.sh 语义对齐）。
+        $autoArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $genEnv, '-Patch', '-Auto')
         Invoke-Checked 'powershell' $autoArgs
         $envText = Get-Content '.env' -Raw -Encoding UTF8
         $missing = $placeholders | Where-Object { $envText -match [regex]::Escape($_) }
