@@ -15,14 +15,16 @@
 //   渲染全部经 Shell props 注入；
 // - 「问 AI」（全局搜索框）：openAIAssistant(context?, ask?) 事件打开并
 //   以检索增强模式立即提问；
-// - 人设三源合并（平台 + 内置 + 自定义）、长期记忆（手动 + 自动提取开关）、
+// - 人设为服务端合并视图（内置默认 + 平台 plat: + 个人 me: + 本机自定义）、
+//   对话技能（chat_skill 随每轮注入）、长期记忆（手动 + 自动提取开关）、
 //   dd_* 平台文件工具（use_files + work_root 工作目录）、MCP/联网/思考开关
 //   ——详见各段注释。
 import { useEffect, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import { App as AntdApp, Drawer, Button, Dropdown, Input, Popconfirm, Popover, Select, Switch, Tag, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
-import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search, Upload, Gauge } from 'lucide-react'
+import { Sparkles, Trash2, FileText, Globe, Check, Paperclip, Brain, Pencil, PencilLine, BookMarked, Wrench, Zap, FolderCog, FolderOpen, Crosshair, FileSearch, Search, Upload, Gauge, WandSparkles, X, Code, Languages, ListChecks } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import {
   AISkillDef,
   AIUsage,
@@ -40,6 +42,8 @@ import {
   createAIMemory,
   currentUserId,
   deleteAIMemory,
+  getAIChatSkills,
+  getAIEffectiveConfig,
   getAIMCPServices,
   getAIPersonalSettings,
   getMe,
@@ -57,7 +61,7 @@ import {
   aiGetAttachmentSpace,
   AIMemoryItem,
 } from '../api'
-import type { ChatSkillGroup, Space } from '../api'
+import type { AIChatSkillDef, ChatSkillGroup, Space } from '../api'
 import { useAILocation } from '../aiLocation'
 import type { AILocation } from '../aiLocation'
 import { Modal } from './FileBrowser'
@@ -298,31 +302,38 @@ export async function getAIModels(force = false): Promise<AIModelOption[]> {
   }
 }
 
-// ---------- 平台人设（GET /api/v1/ai/models 的 personas，管理员维护） ----------
+// ---------- 人设（GET /api/v1/ai/models 的 personas 合并视图） ----------
+// 服务端合并三层：内置默认（builtin-assistant 置顶）→ 平台 ai.personas →
+// 个人 prefs.personas（personal:true）。前端选中值前缀区分来源：
+// plat:<id>（内置 + 平台） / me:<id>（个人） / custom（本机自定义 system）。
 
-/** 平台人设条目（id/name/system_prompt，非敏感明文）。 */
+/** 人设条目（id/name/system_prompt，非敏感明文；personal=true 为个人层）。 */
 export interface AIPlatformPersonaOption {
   id: string
   name: string
   systemPrompt: string
+  /** 个人层人设（prefs.personas；下拉以 me: 前缀区分）。 */
+  personal?: boolean
 }
 
-/** 人设选中值前缀（平台条目：`plat:<id>`，与内置/自定义 id 空间隔离）。 */
+/** 人设选中值前缀（内置/平台条目：`plat:<id>`，与个人/自定义 id 空间隔离）。 */
 export const AI_PLATFORM_PERSONA_PREFIX = 'plat:'
+/** 人设选中值前缀（个人条目：`me:<id>`）。 */
+export const AI_PERSONAL_PERSONA_PREFIX = 'me:'
 
 let aiPlatformPersonasCache: AIPlatformPersonaOption[] | null = null
 
-/** 宽松归一化后端 personas 条目（字段名兼容 id/name/system_prompt）。 */
+/** 宽松归一化后端 personas 条目（字段名兼容 id/name/system_prompt/personal）。 */
 function normalizeAIPlatformPersona(entry: unknown): AIPlatformPersonaOption | null {
   if (!entry || typeof entry !== 'object') return null
   const e = entry as Record<string, unknown>
   const id = String(e.id ?? '').trim()
   const name = String(e.name ?? '').trim()
   if (!id || !name) return null
-  return { id, name, systemPrompt: String(e.system_prompt ?? e.systemPrompt ?? '') }
+  return { id, name, systemPrompt: String(e.system_prompt ?? e.systemPrompt ?? ''), personal: e.personal === true }
 }
 
-/** 拉取平台人设列表（失败返回空数组；成功后按会话缓存）。 */
+/** 拉取合并人设列表（失败返回空数组；成功后按会话缓存）。 */
 export async function getAIPlatformPersonas(force = false): Promise<AIPlatformPersonaOption[]> {
   if (!force && aiPlatformPersonasCache) return aiPlatformPersonasCache
   try {
@@ -432,6 +443,102 @@ export function AISkillButton({ zh, onPick }: { zh: boolean; onPick: (skill: AIS
   )
 }
 
+// ---------- 对话技能（Cherry Studio 式 Skills；/ai/chat 的 chat_skill） ----------
+
+/** 对话技能行内图标（skill.icon 为 lucide 图标名；仅映射常用集合，
+ *  未知名/缺省兜底 WandSparkles）。 */
+const CHAT_SKILL_ICONS: Record<string, LucideIcon> = {
+  Zap, Sparkles, WandSparkles, Globe, Search, FileText, Brain, BookMarked, Wrench, Pencil, PencilLine, Code, Languages, ListChecks,
+}
+
+/** 按图标名取技能图标（未知名兜底默认）。 */
+function chatSkillIcon(name?: string): LucideIcon {
+  return (name ? CHAT_SKILL_ICONS[name] : undefined) ?? WandSparkles
+}
+
+/**
+ * 「对话技能」按钮（输入框工具行；AIAssistant / AIEditChat 共用）：宿主传入
+ * GET /ai/chat-skills 合并视图（内置 → 平台启用 → 个人），为空时隐藏；点击
+ * 弹分组列表（内置/平台/个人，name + description muted），选中经 onPick 由
+ * 宿主持 activeSkill 状态——随每轮 /ai/chat 携带 chat_skill（chip 展示在
+ * 输入框上方，可随时移除；停用项服务端已过滤）。
+ */
+export function AIChatSkillButton({ zh, skills, onPick }: { zh: boolean; skills: AIChatSkillDef[]; onPick: (skill: AIChatSkillDef) => void }) {
+  const [open, setOpen] = useState(false)
+  if (skills.length === 0) return null
+  const groups: Array<{ key: AIChatSkillDef['source']; label: string; items: AIChatSkillDef[] }> = []
+  for (const src of ['builtin', 'platform', 'user'] as const) {
+    const items = skills.filter((s) => (s.source ?? 'platform') === src)
+    if (items.length === 0) continue
+    groups.push({ key: src, label: src === 'builtin' ? (zh ? '内置' : 'Built-in') : src === 'platform' ? (zh ? '平台' : 'Platform') : (zh ? '个人' : 'Personal'), items })
+  }
+  return (
+    <Popover
+      trigger="click"
+      placement="topLeft"
+      arrow={false}
+      open={open}
+      onOpenChange={setOpen}
+      content={
+        <div className="ai-attach-pop">
+          <div className="ai-attach-list">
+            {groups.map((g) => (
+              <div key={g.key}>
+                {groups.length > 1 && (
+                  <div className="ai-attach-state muted" style={{ padding: '4px 8px 0' }}>{g.label}</div>
+                )}
+                {g.items.map((s) => {
+                  const SkillIcon = chatSkillIcon(s.icon)
+                  return (
+                    <button key={s.id} type="button" className="ai-attach-item ai-skill-item" onClick={() => { setOpen(false); onPick(s) }}>
+                      <SkillIcon size={13} strokeWidth={2} aria-hidden="true" className="ai-skill-icon" />
+                      <span className="ai-skill-meta">
+                        <span className="name" title={s.name}>{s.name}</span>
+                        {s.description && <span className="ai-skill-desc" title={s.description}>{s.description}</span>}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="ai-attach-state muted">{zh ? '选择后技能指令随每轮对话注入，可随时移除' : 'The skill is injected into every turn until removed'}</div>
+        </div>
+      }
+    >
+      <Button
+        size="small"
+        type="text"
+        className="ai-attach-btn"
+        aria-label={zh ? '对话技能' : 'Chat skills'}
+        title={zh ? '对话技能' : 'Chat skills'}
+      >
+        <WandSparkles size={14} strokeWidth={2} aria-hidden="true" />
+      </Button>
+    </Popover>
+  )
+}
+
+/**
+ * 选中对话技能 chip（输入框上方；AIAssistant / AIEditChat 共用）：Tooltip
+ * 显示技能描述，× 移除（宿主清 activeSkill，后续轮次不再携带 chat_skill）。
+ */
+export function AIChatSkillChip({ skill, zh, onClear }: { skill: AIChatSkillDef; zh: boolean; onClear: () => void }) {
+  return (
+    <div className="ai-attach-chips" style={{ padding: '6px 10px 0' }}>
+      <Tooltip title={skill.description || (zh ? '对话技能：指令随每轮对话注入' : 'Chat skill: injected into every turn')} placement="topLeft">
+        <span className="ai-skill-chip" style={{ maxWidth: 220 }}>
+          <WandSparkles size={11} strokeWidth={2} aria-hidden="true" />
+          <span className="ai-attach-chip-name" title={skill.name}>{skill.name}</span>
+          <button type="button" aria-label={zh ? '移除技能' : 'Remove skill'} onClick={onClear}>
+            <X size={11} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </span>
+      </Tooltip>
+    </div>
+  )
+}
+
 // ---------- 联网/思考/MCP 工具开关（三处对话 UI 共用） ----------
 
 /** 模型是否支持推理（宽松读取 capabilities 中的 reasoning/think 标记）。 */
@@ -480,7 +587,9 @@ export interface AIChatToggleState {
 
 /**
  * 联网/思考/MCP/我的文件开关共享逻辑（AIAssistant / AIEditChat 复用）：
- * - 联网：默认开（后端未配置搜索时静默忽略），持久化 docdyne.ai.web；
+ * - 联网：本机无记忆（docdyne.ai.web 未存）时按生效配置 web_search.value
+ *   初始化（GET /ai/effective-config best-effort；失败/未配置默认关），
+ *   后端未配置搜索时静默忽略；
  * - 思考：所选模型 capabilities 含 reasoning 时默认开，否则关且禁用
  *   （Tooltip 由调用方按 thinkBlocked 提示）；模型切换/列表加载后重估；
  *   持久化 docdyne.ai.think 记忆用户显式选择（模型不支持时强制关）；
@@ -496,7 +605,7 @@ export interface AIChatToggleState {
  * - 同页多实例经 docdyne:ai-flags 事件保持一致。
  */
 export function useAIChatToggles(models: AIModelOption[], modelKey: string, opts?: { ready?: boolean }): AIChatToggleState {
-  const [web, setWebState] = useState(() => readAIFlag(AI_WEB_STORAGE_KEY) ?? true)
+  const [web, setWebState] = useState(() => readAIFlag(AI_WEB_STORAGE_KEY) ?? false)
   const [thinkStored, setThinkStored] = useState<boolean | null>(() => readAIFlag(AI_THINK_STORAGE_KEY))
   const [mcp, setMcpState] = useState(() => readAIFlag(AI_MCP_STORAGE_KEY) ?? false)
   const [mcpAvailable, setMcpAvailable] = useState(false)
@@ -506,9 +615,18 @@ export function useAIChatToggles(models: AIModelOption[], modelKey: string, opts
   const features = useAIFeatures()
   const docsAvailable = features.rag === true
   useEffect(() => {
+    // 联网开关无本机记忆：按生效配置 web_search 初始化（best-effort；
+    // 失败保持默认关；期间用户已显式选择（localStorage 已写入）则不覆盖）。
+    if (readAIFlag(AI_WEB_STORAGE_KEY) === null) {
+      void getAIEffectiveConfig()
+        .then((cfg) => {
+          if (readAIFlag(AI_WEB_STORAGE_KEY) === null) setWebState(Boolean(cfg?.web_search?.value))
+        })
+        .catch(() => { /* keep default off */ })
+    }
     void aiMCPToggleAvailable().then(setMcpAvailable)
     const onFlags = () => {
-      setWebState(readAIFlag(AI_WEB_STORAGE_KEY) ?? true)
+      setWebState(readAIFlag(AI_WEB_STORAGE_KEY) ?? false)
       setThinkStored(readAIFlag(AI_THINK_STORAGE_KEY))
       setMcpState(readAIFlag(AI_MCP_STORAGE_KEY) ?? false)
       setDocsState(readAIFlag(AI_DOCS_STORAGE_KEY) ?? true)
@@ -962,43 +1080,25 @@ function AIWorkDirButton({ value, follow, onFollow, onChange, zh }: { value: AIW
 }
 
 // ---------- 助手人设（规则；Cherry Studio 式） ----------
-// general 不注入任何 system 提示（保持既有默认行为）；custom 使用 localStorage
-// 的自定义 system 提示；其余内置人设按语言取词注入。
+// 人设列表来自服务端合并视图（见 getAIPlatformPersonas：内置默认置顶 +
+// 平台 + 个人 me:），前端不再硬编码内置人设；custom 使用 localStorage 的
+// 自定义 system 提示（本机机制保留）。
 
-/** 内置人设表（zhPrompt/enPrompt 为注入的 system 语义）。 */
-const AI_PERSONAS = [
-  {
-    id: 'general', zhLabel: '通用助理', enLabel: 'General', zhPrompt: '', enPrompt: '',
-  },
-  {
-    id: 'writer', zhLabel: '技术写作', enLabel: 'Tech writing',
-    zhPrompt: '你是技术写作助手：输出结构清晰、术语准确、简洁克制，擅长大纲、润色与格式规范（Markdown）。',
-    enPrompt: 'You are a technical writing assistant: clear structure, precise terminology, concise, good at outlines, polishing and Markdown formatting.',
-  },
-  {
-    id: 'coder', zhLabel: '代码助手', enLabel: 'Code helper',
-    zhPrompt: '你是编程助手：代码块标注语言、关键点给出简短解释，主动指出潜在缺陷与边界情况。',
-    enPrompt: 'You are a coding assistant: annotate code blocks with language, explain key points briefly, and point out potential defects and edge cases.',
-  },
-  {
-    id: 'reviewer', zhLabel: '文档审校', enLabel: 'Doc reviewer',
-    zhPrompt: '你是文档审校助手：逐条检查逻辑、措辞、一致性与格式问题，并给出具体、可执行的修改建议。',
-    enPrompt: 'You are a document review assistant: check logic, wording, consistency and formatting item by item, with concrete actionable suggestions.',
-  },
-  {
-    id: 'custom', zhLabel: '自定义', enLabel: 'Custom', zhPrompt: '', enPrompt: '',
-  },
-] as const
+/** 内置默认人设选中值（服务端 personas 置顶 builtin-assistant；plat: 前缀）。 */
+const AI_PERSONA_DEFAULT = `${AI_PLATFORM_PERSONA_PREFIX}builtin-assistant`
+/** 自定义人设选中值（本机 localStorage system 提示；唯一非服务端条目）。 */
+const AI_PERSONA_CUSTOM = 'custom'
 
 /** 人设持久化 keys。 */
 const AI_PERSONA_KEY = 'docdyne.ai.persona'
 const AI_PERSONA_CUSTOM_KEY = 'docdyne.ai.persona.custom'
 
-/** 读取记住的人设（内置 id 或平台前缀值；缺省/非法值回退通用助理）。 */
+/** 读取记住的人设（plat:/me: 前缀或 custom；缺省/非法值（含旧版内置 id）
+ * 回退内置默认助理）。 */
 function loadPersonaId(): string {
   const v = window.localStorage.getItem(AI_PERSONA_KEY) ?? ''
-  if (v.startsWith(AI_PLATFORM_PERSONA_PREFIX) || AI_PERSONAS.some((p) => p.id === v)) return v
-  return 'general'
+  if (v === AI_PERSONA_CUSTOM || v.startsWith(AI_PLATFORM_PERSONA_PREFIX) || v.startsWith(AI_PERSONAL_PERSONA_PREFIX)) return v
+  return AI_PERSONA_DEFAULT
 }
 
 /**
@@ -1295,8 +1395,11 @@ useEffect(() => {
   const [attachQuery, setAttachQuery] = useState('')
   const [attachItems, setAttachItems] = useState<Array<{ id: string; name: string }>>([])
   const [attachLoading, setAttachLoading] = useState(false)
-  // ---- 平台人设（三源合并：平台 + 内置 + 自定义）----
+  // ---- 人设（服务端合并视图：内置默认 + 平台 plat: + 个人 me: + 本机自定义）----
   const [platformPersonas, setPlatformPersonas] = useState<AIPlatformPersonaOption[]>([])
+  // ---- 对话技能（chat_skill）：合并视图（内置/平台/个人）；选中随每轮注入 ----
+  const [chatSkills, setChatSkills] = useState<AIChatSkillDef[]>([])
+  const [activeSkill, setActiveSkill] = useState<AIChatSkillDef | null>(null)
   // ---- 长期记忆（手动版；/ai/memory，对话恒携带 include_memory）----
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [memoryItems, setMemoryItems] = useState<AIMemoryItem[]>([])
@@ -1753,16 +1856,42 @@ useEffect(() => {
         return dkey && list.some((m) => m.id === dkey) ? dkey : ''
       })
     })
-    // 平台人设同源拉取（/ai/models 的 personas）：选中条目被管理员删除时
-    // 回退通用助理。
+    // 人设合并视图同源拉取（/ai/models 的 personas：内置默认置顶 + 平台 +
+    // 个人 personal:true → me: 前缀）：选中条目被管理员删除时回退默认助理。
     void getAIPlatformPersonas().then((list) => {
       setPlatformPersonas(list)
       setPersonaId((cur) => {
-        if (!cur.startsWith(AI_PLATFORM_PERSONA_PREFIX)) return cur
-        const pid = cur.slice(AI_PLATFORM_PERSONA_PREFIX.length)
-        return list.some((p) => p.id === pid) ? cur : 'general'
+        const prefix = cur.startsWith(AI_PERSONAL_PERSONA_PREFIX)
+          ? AI_PERSONAL_PERSONA_PREFIX
+          : cur.startsWith(AI_PLATFORM_PERSONA_PREFIX) ? AI_PLATFORM_PERSONA_PREFIX : ''
+        if (!prefix) return cur
+        const pid = cur.slice(prefix.length)
+        return list.some((p) => p.id === pid) ? cur : AI_PERSONA_DEFAULT
       })
     })
+    // 无本机人设记忆时：按生效配置 default_persona 初始化（best-effort；
+    // 空值/未命中/失败保持内置默认助理；期间用户已显式选择则不覆盖）。
+    try {
+      if (window.localStorage.getItem(AI_PERSONA_KEY) === null) {
+        void Promise.all([
+          getAIPlatformPersonas(),
+          getAIEffectiveConfig().catch(() => null),
+        ]).then(([list, cfg]) => {
+          if (window.localStorage.getItem(AI_PERSONA_KEY) !== null) return
+          const pid = String(cfg?.default_persona?.value ?? '').trim()
+          if (!pid) return
+          const persona = list.find((p) => p.id === pid)
+          if (!persona) return
+          setPersonaId(persona.personal ? `${AI_PERSONAL_PERSONA_PREFIX}${pid}` : `${AI_PLATFORM_PERSONA_PREFIX}${pid}`)
+        }).catch(() => { /* keep default */ })
+      }
+    } catch {
+      /* localStorage 不可用：保持默认 */
+    }
+    // 对话技能合并视图（内置 → 平台启用 → 个人）：失败静默（按钮隐藏）。
+    void getAIChatSkills().then((list) => {
+      setChatSkills(list)
+    }).catch(() => { /* ignore */ })
   }, [enabled])
 
   // ---- 长期记忆（手动版）----
@@ -1944,21 +2073,20 @@ useEffect(() => {
     // messages 仅作历史，故不并入本轮。
     const useRag = rag || forceRag
     const messagesBody: AIMessage[] = useRag ? history : [...history, { role: 'user', content: text }]
-    // 前置 system 语义：助手人设（三源：平台 plat: 前缀查表 system_prompt /
-    // 内置 / 自定义）；选定模型经 aiChat 的 providerId + model 显式上送
-    //（无记忆时即 default_models.chat 默认条目），不再注入 [model:] 前缀。
+    // 前置 system 语义：助手人设（plat:/me: 前缀查服务端合并视图的
+    // system_prompt / custom 本机自定义提示）；选定模型经 aiChat 的
+    // providerId + model 显式上送（无记忆时即 default_models.chat 默认条目），
+    // 不再注入 [model:] 前缀。
     const selectedModel = models.find((m) => m.id === modelKey) ?? null
     let personaPrompt = ''
-    if (personaId.startsWith(AI_PLATFORM_PERSONA_PREFIX)) {
-      const pid = personaId.slice(AI_PLATFORM_PERSONA_PREFIX.length)
-      personaPrompt = platformPersonas.find((p) => p.id === pid)?.systemPrompt.trim() ?? ''
+    if (personaId === AI_PERSONA_CUSTOM) {
+      personaPrompt = customPrompt.trim()
     } else {
-      const persona = AI_PERSONAS.find((p) => p.id === personaId)
-      personaPrompt = !persona || persona.id === 'general'
-        ? ''
-        : persona.id === 'custom'
-          ? customPrompt.trim()
-          : (zh ? persona.zhPrompt : persona.enPrompt)
+      const prefix = personaId.startsWith(AI_PERSONAL_PERSONA_PREFIX)
+        ? AI_PERSONAL_PERSONA_PREFIX
+        : personaId.startsWith(AI_PLATFORM_PERSONA_PREFIX) ? AI_PLATFORM_PERSONA_PREFIX : ''
+      const pid = prefix ? personaId.slice(prefix.length) : ''
+      personaPrompt = pid ? platformPersonas.find((p) => p.id === pid)?.systemPrompt.trim() ?? '' : ''
     }
     const sysPrefix: AIMessage[] = []
     // v7.12：输出语言跟随页面语言（思考/过程说明/最终答复）。
@@ -2019,6 +2147,9 @@ useEffect(() => {
           use_files: chatOnly ? false : toggles.files,
           // 工作目录（相对路径解析基准）：实际生效目录（见上方 workRoot）。
           work_root: workRoot || undefined,
+          // 对话技能（chat_skill）：选中时随每轮注入（服务端合并视图按 id
+          // 解析；技能保持选中跨轮次生效，经 chip 上的 × 移除）。
+          chatSkill: activeSkill?.id,
         },
         {
           onMeta: (meta) => {
@@ -2380,10 +2511,15 @@ useEffect(() => {
               onWeb={toggles.setWeb} onThink={toggles.setThink} onMcp={toggles.setMcp}
               onDocs={toggles.setDocs} onFiles={toggles.setFiles} />
           )}
-          skillSlot={<AISkillButton zh={zh} onPick={(s) => setInput(renderSkillPrompt(s.prompt))} />}
+          skillSlot={(
+            <>
+              <AISkillButton zh={zh} onPick={(s) => setInput(renderSkillPrompt(s.prompt))} />
+              <AIChatSkillButton zh={zh} skills={chatSkills} onPick={(s) => setActiveSkill(s)} />
+            </>
+          )}
           belowHeaderSlot={(
             <div className="aiax-toolbar">
-              {/* 助手人设（三源合并：平台 plat: 前缀 → 内置 → 自定义）。 */}
+              {/* 助手人设（服务端合并：内置默认 + 平台 plat: → 个人 me: → 本机自定义）。 */}
               <Select
                 className="aiax-persona"
                 size="small"
@@ -2398,19 +2534,37 @@ useEffect(() => {
                   }
                 }}
                 options={[
-                  ...platformPersonas.map((p) => ({
+                  // 列表未就绪/拉取失败的兜底项（服务端保证 builtin-assistant 置顶）。
+                  ...(platformPersonas.length === 0
+                    ? [{ value: AI_PERSONA_DEFAULT, label: zh ? '默认助理' : 'Default assistant' }]
+                    : []),
+                  // 内置（builtin-*，无标签）+ 平台（plat: 前缀，标「平台」）。
+                  ...platformPersonas.filter((p) => !p.personal).map((p) => ({
                     value: `${AI_PLATFORM_PERSONA_PREFIX}${p.id}`,
                     label: (
                       <span className="aiax-persona-option">
                         <span className="aiax-persona-option-name">{p.name}</span>
-                        <span className="aiax-persona-platform-tag">{zh ? '平台' : 'Platform'}</span>
+                        {!p.id.startsWith('builtin-') && (
+                          <span className="aiax-persona-platform-tag">{zh ? '平台' : 'Platform'}</span>
+                        )}
                       </span>
                     ),
                   })),
-                  ...AI_PERSONAS.map((p) => ({ value: p.id, label: zh ? p.zhLabel : p.enLabel })),
+                  // 个人（me: 前缀，标「个人」）。
+                  ...platformPersonas.filter((p) => p.personal).map((p) => ({
+                    value: `${AI_PERSONAL_PERSONA_PREFIX}${p.id}`,
+                    label: (
+                      <span className="aiax-persona-option">
+                        <span className="aiax-persona-option-name">{p.name}</span>
+                        <span className="aiax-persona-platform-tag">{zh ? '个人' : 'Personal'}</span>
+                      </span>
+                    ),
+                  })),
+                  // 本机自定义 system 提示（localStorage，机制保留）。
+                  { value: AI_PERSONA_CUSTOM, label: zh ? '自定义' : 'Custom' },
                 ]}
               />
-              {personaId === 'custom' && (
+              {personaId === AI_PERSONA_CUSTOM && (
                 <Popover
                   trigger="click"
                   placement="bottomLeft"
@@ -2543,6 +2697,9 @@ useEffect(() => {
               </Tooltip>
             </div>
           )}
+          extraAboveInputSlot={activeSkill ? (
+            <AIChatSkillChip skill={activeSkill} zh={zh} onClear={() => setActiveSkill(null)} />
+          ) : undefined}
           extraToolbarSlot={(
             <>
               {/* 文件检索（会话级检索增强，ragQuery 通道）：开启后整轮回答

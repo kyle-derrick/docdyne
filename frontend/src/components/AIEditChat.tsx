@@ -6,7 +6,9 @@
 //   达限「继续」）；计划=只读子集探查产出执行计划一键执行；仅对话=纯问答。
 // - 过程 TraceView 分阶段折叠（思考段/工具条目 + 用量汇总）；会话服务端
 //   持久化（按文件分域，ConvoPicker 统一选择器：搜索/切换/重命名/删除）；
-// - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出。
+// - 消息操作：复制/删除问答对/保存到文件/重新生成/批量多选/导入导出；
+// - 对话技能（chat_skill）：工具行「对话技能」按钮（内置/平台/个人合并
+//   视图），选中 chip 展示于输入框上方、随每轮 /ai/chat 注入，可移除。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntdApp, Button, Input } from 'antd'
 import { Modal } from './FileBrowser'
@@ -14,10 +16,10 @@ import type { MenuProps } from 'antd'
 import SplitButton from './SplitButton'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import { Sparkles } from 'lucide-react'
-import { aiAppendConversation, getAIModelsRaw, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, uploadFile } from '../api'
-import type { AIConvoMeta } from '../api'
+import { aiAppendConversation, getAIChatSkills, getAIModelsRaw, aiChat, aiCreateConversation, aiDeleteConversation, aiGetConversation, aiListConversations, aiUpdateConversation, getFileMeta, uploadFile } from '../api'
+import type { AIChatSkillDef, AIConvoMeta } from '../api'
 import type { AIMessage } from '../api'
-import { AIChatToggleBar, AISkillButton, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
+import { AIChatSkillButton, AIChatSkillChip, AIChatToggleBar, AISkillButton, AI_MODEL_STORAGE_KEY, defaultAIModelKey, getAIModels, renderSkillPrompt, useAIChatToggles } from './AIAssistant'
 import type { AIModelOption } from './AIAssistant'
 import { AIChatShell, aiFriendlyError, normalizeWebSources, useStickyScroll } from '@docdyne/chat'
 import type { AIAttachFile, AIToolCallEntry, AIWebSource, ChatMessage, TraceStage, TraceUsage } from '@docdyne/chat'
@@ -794,6 +796,9 @@ export default function AIEditChat({
     }
   })
   const toggles = useAIChatToggles(models, modelKey)
+  // ---- 对话技能（chat_skill）：合并视图（内置/平台/个人）选择后随每轮注入 ----
+  const [chatSkills, setChatSkills] = useState<AIChatSkillDef[]>([])
+  const [activeSkill, setActiveSkill] = useState<AIChatSkillDef | null>(null)
   // 文件引用（v3.9）：随指令附带其它文件全文（context.fileIds 注入 system
   // 上下文；当前文档本身已是主上下文，引用的是「其它」文件）。
   const [attached, setAttached] = useState<AIAttachFile[]>([])
@@ -846,6 +851,10 @@ export default function AIEditChat({
         return dkey && list.some((m) => m.id === dkey) ? dkey : cur
       })
     })
+    // 对话技能合并视图（内置 → 平台启用 → 个人）：失败静默（按钮隐藏）。
+    void getAIChatSkills().then((list) => {
+      setChatSkills(list)
+    }).catch(() => { /* ignore */ })
   }, [aiOn])
 
   // 当前文件名（技能 {file} 占位符替换用）：宿主仅传 fileId，面板打开时按
@@ -1319,7 +1328,7 @@ ${planText}` },
           const view = agentConvoView(convo, ctxBudget)
           lastViewChars = view.reduce((n, m) => n + m.content.length, 0)
           return aiChat(
-            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, conversation_id: activeSessIdRef.current || undefined, agent_package: pkgIdRef.current || undefined, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
+            { messages: view, think: toggles.think ? true : undefined, web_search: toggles.web ? true : undefined, conversation_id: activeSessIdRef.current || undefined, agent_package: pkgIdRef.current || undefined, chatSkill: activeSkill?.id, ...(round === 1 && attachFiles && attachFiles.length > 0 ? { fileIds: attachFiles.map((f) => f.fileId) } : {}) },
           {
             onDelta: (chunk) => {
               acc += chunk
@@ -1543,6 +1552,8 @@ ${planText}` },
           think: toggles.think ? true : undefined,
           use_mcp: toggles.mcp ? true : undefined,
           conversation_id: activeSessIdRef.current || undefined,
+          // 对话技能（chat_skill）：选中时随每轮注入（chip 上的 × 移除）。
+          chatSkill: activeSkill?.id,
         },
         {
           onMeta: (meta) => {
@@ -1682,13 +1693,19 @@ ${planText}` },
             onWeb={toggles.setWeb} onThink={toggles.setThink} onMcp={toggles.setMcp} onDocs={toggles.setDocs} />
         )}
         skillSlot={(
-          <AISkillButton zh={zh} onPick={(s) => {
-            const tgt = getTargetRef.current()
-            const sel = tgt.hasSelection ? tgt.text : ''
-            if (!sel && s.prompt.includes('{selection}')) void message.warning(zh ? '未选中内容，{selection} 已置空' : 'No selection')
-            setInput(renderSkillPrompt(s.prompt, { selection: sel, file: fileName }))
-          }} />
+          <>
+            <AISkillButton zh={zh} onPick={(s) => {
+              const tgt = getTargetRef.current()
+              const sel = tgt.hasSelection ? tgt.text : ''
+              if (!sel && s.prompt.includes('{selection}')) void message.warning(zh ? '未选中内容，{selection} 已置空' : 'No selection')
+              setInput(renderSkillPrompt(s.prompt, { selection: sel, file: fileName }))
+            }} />
+            <AIChatSkillButton zh={zh} skills={chatSkills} onPick={(s) => setActiveSkill(s)} />
+          </>
         )}
+        extraAboveInputSlot={activeSkill ? (
+          <AIChatSkillChip skill={activeSkill} zh={zh} onClear={() => setActiveSkill(null)} />
+        ) : undefined}
       />
       <input ref={importInputRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
         onChange={(e) => { void importSessionsFile(e.target.files?.[0] ?? null); e.target.value = '' }} />

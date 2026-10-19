@@ -6,31 +6,43 @@
 // models.dev 目录自动预填——交互风格对齐 AISettingsPanel 但简化）/ 个人
 // 场景默认模型（chat/summary/edit，只列个人池对话模型，留空则用平台
 // 默认）/ 人设管理（名称 + system 提示 CRUD）/ 个人技能卡（/ai/personal/
-// skills 整表即时保存，对话「技能」弹层与平台合并展示）/ 个人 MCP 服务卡
-//（/ai/personal/mcp-servers 整表即时保存，认证头只写不读 + 测试连接；
-// use_mcp 开启后与平台服务合并可用）。主表单保存 = 整块 PUT（掩码回读，
-// api_key 任何读路径不回显）；技能与 MCP 为独立子集端点，不并入主保存。
-// 加载失败与未配置状态清晰提示。
+// skills 整表即时保存，对话「技能」弹层与平台合并展示）/ 个人对话技能
+//（Skills，/ai/personal/chat-skills 整表即时保存，选用后整段注入 system）
+// / 个人 MCP 服务卡（/ai/personal/mcp-servers 整表即时保存，认证头只写
+// 不读 + 测试连接；use_mcp 开启后与平台服务合并可用）/ 规则与偏好（个人
+// 规则 /ai/personal/rules 即时保存与平台叠加注入；覆盖型偏好随主保存整块
+// 携带，null=跟随平台，来源徽标读 /ai/effective-config）。主表单保存 =
+// 整块 PUT（掩码回读，api_key 任何读路径不回显）；技能、对话技能、规则
+// 与 MCP 为独立子集端点，不并入主保存（规则在主载荷同步携带保持一致）。
+// 分区布局走共享原语 SettingsSection/SettingsSections.tsx。加载失败与
+// 未配置状态清晰提示。
 import { useEffect, useState } from 'react'
-import { Button, Input, Radio, Select, Switch } from 'antd'
-import { GripVertical, Image, MessageSquare, Network, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react'
+import { Button, Input, InputNumber, Radio, Select, Switch, Tag } from 'antd'
+import { GripVertical, Image, MessageSquare, Network, Pencil, Plus, Server, Sparkles, Trash2, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   AIPersonalModelRef,
   AIPersonalPrefsView,
   AIPersonalProviderInput,
   AIPersonalSkill,
+  getAIEffectiveConfig,
+  getAIModelsRaw,
+  getAIPersonalChatSkills,
   getAIPersonalMCPServers,
   getAIPersonalSettings,
   getAIPersonalSkills,
   lookupAIModel,
+  putAIPersonalChatSkills,
   putAIPersonalMCPServers,
+  putAIPersonalRules,
   putAIPersonalSettings,
   putAIPersonalSkills,
   testAIPersonalMCP,
 } from '../../api'
-import type { AIMCPTestResult, AIModelCapabilities, AIModelKind } from '../../api'
+import type { AIEffectiveConfig, AIEffectiveItem, AIMCPTestResult, AIModelCapabilities, AIModelKind } from '../../api'
+import type { AIPersonalChatSkill, AIPersonalOverrides } from '../../api'
 import { Modal } from '../FileBrowser'
+import { SettingsField, SettingsSection } from './SettingsSections'
 
 /** 个人 Provider 类型选项（无 mock：个人池无演示 Provider 语义）。 */
 const KIND_OPTIONS = [
@@ -111,6 +123,16 @@ interface SkillForm {
   prompt: string
 }
 
+/** 编辑中的对话技能表单态（isNew=false 时 id 禁改）。 */
+interface ChatSkillForm {
+  isNew: boolean
+  id: string
+  name: string
+  icon: string
+  description: string
+  content: string
+}
+
 /** 个人 MCP 服务编辑中的认证头行（value 空 = 保持已配置现值）。 */
 interface MCPHeaderDraft {
   key: string
@@ -168,6 +190,25 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
   const [skills, setSkills] = useState<SkillForm[]>([])
   const [skillEditing, setSkillEditing] = useState<SkillForm | null>(null)
   const [skillsSaving, setSkillsSaving] = useState(false)
+  // 个人对话技能（Skills；独立子集端点整表读写，不并入主「保存」）。
+  const [chatSkills, setChatSkills] = useState<AIPersonalChatSkill[]>([])
+  const [chatSkillEditing, setChatSkillEditing] = useState<ChatSkillForm | null>(null)
+  const [chatSkillsSaving, setChatSkillsSaving] = useState(false)
+  // 个人规则（独立端点 /ai/personal/rules 即时保存；主保存载荷同步携带
+  // 当前草稿保持两端一致）。
+  const [rules, setRules] = useState('')
+  const [rulesSaving, setRulesSaving] = useState(false)
+  // 覆盖型偏好（null = 跟随平台；随主保存整块携带，全 null 时送 {}）。
+  const [ovWebSearch, setOvWebSearch] = useState<boolean | null>(null)
+  const [ovHistory, setOvHistory] = useState<string | null>(null)
+  // 默认人设三态：null = 跟随平台；''（空串）= 显式「不注入」；其余 = 人设 id。
+  const [ovPersona, setOvPersona] = useState<string | null>(null)
+  const [ovTemp, setOvTemp] = useState<number | null>(null)
+  const [ovOCR, setOvOCR] = useState<AIPersonalModelRef | null>(null)
+  // 人设下拉选项（/ai/models 原始响应：平台 + 个人合并视图，personal 标注）。
+  const [personaOptions, setPersonaOptions] = useState<{ value: string; label: string }[]>([])
+  // 生效配置（覆盖行「个人覆盖」来源徽标数据；增强展示，失败静默降级）。
+  const [effective, setEffective] = useState<AIEffectiveConfig | null>(null)
   // 个人 MCP 服务（独立子集端点整表读写；认证头值掩码回读，留空保持）。
   const [mcpServers, setMCPServers] = useState<MCPServerForm[]>([])
   const [mcpEditing, setMCPEditing] = useState<MCPServerForm | null>(null)
@@ -189,6 +230,13 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     setPersonas((v.personas ?? []).map((p) => ({ ...p })))
     setPreferPersonal(Boolean(v.prefer_personal))
     setMemoryAuto(Boolean(v.memory_auto))
+    // 规则与覆盖型偏好（null/缺省 = 跟随平台；default_persona '' = 不注入）。
+    setRules(v.rules ?? '')
+    setOvWebSearch(typeof v.overrides?.web_search === 'boolean' ? v.overrides.web_search : null)
+    setOvHistory(v.overrides?.history_search ?? null)
+    setOvPersona(v.overrides?.default_persona ?? null)
+    setOvTemp(typeof v.overrides?.temperature === 'number' ? v.overrides.temperature : null)
+    setOvOCR(v.overrides?.ocr ? { provider_id: v.overrides.ocr.provider_id, model_id: v.overrides.ocr.model_id } : null)
   }
 
   const load = async () => {
@@ -207,6 +255,19 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** 生效配置（来源徽标数据；失败静默 = 无徽标，不阻塞设置页）。 */
+  const loadEffective = async () => {
+    try {
+      setEffective(await getAIEffectiveConfig())
+    } catch {
+      setEffective(null)
+    }
+  }
+
+  /** 来源徽标：生效配置 source=user 时标注「个人覆盖」（跟随平台不显示）。 */
+  const userBadge = (item: AIEffectiveItem<unknown> | undefined) =>
+    item?.source === 'user' ? <Tag className="ai-source-badge" color="blue">个人覆盖</Tag> : null
 
   // ---------- 个人技能（独立子集端点 /ai/personal/skills） ----------
 
@@ -252,6 +313,82 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
 
   const removeSkill = async (id: string) => {
     await saveSkills(skills.filter((s) => s.id !== id))
+  }
+
+  // ---------- 个人对话技能（独立子集端点 /ai/personal/chat-skills） ----------
+
+  const loadChatSkills = async () => {
+    try {
+      setChatSkills(await getAIPersonalChatSkills())
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '对话技能加载失败')
+    }
+  }
+
+  /** 整表保存对话技能（Modal 确定/删除即时生效）。 */
+  const saveChatSkills = async (list: AIPersonalChatSkill[]) => {
+    if (chatSkillsSaving) return
+    setChatSkillsSaving(true)
+    onError('')
+    try {
+      setChatSkills(await putAIPersonalChatSkills(list.map((s) => ({
+        id: s.id.trim(), name: s.name.trim(),
+        description: s.description?.trim() || undefined,
+        icon: s.icon?.trim() || undefined,
+        content: s.content,
+      }))))
+      onNotice('对话技能已保存（即时生效）')
+      return true
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '对话技能保存失败')
+      return false
+    } finally {
+      setChatSkillsSaving(false)
+    }
+  }
+
+  /** Modal 确定：按 id 替换写回并即时整表保存（成功才关弹窗）。 */
+  const commitChatSkill = async () => {
+    if (!chatSkillEditing) return
+    const entry: AIPersonalChatSkill = {
+      id: chatSkillEditing.id.trim(),
+      name: chatSkillEditing.name.trim(),
+      description: chatSkillEditing.description.trim() || undefined,
+      icon: chatSkillEditing.icon.trim() || undefined,
+      content: chatSkillEditing.content,
+    }
+    const next = [...chatSkills.filter((s) => s.id !== entry.id), entry]
+    if (await saveChatSkills(next)) setChatSkillEditing(null)
+  }
+
+  const removeChatSkill = async (id: string) => {
+    await saveChatSkills(chatSkills.filter((s) => s.id !== id))
+  }
+
+  /** 打开新建对话技能弹窗（上限 30）。 */
+  const newChatSkill = () => {
+    setChatSkillEditing({
+      isNew: true,
+      id: freshID('chatskill-', new Set(chatSkills.map((s) => s.id))),
+      name: '', icon: '', description: '', content: '',
+    })
+  }
+
+  // ---------- 个人规则（独立子集端点 /ai/personal/rules） ----------
+
+  /** 规则独立保存（即时生效；主保存载荷始终同步携带当前草稿保持一致）。 */
+  const saveRules = async () => {
+    if (rulesSaving) return
+    setRulesSaving(true)
+    onError('')
+    try {
+      setRules(await putAIPersonalRules(rules))
+      onNotice('个人规则已保存（即时生效）')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '个人规则保存失败')
+    } finally {
+      setRulesSaving(false)
+    }
   }
 
   // ---------- 个人 MCP 服务（独立子集端点 /ai/personal/mcp-servers） ----------
@@ -337,15 +474,26 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     }
   }
 
-  // 首挂载：主配置 + 技能 + MCP 服务（独立子集）并行加载。
+  // 首挂载：主配置 + 技能/对话技能 + MCP 服务（独立子集）并行加载；
+  // 生效配置（来源徽标）与 /ai/models 人设合并视图为增强数据，失败静默。
   useEffect(() => {
     void loadSkills()
+    void loadChatSkills()
     void loadMCPServers()
+    void loadEffective()
+    getAIModelsRaw().then((raw) => {
+      const list = (raw as { personas?: Array<{ id?: unknown; name?: unknown; personal?: unknown }> }).personas
+      if (!Array.isArray(list)) return
+      setPersonaOptions(list
+        .filter((p): p is { id: string; name: string; personal?: boolean } => !!p && typeof p.id === 'string' && typeof p.name === 'string' && p.id !== '')
+        .map((p) => ({ value: p.id, label: `${p.name}${p.personal ? '（个人）' : ''}` })))
+    }).catch(() => { /* 人设下拉增强数据，失败静默 */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** 保存（整块 PUT）：api_key 留空 = 继承现值；引用已删模型/Provider 的
-   * 场景默认联动清理；成功后以掩码响应重建（api_key 草稿清空）。 */
+   * 场景默认联动清理；规则与覆盖型偏好随载荷携带（覆盖仅带非 null 字段，
+   * 全 null 送 {}）；成功后以掩码响应重建（api_key 草稿清空）。 */
   const save = async () => {
     if (saving) return
     // 客户端预校验（后端为权威校验，消息更细）。
@@ -375,12 +523,22 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
         const ref = defaultModels[key]
         if (ref && known.has(refValue(ref))) dm[key] = ref
       }
+      // 覆盖型偏好：仅携带非 null 字段（全 null = {} 全部跟随平台）。
+      const ov: AIPersonalOverrides = {}
+      if (ovWebSearch !== null) ov.web_search = ovWebSearch
+      if (ovHistory !== null) ov.history_search = ovHistory
+      if (ovPersona !== null) ov.default_persona = ovPersona
+      if (ovTemp !== null) ov.temperature = ovTemp
+      if (ovOCR !== null) ov.ocr = { provider_id: ovOCR.provider_id, model_id: ovOCR.model_id }
       const saved = await putAIPersonalSettings({
         providers: payloadProviders,
         default_models: dm,
         personas: personas.map((p) => ({ id: p.id.trim(), name: p.name.trim(), system_prompt: p.system_prompt })),
         prefer_personal: preferPersonal,
         memory_auto: memoryAuto,
+        // 规则另有独立即时保存端点；主载荷始终同步携带当前草稿保持两端一致。
+        rules,
+        overrides: ov,
       })
       rebuild(saved)
       onNotice('AI 个人配置已保存（即时生效）')
@@ -493,9 +651,22 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     return opts
   }
 
+  /** 识图兜底模型选项：个人池对话模型中具备视觉能力者（vision+chat）。 */
+  const ocrModelOptions = () => {
+    const opts: { value: string; label: string }[] = []
+    for (const p of providers) {
+      for (const m of p.models) {
+        if (m.id.trim() && m.caps.vision && (m.caps.kind ?? 'chat') === 'chat') {
+          opts.push({ value: `${p.id}::${m.id}`, label: `${p.name || p.id} / ${m.label || m.id}` })
+        }
+      }
+    }
+    return opts
+  }
+
   if (loading) {
     return (
-      <div className="panel setting-group">
+      <div className="panel setting-group ai-settings-surface">
         <h3>AI 个人配置</h3>
         <div className="hint">加载中…</div>
       </div>
@@ -504,7 +675,7 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
 
   if (loadError) {
     return (
-      <div className="panel setting-group">
+      <div className="panel setting-group ai-settings-surface">
         <h3>AI 个人配置</h3>
         <div className="banner error">{loadError}</div>
         <div style={{ marginTop: 12 }}>
@@ -515,7 +686,7 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
   }
 
   return (
-    <div className="panel setting-group">
+    <div className="panel setting-group ai-settings-surface">
       <h3>AI 个人配置</h3>
       <div className="setting-desc muted" style={{ marginBottom: 12 }}>
         双轨制：除平台统一配置的模型外，可自备 AI 服务（OpenAI 兼容网关 / Anthropic）。
@@ -523,211 +694,353 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
         保存后任何路径均不回显。
       </div>
 
-      {/* prefer_personal 开关：未显式选择模型时个人默认 > 平台默认。 */}
-      <div className="setting-row" style={{ borderBottom: 'none', paddingBottom: 0 }}>
-        <div className="setting-main">
-          <div className="setting-key">优先使用我的模型</div>
-          <div className="setting-desc muted">
-            开启后，未显式选择模型的对话 / 摘要优先用下方「个人场景默认模型」（个人 &gt; 平台）；
-            关闭或个人默认缺失时回落平台默认。显式选择的模型不受此开关影响（个人池始终先于平台池解析）。
-          </div>
-        </div>
-        <div className="setting-control">
-          <span className="setting-bool">
-            <Switch size="small" checked={preferPersonal} onChange={(v) => setPreferPersonal(v)} />
-            <span>{preferPersonal ? '个人优先' : '平台默认'}</span>
-          </span>
-        </div>
-      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* ① 偏好开关。 */}
+        <SettingsSection title="偏好开关">
+          {/* prefer_personal：未显式选择模型时个人默认 > 平台默认。 */}
+          <SettingsField
+            label="优先使用我的模型"
+            hint="开启后，未显式选择模型的对话 / 摘要优先用下方「个人场景默认模型」（个人 &gt; 平台）；关闭或个人默认缺失时回落平台默认。显式选择的模型不受此开关影响（个人池始终先于平台池解析）。"
+          >
+            <span className="setting-bool">
+              <Switch size="small" checked={preferPersonal} onChange={(v) => setPreferPersonal(v)} />
+              <span>{preferPersonal ? '个人优先' : '平台默认'}</span>
+            </span>
+          </SettingsField>
+          {/* 自动记忆（prefs.memory_auto）：AI 自动从对话中提取长期偏好。
+              记忆条目管理入口在 AI 助手 Drawer 的「记忆」按钮（两处开关实时
+              共享同一 prefs 存储）；此处为集中设置入口。 */}
+          <SettingsField
+            label="自动记忆"
+            hint="AI 自动从对话中提取长期偏好：开启后对话产生的偏好要点会以「自动」记忆保存，与手动记忆一同注入后续对话；关闭后仅保留手动维护的记忆。记忆条目的查看/编辑/删除在顶栏 AI 助手 →「记忆」面板；该处另有同名快捷开关（与本开关同源实时生效）。"
+          >
+            <span className="setting-bool">
+              <Switch size="small" checked={memoryAuto} onChange={(v) => setMemoryAuto(v)} />
+              <span>{memoryAuto ? '已开启' : '已关闭'}</span>
+            </span>
+          </SettingsField>
+        </SettingsSection>
 
-      {/* 自动记忆开关：AI 自动从对话中提取长期偏好（prefs.memory_auto）。
-          记忆条目管理入口在 AI 助手 Drawer 的「记忆」按钮（两处开关实时
-          共享同一 prefs 存储）；此处为集中设置入口。 */}
-      <div className="setting-row" style={{ borderBottom: 'none', paddingBottom: 0 }}>
-        <div className="setting-main">
-          <div className="setting-key">自动记忆</div>
-          <div className="setting-desc muted">
-            AI 自动从对话中提取长期偏好：开启后对话产生的偏好要点会以「自动」记忆保存，
-            与手动记忆一同注入后续对话；关闭后仅保留手动维护的记忆。
-            记忆条目的查看/编辑/删除在顶栏 AI 助手 →「记忆」面板；该处另有同名快捷开关（与本开关同源实时生效）。
-          </div>
-        </div>
-        <div className="setting-control">
-          <span className="setting-bool">
-            <Switch size="small" checked={memoryAuto} onChange={(v) => setMemoryAuto(v)} />
-            <span>{memoryAuto ? '已开启' : '已关闭'}</span>
-          </span>
-        </div>
-      </div>
-
-      {/* 个人 Provider 卡片列表。 */}
-      <div className="setting-key" style={{ marginTop: 16 }}>个人 Provider（{providers.length}/8）</div>
-      {providers.length === 0 ? (
-        <div className="empty">尚未配置个人 Provider——添加后可在对话模型选择器中看到带「（个人）」标注的模型。</div>
-      ) : (
-        providers.map((p) => (
-          <div key={p.id} className="setting-row ai-personal-provider">
-            <div className="setting-main">
-              <div className="setting-key">
-                {p.name || p.id}
-                <span className="badge" style={{ marginLeft: 8 }}>{p.kind === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'}</span>
-                <span className={`badge ${p.key_configured ? 'available' : 'failed'}`} style={{ marginLeft: 4 }}>
-                  {p.key_configured ? '密钥已配置' : '未配置密钥'}
-                </span>
-              </div>
-              <div className="setting-meta muted" title={p.base_url}>{p.id} · {p.base_url}</div>
-              <div className="event-badges">
-                {p.models.map((m) => (
-                  <span key={m.id} className="badge" title={capsSummary(m.caps)}>
-                    {m.label || m.id}
-                    {` · ${capsSummary(m.caps)}`}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="setting-control">
-              <Button size="small" onClick={() => editProvider(p)}>编辑</Button>
-              <Button size="small" danger onClick={() => removeProvider(p.id)}>删除</Button>
-            </div>
-          </div>
-        ))
-      )}
-      <div style={{ marginTop: 8 }}>
-        <Button type="primary" disabled={providers.length >= 8} onClick={newProvider}>
-          <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加 Provider
-        </Button>
-      </div>
-
-      {/* 个人场景默认模型（chat/summary/edit；留空 = 平台默认）。 */}
-      <div className="setting-key" style={{ marginTop: 16 }}>个人场景默认模型</div>
-      <div className="setting-desc muted" style={{ marginBottom: 8 }}>
-        只列个人池中具备对话能力的模型；「优先使用我的模型」开启时生效（embedding 场景经平台 RAG 配置，不在此选择）。
-      </div>
-      <div className="smtp-grid">
-        {SCENARIOS.map((s) => (
-          <label key={s.key} className="field" title={s.hint}>
-            <span>{s.label}（留空则用平台默认）</span>
-            <Select
-              value={defaultModels[s.key] ? refValue(defaultModels[s.key]!) : ''}
-              onChange={(v) => {
-                setDefaultModels((prev) => {
-                  const next = { ...prev }
-                  if (!v) delete next[s.key]
-                  else {
-                    const [provider_id, model_id] = v.split('::')
-                    next[s.key] = { provider_id, model_id }
-                  }
-                  return next
-                })
-              }}
-              options={modelOptions()}
-              style={{ width: '100%' }}
-            />
-          </label>
-        ))}
-      </div>
-
-      {/* 人设管理（名称 + system 提示）。 */}
-      <div className="setting-key" style={{ marginTop: 16 }}>AI 人设（{personas.length}/20）</div>
-      <div className="setting-desc muted" style={{ marginBottom: 8 }}>
-        自定义 system 提示模板（≤4000 字符），供对话入口按需选用；仅保存在你的个人配置中。
-      </div>
-      {personas.length === 0 ? (
-        <div className="empty">尚未创建人设。</div>
-      ) : (
-        personas.map((p) => (
-          <div key={p.id} className="setting-row" >
-            <div className="setting-main">
-              <div className="setting-key">{p.name || p.id}</div>
-              <div className="setting-desc muted" title={p.system_prompt}>
-                {p.system_prompt.length > 80 ? `${p.system_prompt.slice(0, 80)}…` : p.system_prompt || '（空提示）'}
-              </div>
-            </div>
-            <div className="setting-control">
-              <Button size="small" onClick={() => setPersonaEditing({ ...p })}>编辑</Button>
-              <Button size="small" danger onClick={() => setPersonas((prev) => prev.filter((x) => x.id !== p.id))}>删除</Button>
-            </div>
-          </div>
-        ))
-      )}
-      <div style={{ marginTop: 8 }}>
-        <Button disabled={personas.length >= 20} onClick={() => setPersonaEditing({ id: freshID('persona-', new Set(personas.map((p) => p.id))), name: '', system_prompt: '' })}>
-          <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加人设
-        </Button>
-      </div>
-
-      {/* 个人技能（/ai/personal/skills 整表读写，即时保存；对话「技能」弹层合并展示）。 */}
-      <div className="setting-key" style={{ marginTop: 16 }}>个人技能（{skills.length}/50）</div>
-      <div className="setting-desc muted" style={{ marginBottom: 8 }}>
-        自定义快捷指令模板（prompt 支持 {'{selection}'}=编辑器选区、{'{file}'}=当前文件名占位符），
-        在 AI 助手 / 编辑对话的技能按钮中选择使用，仅本人可见。
-      </div>
-      {skills.length === 0 ? (
-        <div className="empty">尚未创建个人技能。</div>
-      ) : (
-        skills.map((s) => (
-          <div key={s.id} className="setting-row">
-            <div className="setting-main">
-              <div className="setting-key">{s.name || s.id}</div>
-              <div className="setting-desc muted" title={s.prompt}>
-                {s.description || (s.prompt.length > 80 ? `${s.prompt.slice(0, 80)}…` : s.prompt) || '（空提示）'}
-              </div>
-            </div>
-            <div className="setting-control">
-              <Button size="small" onClick={() => setSkillEditing({ ...s })}>编辑</Button>
-              <Button size="small" danger disabled={skillsSaving} onClick={() => void removeSkill(s.id)}>删除</Button>
-            </div>
-          </div>
-        ))
-      )}
-      <div style={{ marginTop: 8 }}>
-        <Button disabled={skills.length >= 50} onClick={() => setSkillEditing({ id: freshID('skill-', new Set(skills.map((s) => s.id))), name: '', description: '', prompt: '' })}>
-          <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加技能
-        </Button>
-      </div>
-
-      {/* 个人 MCP 服务（/ai/personal/mcp-servers 整表读写，即时保存；use_mcp 与平台合并）。 */}
-      <div className="setting-key" style={{ marginTop: 16 }}>个人 MCP 服务（{mcpServers.length}/8）</div>
-      <div className="setting-desc muted" style={{ marginBottom: 8 }}>
-        自备外部 MCP 工具服务（Streamable HTTP 端点）：对话开启「MCP 工具」后，个人服务与平台服务合并可用（仅本人对话生效）；
-        认证头只写不读，保存后任何路径均不回显。
-      </div>
-      {mcpServers.length === 0 ? (
-        <div className="empty">尚未配置个人 MCP 服务。</div>
-      ) : (
-        mcpServers.map((s) => (
-          <div key={s.id} className="setting-row">
-            <div className="setting-main">
-              <div className="setting-key">
-                <Server size={13} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 4 }} />
-                {s.name || s.id}
-                <span className={`badge ${s.headers_configured ? 'available' : ''}`} style={{ marginLeft: 8 }}>
-                  {s.headers_configured ? `认证头已配置（${s.headers.length}）` : '无认证头'}
-                </span>
-              </div>
-              <div className="setting-meta muted" title={s.url}>{s.id} · {s.url}</div>
-              {s.headers.length > 0 && (
-                <div className="event-badges">
-                  {s.headers.map((h) => (
-                    <span key={h.key} className="badge" title={`${h.key}（值不回显）`}>{h.key}</span>
-                  ))}
+        {/* ② 个人 Provider 卡片列表。 */}
+        <SettingsSection
+          title={`个人 Provider（${providers.length}/8）`}
+          extra={
+            <Button type="primary" disabled={providers.length >= 8} onClick={newProvider}>
+              <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加 Provider
+            </Button>
+          }
+        >
+          {providers.length === 0 ? (
+            <div className="empty">尚未配置个人 Provider——添加后可在对话模型选择器中看到带「（个人）」标注的模型。</div>
+          ) : (
+            providers.map((p) => (
+              <div key={p.id} className="setting-row ai-personal-provider">
+                <div className="setting-main">
+                  <div className="setting-key">
+                    {p.name || p.id}
+                    <span className="badge" style={{ marginLeft: 8 }}>{p.kind === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'}</span>
+                    <span className={`badge ${p.key_configured ? 'available' : 'failed'}`} style={{ marginLeft: 4 }}>
+                      {p.key_configured ? '密钥已配置' : '未配置密钥'}
+                    </span>
+                  </div>
+                  <div className="setting-meta muted" title={p.base_url}>{p.id} · {p.base_url}</div>
+                  <div className="event-badges">
+                    {p.models.map((m) => (
+                      <span key={m.id} className="badge" title={capsSummary(m.caps)}>
+                        {m.label || m.id}
+                        {` · ${capsSummary(m.caps)}`}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
-            <div className="setting-control">
-              <Button size="small" onClick={() => setMCPEditing({ ...s, headers: s.headers.map((h) => ({ ...h })) })}>编辑</Button>
-              <Button size="small" danger disabled={mcpSaving} onClick={() => void removeMCPServer(s.id)}>删除</Button>
-            </div>
+                <div className="setting-control">
+                  <Button size="small" onClick={() => editProvider(p)}>编辑</Button>
+                  <Button size="small" danger onClick={() => removeProvider(p.id)}>删除</Button>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsSection>
+
+        {/* ③ 个人场景默认模型（chat/summary/edit；留空 = 平台默认）。 */}
+        <SettingsSection
+          title="个人场景默认模型"
+          desc="只列个人池中具备对话能力的模型；「优先使用我的模型」开启时生效（embedding 场景经平台 RAG 配置，不在此选择）。"
+        >
+          <div className="smtp-grid">
+            {SCENARIOS.map((s) => (
+              <label key={s.key} className="field" title={s.hint}>
+                <span>{s.label}（留空则用平台默认）</span>
+                <Select
+                  value={defaultModels[s.key] ? refValue(defaultModels[s.key]!) : ''}
+                  onChange={(v) => {
+                    setDefaultModels((prev) => {
+                      const next = { ...prev }
+                      if (!v) delete next[s.key]
+                      else {
+                        const [provider_id, model_id] = v.split('::')
+                        next[s.key] = { provider_id, model_id }
+                      }
+                      return next
+                    })
+                  }}
+                  options={modelOptions()}
+                  style={{ width: '100%' }}
+                />
+              </label>
+            ))}
           </div>
-        ))
-      )}
-      <div style={{ marginTop: 8 }}>
-        <Button disabled={mcpServers.length >= 8} onClick={() => { setMCPTestResult(null); setMCPEditing({ id: freshID('my-mcp-', new Set(mcpServers.map((s) => s.id))), name: '', url: '', headers: [], headers_configured: false }) }}>
-          <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加 MCP 服务
-        </Button>
+        </SettingsSection>
+
+        {/* ④ 人设管理（名称 + system 提示）。 */}
+        <SettingsSection
+          title={`AI 人设（${personas.length}/20）`}
+          desc="自定义 system 提示模板（≤4000 字符），供对话入口按需选用；仅保存在你的个人配置中。"
+          extra={
+            <Button disabled={personas.length >= 20} onClick={() => setPersonaEditing({ id: freshID('persona-', new Set(personas.map((p) => p.id))), name: '', system_prompt: '' })}>
+              <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加人设
+            </Button>
+          }
+        >
+          {personas.length === 0 ? (
+            <div className="empty">尚未创建人设。</div>
+          ) : (
+            personas.map((p) => (
+              <div key={p.id} className="setting-row">
+                <div className="setting-main">
+                  <div className="setting-key">{p.name || p.id}</div>
+                  <div className="setting-desc muted" title={p.system_prompt}>
+                    {p.system_prompt.length > 80 ? `${p.system_prompt.slice(0, 80)}…` : p.system_prompt || '（空提示）'}
+                  </div>
+                </div>
+                <div className="setting-control">
+                  <Button size="small" onClick={() => setPersonaEditing({ ...p })}>编辑</Button>
+                  <Button size="small" danger onClick={() => setPersonas((prev) => prev.filter((x) => x.id !== p.id))}>删除</Button>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsSection>
+
+        {/* ⑤ 快捷指令（个人技能；/ai/personal/skills 整表读写，即时保存；
+            对话「技能」弹层合并展示）。 */}
+        <SettingsSection
+          title={`快捷指令（${skills.length}/50）`}
+          desc="自定义快捷指令模板（prompt 支持 {'{selection}'}=编辑器选区、{'{file}'}=当前文件名占位符），在 AI 助手 / 编辑对话的技能按钮中选择使用，仅本人可见。"
+          extra={
+            <Button disabled={skills.length >= 50} onClick={() => setSkillEditing({ id: freshID('skill-', new Set(skills.map((s) => s.id))), name: '', description: '', prompt: '' })}>
+              <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加技能
+            </Button>
+          }
+        >
+          {skills.length === 0 ? (
+            <div className="empty">尚未创建个人技能。</div>
+          ) : (
+            skills.map((s) => (
+              <div key={s.id} className="setting-row">
+                <div className="setting-main">
+                  <div className="setting-key">{s.name || s.id}</div>
+                  <div className="setting-desc muted" title={s.prompt}>
+                    {s.description || (s.prompt.length > 80 ? `${s.prompt.slice(0, 80)}…` : s.prompt) || '（空提示）'}
+                  </div>
+                </div>
+                <div className="setting-control">
+                  <Button size="small" onClick={() => setSkillEditing({ ...s })}>编辑</Button>
+                  <Button size="small" danger disabled={skillsSaving} onClick={() => void removeSkill(s.id)}>删除</Button>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsSection>
+
+        {/* ⑥ 对话技能（Skills；/ai/personal/chat-skills 整表读写，即时保存；
+            与平台技能按 id 合并，同名覆盖平台）。 */}
+        <SettingsSection
+          title={`对话技能（${chatSkills.length}/30）`}
+          desc="对话技能（Skills）：对话中选用后整段注入 system 提示约束本轮行为；与平台技能按 id 合并（同名覆盖平台），另有平台内置技能可直接使用。上限 30 条。"
+          extra={
+            <Button disabled={chatSkills.length >= 30} onClick={newChatSkill}>
+              <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />新建
+            </Button>
+          }
+        >
+          {chatSkills.length === 0 ? (
+            <div className="empty">尚未创建对话技能。</div>
+          ) : (
+            chatSkills.map((s) => (
+              <div key={s.id} className="setting-row">
+                <div className="setting-main">
+                  <div className="setting-key">
+                    {s.name || s.id}
+                    {s.icon ? <span className="badge" style={{ marginLeft: 8 }} title="lucide 图标名">{s.icon}</span> : null}
+                    <span className="badge" style={{ marginLeft: 8 }}>{s.id}</span>
+                  </div>
+                  <div className="setting-desc muted">{s.description || '（无描述）'}</div>
+                </div>
+                <div className="setting-control">
+                  <Button size="small" aria-label="编辑对话技能" onClick={() => setChatSkillEditing({ isNew: false, id: s.id, name: s.name, icon: s.icon ?? '', description: s.description ?? '', content: s.content })}>
+                    <Pencil size={13} strokeWidth={2} aria-hidden="true" />
+                  </Button>
+                  <Button size="small" danger aria-label="删除对话技能" disabled={chatSkillsSaving} onClick={() => void removeChatSkill(s.id)}>
+                    <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsSection>
+
+        {/* ⑦ 个人 MCP 服务（/ai/personal/mcp-servers 整表读写，即时保存；
+            use_mcp 与平台合并）。 */}
+        <SettingsSection
+          title={`个人 MCP 服务（${mcpServers.length}/8）`}
+          desc="自备外部 MCP 工具服务（Streamable HTTP 端点）：对话开启「MCP 工具」后，个人服务与平台服务合并可用（仅本人对话生效）；认证头只写不读，保存后任何路径均不回显。"
+          extra={
+            <Button disabled={mcpServers.length >= 8} onClick={() => { setMCPTestResult(null); setMCPEditing({ id: freshID('my-mcp-', new Set(mcpServers.map((s) => s.id))), name: '', url: '', headers: [], headers_configured: false }) }}>
+              <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />添加 MCP 服务
+            </Button>
+          }
+        >
+          {mcpServers.length === 0 ? (
+            <div className="empty">尚未配置个人 MCP 服务。</div>
+          ) : (
+            mcpServers.map((s) => (
+              <div key={s.id} className="setting-row">
+                <div className="setting-main">
+                  <div className="setting-key">
+                    <Server size={13} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 4 }} />
+                    {s.name || s.id}
+                    <span className={`badge ${s.headers_configured ? 'available' : ''}`} style={{ marginLeft: 8 }}>
+                      {s.headers_configured ? `认证头已配置（${s.headers.length}）` : '无认证头'}
+                    </span>
+                  </div>
+                  <div className="setting-meta muted" title={s.url}>{s.id} · {s.url}</div>
+                  {s.headers.length > 0 && (
+                    <div className="event-badges">
+                      {s.headers.map((h) => (
+                        <span key={h.key} className="badge" title={`${h.key}（值不回显）`}>{h.key}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="setting-control">
+                  <Button size="small" onClick={() => setMCPEditing({ ...s, headers: s.headers.map((h) => ({ ...h })) })}>编辑</Button>
+                  <Button size="small" danger disabled={mcpSaving} onClick={() => void removeMCPServer(s.id)}>删除</Button>
+                </div>
+              </div>
+            ))
+          )}
+        </SettingsSection>
+
+        {/* ⑧ 规则与偏好：个人规则独立即时保存（主保存同步携带保持一致）；
+            覆盖型偏好随主保存整块携带，徽标读 /ai/effective-config。 */}
+        <SettingsSection
+          title="规则与偏好"
+          desc="个人规则与覆盖型偏好仅本人对话生效：规则与平台规则叠加注入（非覆盖）；覆盖项选择「跟随平台」时沿用平台默认值。"
+        >
+          <SettingsField label="个人规则" hint="与平台规则叠加注入所有对话（非覆盖）；仅本人对话生效。">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+              <Input.TextArea
+                rows={4}
+                maxLength={2000}
+                showCount
+                value={rules}
+                onChange={(e) => setRules(e.target.value)}
+                placeholder="如：回答一律使用简体中文；代码示例须完整可运行。"
+              />
+              <Button loading={rulesSaving} onClick={() => void saveRules()} style={{ alignSelf: 'flex-end' }}>
+                保存规则（即时生效）
+              </Button>
+            </div>
+          </SettingsField>
+
+          <div className="setting-key" style={{ marginTop: 4 }}>覆盖型偏好（留「跟随平台」= 用平台值；改动后经底部「保存」生效）</div>
+
+          {/* 联网搜索默认（null=跟随平台 / true / false）。 */}
+          <SettingsField label="联网搜索默认" hint="未在对话中显式开关联网搜索时的缺省行为。" badge={userBadge(effective?.web_search)}>
+            <Select
+              value={ovWebSearch === null ? '__inherit' : ovWebSearch ? 'on' : 'off'}
+              onChange={(v) => setOvWebSearch(v === 'on')}
+              options={[
+                { value: '__inherit', label: '跟随平台' },
+                { value: 'on', label: '开启' },
+                { value: 'off', label: '关闭' },
+              ]}
+            />
+          </SettingsField>
+
+          {/* 对话历史检索（keyword/vector/off；vector 不可用自动降级）。 */}
+          <SettingsField
+            label="对话历史检索"
+            hint="RAG 语义召回需管理员配置 Qdrant 与真实 embedding；不可用时自动降级关键字。"
+            badge={userBadge(effective?.history_search)}
+          >
+            <Select
+              value={ovHistory ?? '__inherit'}
+              onChange={(v) => setOvHistory(v === '__inherit' ? null : String(v))}
+              options={[
+                { value: '__inherit', label: '跟随平台' },
+                { value: 'keyword', label: '关键字检索' },
+                { value: 'vector', label: '向量检索（不可用自动降级）' },
+                { value: 'off', label: '关闭' },
+              ]}
+            />
+          </SettingsField>
+
+          {/* 默认人设（null=跟随平台；''=显式不注入；清除=跟随平台）。 */}
+          <SettingsField
+            label="默认人设"
+            hint="新对话注入的 system 人设：「不注入」= 显式留空；清除选择 = 跟随平台。"
+            badge={userBadge(effective?.default_persona)}
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              value={ovPersona ?? undefined}
+              onChange={(v) => setOvPersona(typeof v === 'string' ? v : null)}
+              placeholder="跟随平台"
+              options={[{ value: '', label: '（不注入）' }, ...personaOptions]}
+            />
+          </SettingsField>
+
+          {/* 对话温度（空 = 跟随平台）。 */}
+          <SettingsField label="对话温度" hint="0..2；未设置则用平台值。" badge={userBadge(effective?.temperature)}>
+            <InputNumber
+              min={0}
+              max={2}
+              step={0.1}
+              value={ovTemp ?? undefined}
+              onChange={(v) => setOvTemp(typeof v === 'number' ? v : null)}
+              placeholder="跟随平台"
+            />
+          </SettingsField>
+
+          {/* 图片识图兜底模型（个人池 vision 对话模型；清除 = 跟随平台）。 */}
+          <SettingsField
+            label="图片识图模型（OCR 兜底）"
+            hint="仅当对话模型不支持图片输入时使用：优先用此个人模型把图片转文字；未设置时用平台配置。"
+            badge={userBadge(effective?.ocr)}
+          >
+            <Select
+              allowClear
+              value={ovOCR ? `${ovOCR.provider_id}::${ovOCR.model_id}` : undefined}
+              onChange={(v) => {
+                if (typeof v !== 'string' || !v) {
+                  setOvOCR(null)
+                  return
+                }
+                const [provider_id, model_id] = v.split('::')
+                setOvOCR({ provider_id, model_id })
+              }}
+              placeholder="跟随平台"
+              options={ocrModelOptions()}
+            />
+          </SettingsField>
+        </SettingsSection>
       </div>
 
-      {/* 保存：整块 PUT（掩码回读）。 */}
+      {/* ⑨ 保存：整块 PUT（掩码回读）。 */}
       <div className="modal-actions" style={{ marginTop: 16 }}>
         <Button disabled={saving} onClick={() => void load()}>重置</Button>
         <Button type="primary" loading={saving} onClick={() => void save()}>
@@ -902,6 +1215,45 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
             <div className="setting-control" style={{ marginTop: 8, justifyContent: 'flex-end' }}>
               <Button onClick={() => setSkillEditing(null)}>取消</Button>
               <Button type="primary" htmlType="submit" loading={skillsSaving} disabled={!skillEditing.name.trim() || !skillEditing.id.trim()}>保存</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 对话技能编辑弹窗（确定即整表保存；编辑态 id 禁改）。 */}
+      {chatSkillEditing && (
+        <Modal title={chatSkillEditing.isNew ? '新建对话技能' : `编辑对话技能：${chatSkillEditing.name || chatSkillEditing.id}`} onClose={() => setChatSkillEditing(null)}>
+          <form className="team-create-row ai-personal-form" onSubmit={(e) => { e.preventDefault(); void commitChatSkill() }}>
+            <label className="field">
+              <span>名称（1..100 字符）</span>
+              <Input autoFocus required maxLength={100} value={chatSkillEditing.name} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, name: e.target.value })} placeholder="如：中文写作规范" />
+            </label>
+            <label className="field">
+              <span>ID（1..64 位字母/数字/_-.:；与平台技能同 id 时覆盖平台）</span>
+              <Input required maxLength={64} disabled={!chatSkillEditing.isNew} value={chatSkillEditing.id} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, id: e.target.value })} placeholder="如 zh-style" />
+            </label>
+            <label className="field">
+              <span>图标（可选，lucide 图标名）</span>
+              <Input maxLength={64} value={chatSkillEditing.icon} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, icon: e.target.value })} placeholder="如 languages" />
+            </label>
+            <label className="field">
+              <span>描述（可选，≤200 字符）</span>
+              <Input maxLength={200} value={chatSkillEditing.description} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, description: e.target.value })} placeholder="技能弹层里的补充说明" />
+            </label>
+            <label className="field">
+              <span>内容（1..4000 字符，Markdown）</span>
+              <Input.TextArea
+                rows={8}
+                maxLength={4000}
+                required
+                value={chatSkillEditing.content}
+                onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, content: e.target.value })}
+                placeholder="Markdown 指令内容，对话中选用后整段注入 system 提示"
+              />
+            </label>
+            <div className="setting-control" style={{ marginTop: 8, justifyContent: 'flex-end' }}>
+              <Button onClick={() => setChatSkillEditing(null)}>取消</Button>
+              <Button type="primary" htmlType="submit" loading={chatSkillsSaving} disabled={!chatSkillEditing.name.trim() || !chatSkillEditing.id.trim() || !chatSkillEditing.content.trim()}>保存</Button>
             </div>
           </form>
         </Modal>

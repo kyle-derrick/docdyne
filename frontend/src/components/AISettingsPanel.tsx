@@ -1,4 +1,5 @@
-// 管理后台「AI 设置」面板（多模型 Provider 体系）：
+// 管理后台「AI 设置」面板（多模型 Provider 体系；原 11 个堆叠 Card 改为
+// 顶部 Tabs 分区，根容器挂 ai-settings-surface 供全域定宽样式）：
 // - Provider 卡片列表（名称/类型/模型列表/限流/状态/密钥配置）+ 新建/编辑/
 //   复制（深拷贝改名）/删除弹窗（类型 Select：OpenAI 兼容 / Anthropic /
 //   Mock 预设；每个 Provider 维护 models[{id,label,capabilities}]——类型
@@ -15,7 +16,7 @@
 //   读替，列表 + Modal 编辑（快捷指令 prompt 支持 {selection}/{file} 占位符）；
 // - 用量统计表（ai_usage 按用户聚合，日期过滤）。
 import { useEffect, useState } from 'react'
-import { App as AntdApp, Button, Card, Checkbox, Dropdown, Input, InputNumber, Radio, Select, Switch, Table, Tag, Tooltip } from 'antd'
+import { App as AntdApp, Button, Checkbox, Dropdown, Input, InputNumber, Radio, Select, Switch, Table, Tabs, Tag, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { Copy, Download, GripVertical, Image, MessageSquare, Network, Pencil, Plus, Sparkles, Trash2, Upload, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -27,6 +28,7 @@ import {
   AISearchSettings,
   AIPersonaDef,
   AIAgentPackageDef,
+  AIChatSkillDef,
   AIPackageStatsRow,
   AIModelCapabilities,
   AIModelItem,
@@ -38,7 +40,12 @@ import {
   AISettingsData,
   AISkillDef,
   AIUsageRow,
+  adminGetAIChatSkills,
+  adminGetAIRules,
+  adminPutAIChatSkills,
+  adminPutAIRules,
   exportAIAgentPackages,
+  exportAIMCP,
   getAIMCPAdmin,
   getAIAgentPackages,
   getAIPackageStats,
@@ -49,6 +56,7 @@ import {
   getAIUsageByConversation,
   getAIToolStats,
   importAIAgentPackages,
+  importAIMCP,
   type AIConvoUsageRow,
   type AIToolStatsRow,
   lookupAIModel,
@@ -57,12 +65,14 @@ import {
   putAIPersonas,
   putAISettings,
   putAISkills,
+  reindexAIHistoryVector,
   reindexAIRAG,
   testAIMCP,
   testAIProvider,
   testAIRAG,
 } from '../api'
 import { Modal } from './FileBrowser'
+import { SettingsSection } from './settings/SettingsSections'
 import { refreshAIFeature } from '../aiFeature'
 import { t, useLocale } from '../i18n'
 
@@ -175,12 +185,34 @@ const MCP_OFFICIAL_TEMPLATES = [
   { id: 'mcp-get', name: 'MCP-Get（MCP 服务目录搜索）', url: 'https://mcp-get.com/mcp' },
 ]
 
-/** 编辑中的 MCP 工具服务表单态（auth_header 草稿：空 = 保持现值）。 */
+/** 编辑中的对话技能表单态（Cherry Studio 式 Skills，Markdown 整段注入）。 */
+interface ChatSkillForm {
+  id: string
+  name: string
+  icon: string
+  description: string
+  content: string
+  enabled: boolean
+  isNew: boolean
+}
+
+/** MCP 认证头草稿行（键必填；值留空 = 保持已配置值，删除行 = 移除该头）。 */
+interface MCPHeaderDraft {
+  key: string
+  value: string
+}
+
+/** 编辑中的 MCP 工具服务表单态（auth_header 与认证头值草稿：空 = 保持现值）。 */
 interface MCPForm {
   id: string
   name: string
+  description: string
   url: string
   auth_header: string
+  headersDraft: MCPHeaderDraft[]
+  /** 单服务超时秒数（0 = 默认 8s）。 */
+  timeoutSec: number
+  disabledTools: string[]
   enabled: boolean
   isNew: boolean
 }
@@ -226,18 +258,23 @@ const PACKAGE_TOOL_OPTIONS = [
 /** 测试连接结果（按 provider id 记录）。 */
 type TestState = { running: boolean; ok?: boolean; message: string }
 
-/** MCP 服务测试结果（按服务 id / 编辑弹窗记录；names 前 5 个 Tag 展示）。 */
-type MCPTestState = { running: boolean; ok?: boolean; message: string; names?: string[] }
+/** MCP 服务测试结果（按服务 id / 编辑弹窗记录；names 前 5 个 Tag 展示；
+ *  toolNames 为全量工具名——编辑弹窗「禁用工具」下拉的数据源）。 */
+type MCPTestState = { running: boolean; ok?: boolean; message: string; names?: string[]; toolNames?: string[] }
 
-/** MCP 测试结果 → 展示态（ok → 连接成功 · N 个工具 · Xms；失败 → error）。 */
-const mcpTestState = (r: AIMCPTestResult, zh: boolean): MCPTestState => r.ok
-  ? {
-      running: false,
-      ok: true,
-      names: r.names,
-      message: zh ? `连接成功 · ${r.tools} 个工具 · ${r.latency_ms}ms` : `Connected · ${r.tools} tools · ${r.latency_ms}ms`,
-    }
-  : { running: false, ok: false, message: r.error || (zh ? '连接失败' : 'Connection failed') }
+/** MCP 测试结果 → 展示态（ok → 连接成功 · N 个工具 · Xms；失败 → error；
+ *  工具名优先取 tool_list 全量预览，旧后端回退 names）。 */
+const mcpTestState = (r: AIMCPTestResult, zh: boolean): MCPTestState => {
+  if (!r.ok) return { running: false, ok: false, message: r.error || (zh ? '连接失败' : 'Connection failed') }
+  const names = r.tool_list?.map((tl) => tl.name) ?? r.names
+  return {
+    running: false,
+    ok: true,
+    names,
+    toolNames: names,
+    message: zh ? `连接成功 · ${r.tools} 个工具 · ${r.latency_ms}ms` : `Connected · ${r.tools} tools · ${r.latency_ms}ms`,
+  }
+}
 
 /** MCP 测试结果展示：names 前 5 个 Tag，超出折叠为 +N（Tooltip 给全量）。 */
 function MCPTestResult({ state, zh }: { state: MCPTestState; zh: boolean }) {
@@ -283,6 +320,8 @@ export default function AISettingsPanel({
   const locale = useLocale()
   const zh = locale === 'zh-CN'
   const { modal } = AntdApp.useApp()
+  // 分区 Tabs 激活键（providers 默认；切卡不卸载草稿态之外的受控内容）。
+  const [activeTab, setActiveTab] = useState('providers')
   const [data, setData] = useState<AISettingsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -295,6 +334,9 @@ export default function AISettingsPanel({
   // 默认项（独立受控，保存时与 providers 一并 PUT）。
   const [defaultProvider, setDefaultProvider] = useState('')
   const [defaultModels, setDefaultModels] = useState<Record<string, AIModelRef>>({})
+  // 默认人设（''=不注入；builtin- 前缀或平台 personas id；PUT 始终显式携带，
+  // 空串 = 清除——后端对缺省字段按「保持现值」处理）。
+  const [defaultPersona, setDefaultPersona] = useState('')
   // 备选模型链（H2：首选上游失败且零增量时依序切换；≤5 条）。
   const [fallbackModels, setFallbackModels] = useState<AIModelRef[]>([])
   const [temperature, setTemperature] = useState(0.3)
@@ -307,15 +349,23 @@ export default function AISettingsPanel({
   const [ocr, setOcr] = useState<AIOCRSettings>({ enabled: false, provider_id: '', model_id: '', max_image_bytes: 8 * 1024 * 1024 })
   // 联网搜索（随 ai 主设置一并 PUT；旧后端无 search 块时保持缺省值；
   // tavily_api_key 只写不读——GET 只回 configured 标志，输入留空 = 保持）。
-  const [search, setSearch] = useState<AISearchSettings>({ provider: '', searxng_url: '', max_results: 5 })
+  const [search, setSearch] = useState<AISearchSettings>({ provider: '', searxng_url: '', max_results: 5, proxy_url: '' })
   const [tavilyConfigured, setTavilyConfigured] = useState(false)
-  // 对话历史检索（v7.15 A8，随 ai 主设置一并 PUT；旧后端缺省 = keyword）。
+  // 对话历史检索（v7.15 A8，随 ai 主设置一并 PUT）：'keyword' | 'vector'
+  // （RAG 语义召回，需 Qdrant + 真实 embedding，不可用自动降级）| 'off'；
+  // 原值透传存储，旧后端缺省 = keyword。
   const [historySearch, setHistorySearch] = useState('keyword')
   // 平台人设 / 技能模板（各自独立 PUT 整块保存，不入 putAISettings）。
   const [personas, setPersonas] = useState<AIPersonaDef[]>([])
   const [personaEditing, setPersonaEditing] = useState<PersonaForm | null>(null)
   const [skills, setSkills] = useState<AISkillDef[]>([])
   const [skillEditing, setSkillEditing] = useState<SkillForm | null>(null)
+  // 平台规则（独立端点 /admin/settings/ai/rules；与用户个人规则叠加注入）。
+  const [rules, setRules] = useState('')
+  const [rulesSaving, setRulesSaving] = useState(false)
+  // 对话技能（Cherry Studio 式 Skills；独立端点整块读替，≤50 条）。
+  const [chatSkills, setChatSkills] = useState<AIChatSkillDef[]>([])
+  const [chatSkillEditing, setChatSkillEditing] = useState<ChatSkillForm | null>(null)
   // Agent 技能包（I 批次）：列表 + 编辑弹窗 + 使用统计（ai.chat 审计按包聚合）+ 导入弹窗。
   const [agentPackages, setAgentPackages] = useState<AIAgentPackageDef[]>([])
   const [pkgEditing, setPkgEditing] = useState<PackageForm | null>(null)
@@ -330,12 +380,18 @@ export default function AISettingsPanel({
   // MCP 连通性测试：行级（按已保存 url，不带密钥）与编辑弹窗（表单草稿）。
   const [mcpTests, setMcpTests] = useState<Record<string, MCPTestState>>({})
   const [mcpModalTest, setMcpModalTest] = useState<MCPTestState | null>(null)
+  // MCP mcpServers JSON 导入（粘贴内容草稿）与导出中状态。
+  const [mcpImport, setMcpImport] = useState<{ content: string } | null>(null)
+  const [mcpImporting, setMcpImporting] = useState(false)
+  const [mcpExporting, setMcpExporting] = useState(false)
   // 编辑弹窗关闭后清理草稿测试结果（下次打开重新开始）。
   useEffect(() => {
     if (!mcpEditing) setMcpModalTest(null)
   }, [mcpEditing])
-  // RAG 重建向量索引（POST /admin/settings/ai/reindex）。
+  // RAG 重建向量索引（POST /admin/settings/ai/reindex）与
+  // 会话历史向量重建（POST /admin/settings/ai/history/reindex，vector 档）。
   const [reindexing, setReindexing] = useState(false)
+  const [historyReindexing, setHistoryReindexing] = useState(false)
   // 用量统计（G2/G3：user=按用户+Provider+模型 / conversation=按会话 /
   //  tool=ai.tool 审计按工具名聚合）。
   const [usageBy, setUsageBy] = useState<'user' | 'conversation' | 'tool'>('user')
@@ -356,12 +412,13 @@ export default function AISettingsPanel({
       if (d.rag) setRag({ rerank_provider: '', rerank_model: '', ...d.rag })
       if (d.ocr) setOcr({ ...d.ocr, max_image_bytes: d.ocr.max_image_bytes || 8 * 1024 * 1024 })
       if (d.search) {
-        setSearch({ provider: d.search.provider ?? '', searxng_url: d.search.searxng_url ?? '', max_results: d.search.max_results > 0 ? d.search.max_results : 5, tavily_api_key: '' })
+        setSearch({ provider: d.search.provider ?? '', searxng_url: d.search.searxng_url ?? '', max_results: d.search.max_results > 0 ? d.search.max_results : 5, tavily_api_key: '', proxy_url: d.search.proxy_url ?? '' })
         setTavilyConfigured(d.search.tavily_api_key_configured === true)
       }
-      setHistorySearch(d.history_search === 'off' ? 'off' : 'keyword')
+      setHistorySearch(d.history_search ?? 'keyword')
       setDefaultProvider(d.default_provider || (d.providers.find((p) => p.enabled)?.id ?? ''))
       setDefaultModels(d.default_models ?? {})
+      setDefaultPersona(d.default_persona ?? '')
       setFallbackModels(d.fallback_models ?? [])
       setTemperature(d.temperature)
       setMaxTokens(d.max_tokens)
@@ -421,6 +478,12 @@ export default function AISettingsPanel({
     getAISkills()
       .then(setSkills)
       .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
+    adminGetAIChatSkills()
+      .then(setChatSkills)
+      .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
+    adminGetAIRules()
+      .then(setRules)
+      .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
     getAIAgentPackages()
       .then(setAgentPackages)
       .catch((err) => onError(err instanceof Error ? err.message : t(locale, 'loadFailed')))
@@ -452,7 +515,10 @@ export default function AISettingsPanel({
     if (saving) return
     setSaving(true)
     try {
-      const merged = await putAISettings({
+      // default_persona 始终显式携带（空串 = 清除默认人设；后端对缺省字段
+      // 按「保持现值」处理）。载荷以变量承载：多余字段不参与字面量校验，
+      // 与 putAISettings 入参类型结构兼容。
+      const payload = {
         enabled: enabledOn ?? aiEnabled,
         providers: providers ?? editableProviders(),
         default_provider: defaultProvider,
@@ -465,16 +531,19 @@ export default function AISettingsPanel({
         ocr,
         search,
         history_search: historySearch,
-      })
+        default_persona: defaultPersona,
+      }
+      const merged = await putAISettings(payload)
       setData(merged)
-      setHistorySearch(merged.history_search === 'off' ? 'off' : 'keyword')
+      setHistorySearch(merged.history_search ?? 'keyword')
       setAIEnabled(merged.enabled)
       setDefaultProvider(merged.default_provider)
+      setDefaultPersona(merged.default_persona ?? '')
       if (merged.default_models) setDefaultModels(merged.default_models)
       setFallbackModels(merged.fallback_models ?? [])
       if (merged.ocr) setOcr({ ...merged.ocr, max_image_bytes: merged.ocr.max_image_bytes || 8 * 1024 * 1024 })
       if (merged.search) {
-        setSearch((prev) => ({ provider: merged.search!.provider ?? '', searxng_url: merged.search!.searxng_url ?? '', max_results: merged.search!.max_results > 0 ? merged.search!.max_results : 5, tavily_api_key: merged.search!.tavily_api_key_configured ? prev.tavily_api_key : '' }))
+        setSearch((prev) => ({ provider: merged.search!.provider ?? '', searxng_url: merged.search!.searxng_url ?? '', max_results: merged.search!.max_results > 0 ? merged.search!.max_results : 5, tavily_api_key: merged.search!.tavily_api_key_configured ? prev.tavily_api_key : '', proxy_url: merged.search!.proxy_url ?? '' }))
         setTavilyConfigured(merged.search.tavily_api_key_configured === true)
       }
       refreshAIFeature()
@@ -636,6 +705,22 @@ export default function AISettingsPanel({
     }
   }
 
+  // ---- 平台规则（独立 PUT /admin/settings/ai/rules；与个人规则叠加注入）----
+
+  /** 保存平台规则（显式空串 = 清空）。 */
+  const saveRules = async () => {
+    if (rulesSaving) return
+    setRulesSaving(true)
+    try {
+      setRules(await adminPutAIRules(rules))
+      onNotice(zh ? '平台规则已保存' : 'Platform rules saved')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    } finally {
+      setRulesSaving(false)
+    }
+  }
+
   // ---- 技能模板（独立 PUT /admin/settings/ai/skills 整块读替）----
 
   /** 保存技能编辑（整块 PUT；新建时前端校验 id 唯一）。 */
@@ -680,6 +765,56 @@ export default function AISettingsPanel({
   const toggleSkill = async (id: string, enabled: boolean) => {
     try {
       setSkills(await putAISkills(skills.map((s) => (s.id === id ? { ...s, enabled } : s))))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    }
+  }
+
+  // ---- 对话技能（Cherry Studio 式 Skills；独立 PUT /admin/settings/ai/chat-skills 整块读替）----
+
+  /** 保存对话技能编辑（整块 PUT；新建时前端校验 id 唯一）。 */
+  const applyChatSkillEdit = async () => {
+    if (!chatSkillEditing) return
+    const id = chatSkillEditing.id.trim()
+    if (!id || !chatSkillEditing.name.trim() || !chatSkillEditing.content.trim()) {
+      onError(zh ? 'ID、名称与内容必填' : 'ID, name and content are required')
+      return
+    }
+    if (chatSkillEditing.isNew && chatSkills.some((s) => s.id === id)) {
+      onError(zh ? 'ID 已存在，请换一个' : 'ID already exists; pick another')
+      return
+    }
+    const entry: AIChatSkillDef = {
+      id,
+      name: chatSkillEditing.name.trim(),
+      description: chatSkillEditing.description.trim() || undefined,
+      icon: chatSkillEditing.icon.trim() || undefined,
+      content: chatSkillEditing.content,
+      enabled: chatSkillEditing.enabled,
+    }
+    try {
+      const saved = await adminPutAIChatSkills([...chatSkills.filter((s) => s.id !== id), entry])
+      setChatSkills(saved)
+      setChatSkillEditing(null)
+      onNotice(zh ? '对话技能已保存' : 'Chat skills saved')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    }
+  }
+
+  /** 删除对话技能（过滤后整块 PUT）。 */
+  const removeChatSkill = async (id: string) => {
+    try {
+      setChatSkills(await adminPutAIChatSkills(chatSkills.filter((s) => s.id !== id)))
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    }
+  }
+
+  /** 对话技能启用开关（整块 PUT 原地替换该条）。 */
+  const toggleChatSkill = async (id: string, enabled: boolean) => {
+    try {
+      setChatSkills(await adminPutAIChatSkills(chatSkills.map((s) => (s.id === id ? { ...s, enabled } : s))))
     } catch (err) {
       onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
     }
@@ -789,11 +924,19 @@ export default function AISettingsPanel({
 
   // ---- MCP 工具服务（独立 PUT /admin/settings/ai/mcp 整块读替，≤8 条）----
 
-  /** 现有列表（排除编辑中 id）→ PUT 载荷（auth_header 缺省 = 保持现值）。 */
+  /** 现有列表（排除编辑中 id）→ PUT 载荷（auth_header 缺省 = 保持现值；
+   *  已配置认证头按「键 + 空值」透传 = 继承现值，描述/超时/禁用工具回传）。 */
   const mcpPayload = (excludeID: string): AIMCPInput[] =>
     mcpServices
       .filter((s) => s.id !== excludeID)
-      .map((s) => ({ id: s.id, name: s.name, url: s.url, enabled: s.enabled }))
+      .map((s) => {
+        const e: AIMCPInput = { id: s.id, name: s.name, description: s.description, url: s.url, enabled: s.enabled }
+        const keys = s.auth_headers ?? []
+        if (keys.length > 0) e.headers = Object.fromEntries(keys.map((k) => [k, '']))
+        if (s.timeout_sec) e.timeout_sec = s.timeout_sec
+        if (s.disabled_tools && s.disabled_tools.length > 0) e.disabled_tools = s.disabled_tools
+        return e
+      })
 
   /** 保存 MCP 服务编辑（整块 PUT；新建时前端校验 id 唯一）。 */
   const applyMCPEdit = async () => {
@@ -810,11 +953,21 @@ export default function AISettingsPanel({
     const entry: AIMCPInput = {
       id,
       name: mcpEditing.name.trim(),
+      description: mcpEditing.description.trim() || undefined,
       url: mcpEditing.url.trim(),
       enabled: mcpEditing.enabled,
     }
     // auth_header 仅在填写时携带（留空 = 服务端保持现值，只写不读）。
     if (mcpEditing.auth_header.trim()) entry.auth_header = mcpEditing.auth_header.trim()
+    // 认证头：键非空的行生效，值可为空串（= 继承该键已配置值）。
+    const headers: Record<string, string> = {}
+    for (const h of mcpEditing.headersDraft) {
+      const k = h.key.trim()
+      if (k) headers[k] = h.value.trim()
+    }
+    if (Object.keys(headers).length > 0) entry.headers = headers
+    if (mcpEditing.timeoutSec > 0) entry.timeout_sec = mcpEditing.timeoutSec
+    if (mcpEditing.disabledTools.length > 0) entry.disabled_tools = [...mcpEditing.disabledTools]
     const next = [...mcpPayload(id), entry]
     if (next.length > 8) {
       onError(zh ? `最多 8 个 MCP 服务（当前 ${next.length} 条）` : 'At most 8 MCP services')
@@ -852,7 +1005,8 @@ export default function AISettingsPanel({
     }
   }
 
-  /** 编辑弹窗内测试：以表单当前草稿 url/auth_header 测试（未保存修改可直接验证）。 */
+  /** 编辑弹窗内测试：以表单当前草稿 url/auth_header/认证头/超时测试（未保存
+   *  修改可直接验证；认证头仅携带已填值的行——空值行测试时跳过）。 */
   const runMCPModalTest = async () => {
     if (!mcpEditing) return
     const url = mcpEditing.url.trim()
@@ -862,10 +1016,67 @@ export default function AISettingsPanel({
     }
     setMcpModalTest({ running: true, message: t(locale, 'adminAITesting') })
     try {
-      const r = await testAIMCP(url, mcpEditing.auth_header.trim() || undefined)
+      const draftHeaders: Record<string, string> = {}
+      for (const h of mcpEditing.headersDraft) {
+        const k = h.key.trim()
+        if (k && h.value.trim()) draftHeaders[k] = h.value.trim()
+      }
+      const r = await testAIMCP(
+        url,
+        mcpEditing.auth_header.trim() || undefined,
+        Object.keys(draftHeaders).length > 0 ? draftHeaders : undefined,
+        mcpEditing.timeoutSec > 0 ? mcpEditing.timeoutSec : undefined,
+      )
       setMcpModalTest(mcpTestState(r, zh))
     } catch (err) {
       setMcpModalTest({ running: false, ok: false, message: err instanceof Error ? err.message : t(locale, 'adminAITestFailed') })
+    }
+  }
+
+  /** 导出 MCP 服务为 mcpServers JSON 文件（docdyne-mcp-servers.json；密钥不导出）。 */
+  const exportMCP = async () => {
+    if (mcpExporting) return
+    setMcpExporting(true)
+    try {
+      const text = await exportAIMCP()
+      const blob = new Blob([text], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'docdyne-mcp-servers.json'
+      a.click()
+      URL.revokeObjectURL(url)
+      onNotice(zh ? '已导出 MCP 服务文件' : 'MCP services exported')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'loadFailed'))
+    } finally {
+      setMcpExporting(false)
+    }
+  }
+
+  /** 导入 mcpServers JSON（粘贴内容；stdio 条目后端跳过并说明原因）。 */
+  const applyMCPImport = async () => {
+    if (!mcpImport || mcpImporting) return
+    if (!mcpImport.content.trim()) {
+      onError(zh ? '请粘贴 {"mcpServers":{…}} JSON 内容' : 'Paste the {"mcpServers":{…}} JSON content')
+      return
+    }
+    setMcpImporting(true)
+    try {
+      const res = await importAIMCP(mcpImport.content)
+      setMcpServices(res.services ?? [])
+      setMcpImport(null)
+      const skipped = res.skipped ?? []
+      const skippedNote = skipped.length > 0
+        ? (zh
+          ? `；跳过 ${skipped.length} 条（${skipped.map((x) => `${x.name}：${x.reason}`).join('、')}）`
+          : `; ${skipped.length} skipped (${skipped.map((x) => `${x.name}: ${x.reason}`).join(', ')})`)
+        : ''
+      onNotice(zh ? `导入 ${res.imported} 新增 / ${res.updated} 更新${skippedNote}` : `Imported ${res.imported} new / ${res.updated} updated${skippedNote}`)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+    } finally {
+      setMcpImporting(false)
     }
   }
 
@@ -887,6 +1098,29 @@ export default function AISettingsPanel({
           onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
         } finally {
           setReindexing(false)
+        }
+      },
+    })
+  }
+
+  /** 重建会话向量索引（vector 档：全量会话消息重新向量化；未就绪时后端 400）。 */
+  const confirmHistoryReindex = () => {
+    modal.confirm({
+      title: zh ? '重建会话向量索引' : 'Rebuild conversation vector index',
+      content: zh
+        ? '将全部会话消息重新向量化（vector 模式需配置 Qdrant 与真实 embedding 模型）；会话较多时耗时较长，可在后台进行。'
+        : 'All conversation messages will be re-vectorized (vector mode requires Qdrant and a real embedding model); this may take a while with many conversations and can run in the background.',
+      okText: zh ? '重建' : 'Rebuild',
+      cancelText: t(locale, 'cancel'),
+      onOk: async () => {
+        setHistoryReindexing(true)
+        try {
+          const r = await reindexAIHistoryVector()
+          onNotice(zh ? `重建了 ${r.conversations} 个会话 / ${r.messages} 条消息` : `Rebuilt ${r.conversations} conversations / ${r.messages} messages`)
+        } catch (err) {
+          onError(err instanceof Error ? err.message : t(locale, 'saveFailed'))
+        } finally {
+          setHistoryReindexing(false)
         }
       },
     })
@@ -949,20 +1183,32 @@ export default function AISettingsPanel({
   const rerankOptions = dropMock(capabilityOptions('rerank'))
 
   return (
-    <div className="ai-admin-panel">
+    <div className="ai-admin-panel ai-settings-surface">
       {readOnly && <div className="hint" style={{ marginBottom: 12 }}>当前账号无管理员权限。以下为 AI 服务状态与可用模型；全局 Provider、RAG 与限流配置仅管理员可编辑。</div>}
-      <Card size="small" title={t(locale, 'adminAIProviders')} extra={!readOnly && (
-        <Button size="small" type="primary" onClick={() => setEditing({
-          id: `p${Date.now().toString(36)}`, name: '', kind: 'openai_compatible',
-          base_url: KIND_PRESETS.openai_compatible.baseURL, api_key: '',
-          models: [{ id: KIND_PRESETS.openai_compatible.model, label: '', caps: emptyCaps() }],
-          enabled: true, requestsPerMin: 0, dailyQuota: 0, isNew: true,
-        })}>
-          <Plus size={13} strokeWidth={2} aria-hidden="true" />
-          <span>{t(locale, 'adminAINew')}</span>
-        </Button>
-      )}>
-        <p className="hint">{t(locale, 'adminAIMockHint')}</p>
+      <Tabs
+        className="ai-admin-tabs"
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[{
+          key: 'providers',
+          label: zh ? '提供商' : 'Providers',
+          children: (
+            <div className="ai-tab-section">
+              <SettingsSection
+                title={t(locale, 'adminAIProviders')}
+                desc={t(locale, 'adminAIMockHint')}
+                extra={!readOnly && (
+                  <Button size="small" type="primary" onClick={() => setEditing({
+                    id: `p${Date.now().toString(36)}`, name: '', kind: 'openai_compatible',
+                    base_url: KIND_PRESETS.openai_compatible.baseURL, api_key: '',
+                    models: [{ id: KIND_PRESETS.openai_compatible.model, label: '', caps: emptyCaps() }],
+                    enabled: true, requestsPerMin: 0, dailyQuota: 0, isNew: true,
+                  })}>
+                    <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                    <span>{t(locale, 'adminAINew')}</span>
+                  </Button>
+                )}
+              >
         <div className="ai-provider-list">
           {envProvider && (
             <div className="ai-provider-card" key="env">
@@ -1027,12 +1273,15 @@ export default function AISettingsPanel({
             </div>
           ))}
         </div>
-      </Card>
-
-      {/* 默认项与全局兜底限流。 */}
-      <Card size="small" title={zh ? '默认项与限流' : 'Defaults & limits'} style={{ marginTop: 12 }}>
+              </SettingsSection>
+            </div>
+          )}, {
+          key: 'defaults',
+          label: zh ? '默认项与限流' : 'Defaults & limits',
+          children: (
+            <div className="ai-tab-section">
         {/* 总开关（ai.enabled）：关闭 = 全站隐藏 AI 入口 + 网关 404。 */}
-        <div className="ai-master-toggle" style={{ marginBottom: 12 }}>
+        <div className="ai-master-toggle">
           <label className="ai-rag-toggle">
             <Switch checked={aiEnabled} disabled={readOnly} onChange={(v) => { setAIEnabled(v); void save(undefined, v) }} />
             <span>{zh ? '启用 AI' : 'Enable AI'}</span>
@@ -1048,7 +1297,24 @@ export default function AISettingsPanel({
               disabled={readOnly}
               onChange={(v) => setDefaultProvider(v)}
               options={(data?.providers ?? []).filter((p) => p.enabled).map((p) => ({ value: p.id, label: `${p.name}（${p.id}）` }))}
-              style={{ minWidth: 220 }}
+            />
+          </label>
+          <label className="field">
+            <span>
+              {zh ? '默认人设' : 'Default persona'}
+              <Tooltip title={zh ? '平台级默认注入的对话人设；「不注入」= 不追加任何 system 人设（用户仍可在对话入口手动切换）。' : 'The platform persona injected into chats by default; "None" appends nothing (users can still pick one manually).'}>
+                <QuestionCircleOutlined style={{ marginLeft: 4, color: '#888' }} />
+              </Tooltip>
+            </span>
+            <Select
+              value={defaultPersona}
+              disabled={readOnly}
+              onChange={(v) => setDefaultPersona(v)}
+              options={[
+                { value: '', label: zh ? '不注入' : 'None' },
+                { value: 'builtin-assistant', label: zh ? '内置 · 默认助理' : 'Built-in assistant' },
+                ...personas.map((p) => ({ value: p.id, label: p.name })),
+              ]}
             />
           </label>
           {SCENARIOS.map((s) => (
@@ -1074,7 +1340,6 @@ export default function AISettingsPanel({
                   setDefaultModels(next)
                 }}
                 options={capabilityOptions(s.cap)}
-                style={{ minWidth: 220 }}
               />
             </label>
           ))}
@@ -1091,6 +1356,7 @@ export default function AISettingsPanel({
               placeholder={zh ? '未设置（失败即提示）' : 'Not set (fail with a notice)'}
               disabled={readOnly}
               maxCount={5}
+              maxTagCount="responsive"
               onChange={(vals: string[]) => {
                 setFallbackModels(vals.map((v) => {
                   const [provider_id, ...rest] = v.split('::')
@@ -1098,7 +1364,6 @@ export default function AISettingsPanel({
                 }))
               }}
               options={capabilityOptions('chat')}
-              style={{ minWidth: 320 }}
             />
           </label>
           <label className="field">
@@ -1119,12 +1384,15 @@ export default function AISettingsPanel({
             <InputNumber min={0} max={10000} value={perUserPerMin} disabled={readOnly} onChange={(v) => setPerUserPerMin(Number(v ?? 20))} />
           </label>
         </div>
-        <div className="modal-actions" style={{ marginTop: 8 }}>
+        <div className="modal-actions">
           {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
         </div>
-      </Card>
-
-      <Card size="small" title={zh ? '检索增强（RAG）' : 'Retrieval (RAG)'} style={{ marginTop: 12 }}>
+            </div>
+          )}, {
+          key: 'rag',
+          label: zh ? '检索增强（RAG）' : 'Retrieval (RAG)',
+          children: (
+            <div className="ai-tab-section">
         {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；RAG 配置将保留，启用 AI 后生效。' : 'AI is off; RAG settings are retained until AI is enabled.'}</p>}
         <p className="hint">
           {zh
@@ -1166,7 +1434,6 @@ export default function AISettingsPanel({
                 setRag({ ...rag, embedding_provider: provider_id, embedding_model: rest.join('::') })
               }}
               options={embeddingOptions}
-              style={{ minWidth: 220 }}
             />
           </label>
           <label className="field">
@@ -1187,7 +1454,6 @@ export default function AISettingsPanel({
                 setRag({ ...rag, rerank_provider: provider_id, rerank_model: rest.join('::') })
               }}
               options={rerankOptions}
-              style={{ minWidth: 220 }}
             />
           </label>
           <label className="field">
@@ -1219,28 +1485,34 @@ export default function AISettingsPanel({
           </label>
         </div>
         <p className="hint">{zh ? '仅 hybrid + 向量开启时连接 Qdrant；检索始终限制在关键词权限结果内。保存后生效（向量连接测试按已保存配置执行）。' : 'Qdrant is used only for enabled hybrid mode; hits are restricted to keyword-authorized files. Save to apply.'}</p>
-        {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
-        {/* 重建向量索引：切换 Embedding 模型后重建新向量库（全部文件重投索引任务）。 */}
-        {!readOnly && (
-          <Button style={{ marginLeft: 8 }} loading={reindexing} onClick={confirmReindex}>
-            {zh ? '重建向量索引' : 'Rebuild vector index'}
-          </Button>
-        )}
-        <Button style={{ marginLeft: 8 }} disabled={readOnly} loading={ragTest?.running} onClick={async () => {
-          setRagTest({ running: true, message: zh ? '测试中…' : 'Testing…' })
-          try { const r = await testAIRAG(); setRagTest({ running: false, ok: r.ok, message: r.ok ? (r.message ?? 'OK') : (r.error ?? 'Failed') }) }
-          catch (err) { setRagTest({ running: false, ok: false, message: err instanceof Error ? err.message : 'Failed' }) }
-        }}>{zh ? '测试向量连接（已保存配置）' : 'Test vector connection (saved settings)'}</Button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
+          {/* 重建向量索引：切换 Embedding 模型后重建新向量库（全部文件重投索引任务）。 */}
+          {!readOnly && (
+            <Button loading={reindexing} onClick={confirmReindex}>
+              {zh ? '重建向量索引' : 'Rebuild vector index'}
+            </Button>
+          )}
+          <Button disabled={readOnly} loading={ragTest?.running} onClick={async () => {
+            setRagTest({ running: true, message: zh ? '测试中…' : 'Testing…' })
+            try { const r = await testAIRAG(); setRagTest({ running: false, ok: r.ok, message: r.ok ? (r.message ?? 'OK') : (r.error ?? 'Failed') }) }
+            catch (err) { setRagTest({ running: false, ok: false, message: err instanceof Error ? err.message : 'Failed' }) }
+          }}>{zh ? '测试向量连接（已保存配置）' : 'Test vector connection (saved settings)'}</Button>
+        </div>
         {ragTest && <div className={ragTest.ok ? 'ok-text' : 'error-text'}>{ragTest.message}</div>}
-      </Card>
-
-      {/* 图片 OCR：图片建索引时经「视觉图片」能力模型提取文字入全文/向量索引。 */}
-      <Card size="small" title={zh ? '图片 OCR（图片 → 可检索文本）' : 'Image OCR (images → searchable text)'} style={{ marginTop: 12 }}>
+            </div>
+          )}, {
+          key: 'ocr',
+          label: zh ? '图片 OCR' : 'Image OCR',
+          children: (
+            <div className="ai-tab-section">
+        {/* 图片 OCR：仅当对话模型不支持图片时，用视觉模型把图片转文字兜底；
+            另用于图片文件建索引（提取文字入全文/向量索引）。 */}
         {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；OCR 配置将保留，启用 AI 后生效。' : 'AI is off; OCR settings are retained until AI is enabled.'}</p>}
         <p className="hint">
           {zh
-            ? '开启后，图片文件在建立索引时自动调用具备「视觉图片」能力的模型提取文字，提取结果进入全文与向量索引（仅影响开启后建立索引的文件；重新上传或修改文件会触发重建）。'
-            : 'When enabled, image files are processed at index time by a vision-capable model and the extracted text enters the full-text and vector indexes (only affects files indexed afterwards; re-uploading or modifying a file triggers a rebuild).'}
+            ? '图片输入的处理规则：对话模型勾选「视觉」能力时，图片直接发给模型（不走 OCR）；仅当模型不支持图片时，才用下方配置的视觉模型把图片转文字兜底（另用于图片文件建索引）。'
+            : 'How image inputs are handled: when the chat model has the "vision" capability checked, images go straight to the model (no OCR); only when the model cannot take images does the vision model configured below convert them to text as a fallback (also used to index image files).'}
         </p>
         <div className="ai-defaults-form">
           <label className="field">
@@ -1265,7 +1537,6 @@ export default function AISettingsPanel({
                 setOcr({ ...ocr, provider_id, model_id: rest.join('::') })
               }}
               options={capabilityOptions('vision')}
-              style={{ minWidth: 220 }}
             />
           </label>
           <label className="field">
@@ -1286,19 +1557,23 @@ export default function AISettingsPanel({
             />
           </label>
         </div>
-        <div className="modal-actions" style={{ marginTop: 8 }}>
+        <div className="modal-actions">
           {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
         </div>
-      </Card>
-
-      {/* 联网搜索：对话 web_search 增强（SearXNG / Tavily；随 ai 主设置保存）。 */}
-      <Card size="small" title={zh ? '联网搜索（对话 web_search 增强）' : 'Web search (chat web_search boost)'} style={{ marginTop: 12 }}>
+            </div>
+          )}, {
+          key: 'search',
+          label: zh ? '联网搜索' : 'Web search',
+          children: (
+            <div className="ai-tab-section">
+        {/* 联网搜索：对话 web_search 增强（SearXNG / Tavily / DuckDuckGo / Bing；随 ai 主设置保存）。 */}
         {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；联网搜索配置将保留，启用 AI 后生效。' : 'AI is off; web search settings are retained until AI is enabled.'}</p>}
         <p className="hint">
           {zh
             ? '配置后用户对话中的「联网」开关生效：回答前先检索网络并把结果注入上下文，来源经消息的「网络来源」折叠区回显；未配置时该开关静默忽略。'
             : 'Once configured, the chat "Web" toggle takes effect: searches run before answering and sources are shown in the message web-sources section; without a provider the toggle is silently ignored.'}
         </p>
+        <p className="hint">{zh ? '模型可在搜索结果中选定链接后，用内置 dd_fetch_url 工具抓取网页全文。' : 'The model can pick links from the search results and fetch the full page content via the built-in dd_fetch_url tool.'}</p>
         <div className="ai-defaults-form">
           <label className="field">
             <span>{zh ? '搜索引擎' : 'Search provider'}</span>
@@ -1310,8 +1585,9 @@ export default function AISettingsPanel({
                 { value: '', label: zh ? '未启用（web_search 静默忽略）' : 'Disabled (web_search ignored)' },
                 { value: 'searxng', label: zh ? 'SearXNG（自建元搜索）' : 'SearXNG (self-hosted metasearch)' },
                 { value: 'tavily', label: 'Tavily API' },
+                { value: 'duckduckgo', label: zh ? 'DuckDuckGo（内置免 Key；国内通常需代理）' : 'DuckDuckGo (built-in, free)' },
+                { value: 'bing', label: zh ? 'Bing（内置免 Key，国内可直连；非官方接口可能失效）' : 'Bing (built-in, free; unofficial)' },
               ]}
-              style={{ minWidth: 220 }}
             />
           </label>
           {search.provider === 'searxng' && (
@@ -1322,7 +1598,6 @@ export default function AISettingsPanel({
                 disabled={readOnly}
                 placeholder="http://searxng:8080"
                 onChange={(e) => setSearch({ ...search, searxng_url: e.target.value })}
-                style={{ minWidth: 260 }}
               />
             </label>
           )}
@@ -1337,10 +1612,19 @@ export default function AISettingsPanel({
                 disabled={readOnly}
                 placeholder={tavilyConfigured ? (zh ? '已配置（留空 = 保持现值）' : 'Configured (empty = keep)') : 'tvly-…'}
                 onChange={(e) => setSearch({ ...search, tavily_api_key: e.target.value })}
-                style={{ minWidth: 260 }}
               />
             </label>
           )}
+          <label className="field">
+            <span>{zh ? '出站代理（可选）' : 'Outbound proxy (optional)'}</span>
+            <Input
+              value={search.proxy_url ?? ''}
+              disabled={readOnly}
+              placeholder="http://127.0.0.1:7890"
+              onChange={(e) => setSearch({ ...search, proxy_url: e.target.value })}
+            />
+            <span className="hint">{zh ? '联网搜索/网页抓取出站代理；留空直连。DuckDuckGo 国内直连通常不可达，需配置代理（也支持环境变量 AI_OUTBOUND_PROXY 兜底）。' : 'Outbound proxy for web search and page fetching; empty = direct connection. DuckDuckGo is usually unreachable from mainland China without a proxy (the AI_OUTBOUND_PROXY env var acts as a fallback).'}</span>
+          </label>
           <label className="field">
             <span>
               {zh ? '结果条数上限' : 'Max results'}
@@ -1358,19 +1642,23 @@ export default function AISettingsPanel({
             />
           </label>
         </div>
-        <div className="modal-actions" style={{ marginTop: 8 }}>
+        <div className="modal-actions">
           {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
         </div>
-      </Card>
-
-      {/* 对话历史检索（v7.15 A8）：dd_search_history 工具开关，随 ai 主设置保存。 */}
-      <Card size="small" title={zh ? '对话历史检索（AI 工具）' : 'Conversation history search (AI tool)'} style={{ marginTop: 12 }}>
+            </div>
+          )}, {
+          key: 'history',
+          label: zh ? '对话历史检索' : 'History search',
+          children: (
+            <div className="ai-tab-section">
+        {/* 对话历史检索（v7.15 A8）：dd_search_history 工具（keyword/vector/off），随 ai 主设置保存。 */}
         {!aiEnabled && <p className="hint">{zh ? 'AI 已关闭；该配置将保留，启用 AI 后生效。' : 'AI is off; this setting is retained until AI is enabled.'}</p>}
         <p className="hint">
           {zh
             ? '控制 AI 对话中的 dd_search_history 工具：开启后模型可跨会话检索历史消息（含被上下文压缩掉的早期内容）；关闭则不注入该工具。检索为关键词子串匹配（中文有效），索引随会话写入自动维护。'
             : 'Controls the dd_search_history tool in AI chats: when on, the model can search conversation history across sessions (including early content compressed out of context); off removes the tool. Keyword substring matching (Chinese-friendly), indexed as conversations are saved.'}
         </p>
+        <p className="hint">{zh ? 'vector 模式将会话消息向量化（需配置 Qdrant 与真实 embedding，mock 无效）；不可用时自动降级关键字检索。' : 'Vector mode vectorizes conversation messages (requires Qdrant and a real embedding model; mock does not work) and automatically falls back to keyword search when unavailable.'}</p>
         <div className="ai-defaults-form">
           <label className="field">
             <span>{zh ? '检索模式' : 'Search mode'}</span>
@@ -1379,30 +1667,41 @@ export default function AISettingsPanel({
               disabled={readOnly}
               onChange={(v) => setHistorySearch(v)}
               options={[
-                { value: 'keyword', label: zh ? '关键词检索（默认）' : 'Keyword (default)' },
+                { value: 'keyword', label: zh ? '关键字检索' : 'Keyword search' },
+                { value: 'vector', label: zh ? '向量检索（RAG 语义召回）' : 'Vector (RAG semantic recall)' },
                 { value: 'off', label: zh ? '关闭（不注入工具）' : 'Off (tool not injected)' },
               ]}
-              style={{ minWidth: 220 }}
             />
           </label>
         </div>
-        <div className="modal-actions" style={{ marginTop: 8 }}>
+        <div className="modal-actions">
           {!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>{t(locale, 'adminAISave')}</Button>}
+          {/* 重建会话向量索引：vector 档全量会话消息重新向量化（未就绪时后端 400）。 */}
+          {!readOnly && (
+            <Button loading={historyReindexing} onClick={confirmHistoryReindex}>
+              {zh ? '重建会话向量索引' : 'Rebuild history vectors'}
+            </Button>
+          )}
         </div>
-      </Card>
-
-      {/* 平台人设：全员共用的 system 提示模板（独立端点整块读替，不入 putAISettings）。 */}
-      <Card size="small" title={zh ? '平台人设（系统提示词模板）' : 'Platform personas (system prompt templates)'} style={{ marginTop: 12 }} extra={!readOnly && (
-        <Button size="small" type="primary" onClick={() => setPersonaEditing({ id: '', name: '', system_prompt: '', isNew: true })}>
-          <Plus size={13} strokeWidth={2} aria-hidden="true" />
-          <span>{t(locale, 'adminAINew')}</span>
-        </Button>
-      )}>
-        <p className="hint">
-          {zh
-            ? '平台统一维护的 system 提示模板，全员在对话入口的人设下拉中选用（个人自备人设在 设置→AI 个人配置）。'
-            : 'Platform-wide system prompt templates; everyone picks them from the persona dropdown at the chat entry (personal personas live in Settings → AI personal config).'}
-        </p>
+            </div>
+          )}, {
+          key: 'personas',
+          label: zh ? '人设与规则' : 'Personas & rules',
+          children: (
+            <div className="ai-tab-section">
+              {/* 平台人设：全员共用的 system 提示模板（独立端点整块读替，不入 putAISettings）。 */}
+              <SettingsSection
+                title={zh ? '平台人设（系统提示词模板）' : 'Platform personas (system prompt templates)'}
+                desc={zh
+                  ? '平台统一维护的 system 提示模板，全员在对话入口的人设下拉中选用（个人自备人设在 设置→AI 个人配置）。'
+                  : 'Platform-wide system prompt templates; everyone picks them from the persona dropdown at the chat entry (personal personas live in Settings → AI personal config).'}
+                extra={!readOnly && (
+                  <Button size="small" type="primary" onClick={() => setPersonaEditing({ id: '', name: '', system_prompt: '', isNew: true })}>
+                    <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                    <span>{t(locale, 'adminAINew')}</span>
+                  </Button>
+                )}
+              >
         <div className="ai-provider-list">
           {personas.length === 0 && <div className="empty">{zh ? '尚无人设，点击右上角新建。' : 'No personas yet; create one.'}</div>}
           {personas.map((p) => (
@@ -1428,20 +1727,52 @@ export default function AISettingsPanel({
             </div>
           ))}
         </div>
-      </Card>
-
-      {/* 技能模板：快捷指令（独立端点整块读替）。 */}
-      <Card size="small" title={zh ? '技能模板（快捷指令）' : 'Skill templates (quick commands)'} style={{ marginTop: 12 }} extra={!readOnly && (
-        <Button size="small" type="primary" onClick={() => setSkillEditing({ id: '', name: '', description: '', prompt: '', enabled: true, isNew: true })}>
-          <Plus size={13} strokeWidth={2} aria-hidden="true" />
-          <span>{t(locale, 'adminAINew')}</span>
-        </Button>
-      )}>
-        <p className="hint">
-          {zh
-            ? '快捷指令模板（Skill），填充对话输入框或编辑器 AI 菜单；prompt 支持占位符 {selection}（编辑器选区）与 {file}（当前文件名）。'
-            : 'Quick command templates (Skills) that fill the chat input or the editor AI menu; prompt supports placeholders {selection} (editor selection) and {file} (current file name).'}
-        </p>
+              </SettingsSection>
+              {/* 平台规则：与用户个人规则叠加注入所有对话（独立端点，非覆盖）。 */}
+              <SettingsSection
+                title={zh ? '平台规则（追加注入所有对话）' : 'Platform rules (appended to every chat)'}
+                desc={zh ? '与用户个人规则叠加注入 system 提示（非覆盖）。' : 'Injected into the system prompt on top of personal rules (additive, not overriding).'}
+              >
+                <Input.TextArea
+                  rows={4}
+                  maxLength={4000}
+                  showCount
+                  value={rules}
+                  disabled={readOnly}
+                  placeholder={zh ? '例：回复保持简洁；代码给完整可运行示例…' : 'e.g. Keep replies concise; give complete runnable code samples…'}
+                  onChange={(e) => setRules(e.target.value)}
+                />
+                {!readOnly && (
+                  <div className="modal-actions" style={{ marginTop: 8 }}>
+                    <Button type="primary" loading={rulesSaving} onClick={() => void saveRules()}>{zh ? '保存规则' : 'Save rules'}</Button>
+                  </div>
+                )}
+              </SettingsSection>
+            </div>
+          )}, {
+          key: 'quickskills',
+          label: zh ? '快捷指令' : 'Quick commands',
+          children: (
+            <div className="ai-tab-section">
+              {/* 技能模板：快捷指令/提示词库（独立端点整块读替）。 */}
+              <SettingsSection
+                title={zh ? '快捷指令（提示词库）' : 'Quick commands (prompt library)'}
+                desc={<>
+                  {zh
+                    ? '快捷指令模板（Skill），填充对话输入框或编辑器 AI 菜单；prompt 支持占位符 {selection}（编辑器选区）与 {file}（当前文件名）。'
+                    : 'Quick command templates (Skills) that fill the chat input or the editor AI menu; prompt supports placeholders {selection} (editor selection) and {file} (current file name).'}
+                  <br />
+                  {zh
+                    ? '选中后把 prompt 填入对话输入框（支持 {selection}/{file} 占位符）。与「对话技能」相区别：技能是整段注入 system 的行为规范。'
+                    : 'Selecting one fills its prompt into the chat input (supports {selection}/{file} placeholders). Unlike "chat skills", a skill injects a whole behavior spec into the system prompt.'}
+                </>}
+                extra={!readOnly && (
+                  <Button size="small" type="primary" onClick={() => setSkillEditing({ id: '', name: '', description: '', prompt: '', enabled: true, isNew: true })}>
+                    <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                    <span>{t(locale, 'adminAINew')}</span>
+                  </Button>
+                )}
+              >
         <div className="ai-provider-list">
           {skills.length === 0 && <div className="empty">{zh ? '尚无技能模板，点击右上角新建。' : 'No skills yet; create one.'}</div>}
           {skills.map((s) => (
@@ -1479,11 +1810,86 @@ export default function AISettingsPanel({
             </div>
           ))}
         </div>
-      </Card>
-
-      {/* Agent 技能包：编辑页 Agent 循环的包级增强（I 批次：版本/变更日志 + 导入导出 + 使用统计）。 */}
-      <Card size="small" title={zh ? 'Agent 技能包（编辑页 Agent 循环）' : 'Agent packages (editor agent loop)'} style={{ marginTop: 12 }} extra={!readOnly && (
-        <span style={{ display: 'inline-flex', gap: 4 }}>
+              </SettingsSection>
+            </div>
+          )}, {
+          key: 'chatskills',
+          label: zh ? '对话技能' : 'Chat skills',
+          children: (
+            <div className="ai-tab-section">
+              {/* 对话技能（Cherry Studio 式 Skills；独立端点整块读替，≤50 条）。 */}
+              <SettingsSection
+                title={zh ? '对话技能（Skills）' : 'Chat skills (Skills)'}
+                desc={zh
+                  ? 'Cherry Studio 式 Skills：用户在对话中选用后，Markdown 内容整段注入该轮 system 提示；平台+个人按 id 增量合并（个人覆盖平台）。内置技能（翻译/润色/总结/头脑风暴）编译期固化，只读。'
+                  : 'Cherry Studio-style skills: once picked in a chat, the Markdown content is injected whole into that turn system prompt; platform and personal skills merge by id (personal overrides platform). Built-in skills (translate/polish/summarize/brainstorm) are compiled in and read-only.'}
+                extra={!readOnly && (
+                  <Button size="small" type="primary" disabled={chatSkills.length >= 50} onClick={() => setChatSkillEditing({ id: '', name: '', icon: '', description: '', content: '', enabled: true, isNew: true })}>
+                    <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                    <span>{t(locale, 'adminAINew')}</span>
+                  </Button>
+                )}
+              >
+        <div className="ai-provider-list">
+          {chatSkills.length === 0 && <div className="empty">{zh ? '尚无对话技能，点击右上角新建。' : 'No chat skills yet; create one.'}</div>}
+          {chatSkills.map((s) => (
+            <div className="ai-provider-card" key={s.id}>
+              <div className="ai-provider-main">
+                <div className="ai-provider-name">
+                  {s.name}
+                  <Tag>{s.id}</Tag>
+                  {s.icon && <Tag>{s.icon}</Tag>}
+                  {s.enabled === false && <Tag>{zh ? '已停用' : 'Disabled'}</Tag>}
+                </div>
+                {s.description && <div className="muted">{s.description}</div>}
+                <div className="muted" title={s.content}>{s.content.length > 120 ? `${s.content.slice(0, 120)}…` : s.content}</div>
+              </div>
+              {!readOnly && (
+                <div className="ai-provider-actions">
+                  <Tooltip title={s.enabled === false ? (zh ? '启用' : 'Enable') : (zh ? '停用' : 'Disable')}>
+                    <Switch size="small" checked={s.enabled !== false} onChange={(v) => void toggleChatSkill(s.id, v)} />
+                  </Tooltip>
+                  <Tooltip title={zh ? '复制内容' : 'Copy content'}>
+                    <Button size="small" onClick={() => { void navigator.clipboard?.writeText(s.content); onNotice(zh ? '已复制' : 'Copied') }}>
+                      <Copy size={13} strokeWidth={2} aria-hidden="true" />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t(locale, 'adminAIEdit')}>
+                    <Button size="small" onClick={() => setChatSkillEditing({ id: s.id, name: s.name, icon: s.icon ?? '', description: s.description ?? '', content: s.content, enabled: s.enabled !== false, isNew: false })}>
+                      <Pencil size={13} strokeWidth={2} aria-hidden="true" />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t(locale, 'adminAIDelete')}>
+                    <Button size="small" danger onClick={() => void removeChatSkill(s.id)}>
+                      <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+                    </Button>
+                  </Tooltip>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+              </SettingsSection>
+            </div>
+          )}, {
+          key: 'agentpackages',
+          label: zh ? '编辑器 Agent 包' : 'Editor agent packages',
+          children: (
+            <div className="ai-tab-section">
+              {/* Agent 技能包：编辑页 Agent 循环的包级增强（I 批次：版本/变更日志 + 导入导出 + 使用统计）。 */}
+              <SettingsSection
+                title={zh ? '编辑器 Agent 包' : 'Editor agent packages'}
+                desc={<>
+                  {zh
+                    ? '为 Monaco/白板/富文本等编辑器的 AI Agent 提供系统规范与工具白名单；编辑页 AI 面板下拉选用。内置包（Excel 报表专家/图表架构师/文档审校）编译期固化只读，此处管理平台自定义包。'
+                    : 'System specs and tool allowlists for AI agents in the Monaco/whiteboard/rich-text editors; picked from the editor AI panel dropdown. Built-in packages (Excel report expert / chart architect / document reviewer) are compiled in and read-only; manage custom platform packages here.'}
+                  <br />
+                  {zh
+                    ? '编辑页 AI 面板「技能包」下拉的数据源（内置包编译期固化，不在此列）。包 = system 附加段 + 工具白名单 + 适用文档类型；选中后注入 Agent 提示。使用次数来自 ai.chat 审计（携带包的对话），受审计保留期约束。'
+                    : 'Source of the "package" dropdown in the editor AI panel (builtin packages are compiled in and not listed). A package = system add-on + tool allowlist + applicable doc kinds; it is injected into the agent prompt once selected. Usage counts come from ai.chat audit rows (chats carrying a package) within the audit retention window.'}
+                </>}
+                extra={!readOnly && (
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
           <Dropdown
             trigger={['click']}
             menu={{
@@ -1513,13 +1919,9 @@ export default function AISettingsPanel({
             <Plus size={13} strokeWidth={2} aria-hidden="true" />
             <span>{t(locale, 'adminAINew')}</span>
           </Button>
-        </span>
-      )}>
-        <p className="hint">
-          {zh
-            ? '编辑页 AI 面板「技能包」下拉的数据源（内置包编译期固化，不在此列）。包 = system 附加段 + 工具白名单 + 适用文档类型；选中后注入 Agent 提示。使用次数来自 ai.chat 审计（携带包的对话），受审计保留期约束。'
-            : 'Source of the "package" dropdown in the editor AI panel (builtin packages are compiled in and not listed). A package = system add-on + tool allowlist + applicable doc kinds; it is injected into the agent prompt once selected. Usage counts come from ai.chat audit rows (chats carrying a package) within the audit retention window.'}
-        </p>
+                </span>
+                )}
+              >
         <div className="ai-provider-list">
           {agentPackages.length === 0 && <div className="empty">{zh ? '尚无平台技能包，点击右上角新建或导入。' : 'No platform packages yet; create or import one.'}</div>}
           {agentPackages.map((p) => {
@@ -1569,20 +1971,36 @@ export default function AISettingsPanel({
             )
           })}
         </div>
-      </Card>
-
-      {/* MCP 工具服务：外部 MCP 服务器（Streamable HTTP）；对话开启「MCP 工具」后可被调用。 */}
-      <Card size="small" title={zh ? 'MCP 工具服务' : 'MCP tool services'} style={{ marginTop: 12 }} extra={!readOnly && (
-        <Button size="small" type="primary" disabled={mcpServices.length >= 8} onClick={() => setMcpEditing({ id: '', name: '', url: '', auth_header: '', enabled: true, isNew: true })}>
-          <Plus size={13} strokeWidth={2} aria-hidden="true" />
-          <span>{t(locale, 'adminAINew')}</span>
-        </Button>
-      )}>
-        <p className="hint">
-          {zh
-            ? 'AI 对话开启「MCP 工具」后，模型可调用此处配置的外部 MCP 服务器工具（Streamable HTTP 端点，如 http://host/mcp）；密钥仅保存不回显。'
-            : 'Once "MCP tools" is enabled in AI chat, the model can call external MCP server tools configured here (Streamable HTTP endpoints, e.g. http://host/mcp); secrets are stored but never echoed back.'}
-        </p>
+              </SettingsSection>
+            </div>
+          )}, {
+          key: 'mcp',
+          label: zh ? 'MCP 服务' : 'MCP services',
+          children: (
+            <div className="ai-tab-section">
+              {/* MCP 工具服务：外部 MCP 服务器（Streamable HTTP）；对话开启「MCP 工具」后可被调用。 */}
+              <SettingsSection
+                title={zh ? 'MCP 服务' : 'MCP services'}
+                desc={zh
+                  ? 'AI 对话开启「MCP 工具」后，模型可调用此处配置的外部 MCP 服务器工具（Streamable HTTP 端点，如 http://host/mcp）；密钥仅保存不回显。'
+                  : 'Once "MCP tools" is enabled in AI chat, the model can call external MCP server tools configured here (Streamable HTTP endpoints, e.g. http://host/mcp); secrets are stored but never echoed back.'}
+                extra={!readOnly && (
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
+                    <Button size="small" loading={mcpExporting} onClick={() => void exportMCP()}>
+                      <Download size={13} strokeWidth={2} aria-hidden="true" />
+                      <span>{zh ? '导出' : 'Export'}</span>
+                    </Button>
+                    <Button size="small" onClick={() => setMcpImport({ content: '' })}>
+                      <Upload size={13} strokeWidth={2} aria-hidden="true" />
+                      <span>{zh ? '导入' : 'Import'}</span>
+                    </Button>
+                    <Button size="small" type="primary" disabled={mcpServices.length >= 8} onClick={() => setMcpEditing({ id: '', name: '', description: '', url: '', auth_header: '', headersDraft: [], timeoutSec: 0, disabledTools: [], enabled: true, isNew: true })}>
+                      <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                      <span>{t(locale, 'adminAINew')}</span>
+                    </Button>
+                  </span>
+                )}
+              >
         <div className="ai-provider-list">
           {mcpServices.length === 0 && <div className="empty">{zh ? '尚无 MCP 服务，点击右上角新建。' : 'No MCP services yet; create one.'}</div>}
           {mcpServices.map((s) => (
@@ -1592,7 +2010,14 @@ export default function AISettingsPanel({
                   {s.name}
                   <Tag color={s.enabled ? 'green' : 'default'}>{s.enabled ? t(locale, 'adminAIEnabled') : (zh ? '停用' : 'Disabled')}</Tag>
                   {s.auth_header_configured && <Tag color="blue">{zh ? '密钥已配置' : 'Secret configured'}</Tag>}
+                  {(s.auth_headers ?? []).map((k) => (
+                    <Tag key={k}>{k}</Tag>
+                  ))}
+                  {!!s.disabled_tools?.length && (
+                    <Tag color="orange">{zh ? `禁用 ${s.disabled_tools.length} 工具` : `${s.disabled_tools.length} tools disabled`}</Tag>
+                  )}
                 </div>
+                {s.description && <div className="muted">{s.description}</div>}
                 <div className="muted" title={s.url}>{s.id} · {s.url}</div>
                 {mcpTests[s.id] && <MCPTestResult state={mcpTests[s.id]} zh={zh} />}
               </div>
@@ -1604,7 +2029,7 @@ export default function AISettingsPanel({
                     </Button>
                   </Tooltip>
                   <Tooltip title={t(locale, 'adminAIEdit')}>
-                    <Button size="small" onClick={() => setMcpEditing({ id: s.id, name: s.name, url: s.url, auth_header: '', enabled: s.enabled, isNew: false })}>
+                    <Button size="small" onClick={() => setMcpEditing({ id: s.id, name: s.name, description: s.description ?? '', url: s.url, auth_header: '', headersDraft: (s.auth_headers ?? []).map((k) => ({ key: k, value: '' })), timeoutSec: s.timeout_sec ?? 0, disabledTools: [...(s.disabled_tools ?? [])], enabled: s.enabled, isNew: false })}>
                       <Pencil size={13} strokeWidth={2} aria-hidden="true" />
                     </Button>
                   </Tooltip>
@@ -1621,11 +2046,15 @@ export default function AISettingsPanel({
         <p className="muted" style={{ marginTop: 8 }}>
           {zh ? `最多 8 个服务（当前 ${mcpServices.length}/8）；仅启用项对登录用户可见。` : `Up to 8 services (${mcpServices.length}/8); only enabled ones are visible to users.`}
         </p>
-      </Card>
-
-      {/* 用量统计（G2/G3：用户 / 会话 / 工具三维度）。 */}
-      <Card size="small" title={t(locale, 'adminAIUsage')} style={{ marginTop: 12 }} extra={
-        <div className="ai-usage-filters">
+              </SettingsSection>
+            </div>
+          )}, {
+          key: 'usage',
+          label: t(locale, 'adminAIUsage'),
+          children: (
+            <div className="ai-tab-section">
+        {/* 用量统计（G2/G3：用户 / 会话 / 工具三维度）。 */}
+        <div className="ai-usage-filters" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <Select
             size="small"
             style={{ width: zh ? 110 : 120 }}
@@ -1645,7 +2074,6 @@ export default function AISettingsPanel({
           <input type="date" aria-label={t(locale, 'adminAITo')} value={usageTo} onChange={(e) => setUsageTo(e.target.value)} />
           <Button size="small" loading={usageLoading} onClick={() => void loadUsage()}>{t(locale, 'refresh')}</Button>
         </div>
-      }>
         {usageBy === 'conversation' ? (
           <Table
             size="small"
@@ -1699,7 +2127,9 @@ export default function AISettingsPanel({
             ? (zh ? `合计 ${usageTotal.calls} 次 · 成功 ${usageTotal.tokens} 次（统计窗受审计保留期约束）` : `${usageTotal.calls} calls · ${usageTotal.tokens} ok (bounded by audit retention)`)
             : (zh ? '合计' : 'Total') + `：${usageTotal.calls} ` + (zh ? '次' : 'calls') + ` · ${usageTotal.tokens} tokens`}
         </div>
-      </Card>
+            </div>
+          )},
+        ]} />
 
       {/* 新建/编辑 Provider 弹窗（多模型 + Provider 级限流）。 */}
       {editing && (
@@ -1909,6 +2339,47 @@ export default function AISettingsPanel({
         </Modal>
       )}
 
+      {/* 新建/编辑对话技能弹窗（Cherry Studio 式 Skills：Markdown 整段注入该轮 system）。 */}
+      {chatSkillEditing && (
+        <Modal
+          title={chatSkillEditing.isNew
+            ? (zh ? '新建对话技能' : 'New chat skill')
+            : `${zh ? '编辑对话技能' : 'Edit chat skill'}：${chatSkillEditing.name}`}
+          onClose={() => setChatSkillEditing(null)}
+        >
+          <div className="ai-provider-form">
+            <label className="field">
+              <span>ID{zh ? '（唯一标识，≤64，保存后不可改）' : ' (unique key, ≤64)'}</span>
+              <Input value={chatSkillEditing.id} maxLength={64} disabled={!chatSkillEditing.isNew} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, id: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '名称（≤64）' : 'Name (≤64)'}</span>
+              <Input value={chatSkillEditing.name} maxLength={64} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, name: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '图标（可选，lucide 图标名）' : 'Icon (optional, lucide name)'}</span>
+              <Input value={chatSkillEditing.icon} maxLength={64} placeholder={zh ? 'lucide 图标名，如 languages' : 'lucide icon name, e.g. languages'} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, icon: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '描述（可选，≤200）' : 'Description (optional, ≤200)'}</span>
+              <Input value={chatSkillEditing.description} maxLength={200} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, description: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '启用（停用后用户侧不可见）' : 'Enabled (hidden from users when off)'}</span>
+              <Switch checked={chatSkillEditing.enabled} onChange={(v) => setChatSkillEditing({ ...chatSkillEditing, enabled: v })} />
+            </label>
+            <label className="field">
+              <span>{zh ? '内容（Markdown 指令，≤4000；选用后整段注入该轮 system 提示）' : 'Content (Markdown instructions, ≤4000; injected whole into that turn system prompt)'}</span>
+              <Input.TextArea rows={8} maxLength={4000} value={chatSkillEditing.content} placeholder={zh ? 'Markdown 指令…' : 'Markdown instructions…'} onChange={(e) => setChatSkillEditing({ ...chatSkillEditing, content: e.target.value })} />
+            </label>
+          </div>
+          <div className="modal-actions">
+            <Button type="primary" onClick={() => void applyChatSkillEdit()}>{t(locale, 'adminAISave')}</Button>
+            <Button onClick={() => setChatSkillEditing(null)}>{t(locale, 'cancel')}</Button>
+          </div>
+        </Modal>
+      )}
+
       {/* 新建/编辑 Agent 技能包弹窗（I 批次：版本 + 变更日志）。 */}
       {pkgEditing && (
         <Modal
@@ -2040,6 +2511,27 @@ export default function AISettingsPanel({
         </Modal>
       )}
 
+      {/* MCP mcpServers JSON 导入弹窗（粘贴内容；stdio 条目后端跳过并说明原因）。 */}
+      {mcpImport && (
+        <Modal title={zh ? '导入 MCP 服务' : 'Import MCP services'} onClose={() => setMcpImport(null)}>
+          <div className="ai-provider-form">
+            <label className="field">
+              <span>{zh ? '内容（粘贴 mcpServers JSON；stdio 条目自动跳过）' : 'Content (paste the mcpServers JSON; stdio entries are skipped)'}</span>
+              <Input.TextArea
+                rows={10}
+                value={mcpImport.content}
+                onChange={(e) => setMcpImport({ ...mcpImport, content: e.target.value })}
+                placeholder={zh ? '粘贴 {"mcpServers":{"名称":{"url":"https://…","headers":{…}}}}' : 'Paste {"mcpServers":{"name":{"url":"https://…","headers":{…}}}}'}
+              />
+            </label>
+          </div>
+          <div className="modal-actions">
+            <Button type="primary" loading={mcpImporting} onClick={() => void applyMCPImport()}>{zh ? '导入' : 'Import'}</Button>
+            <Button onClick={() => setMcpImport(null)}>{t(locale, 'cancel')}</Button>
+          </div>
+        </Modal>
+      )}
+
       {/* 新建/编辑 MCP 工具服务弹窗（Streamable HTTP 端点 + 密钥只写不读）。 */}
       {mcpEditing && (
         <Modal
@@ -2073,6 +2565,10 @@ export default function AISettingsPanel({
               <Input value={mcpEditing.name} maxLength={64} onChange={(e) => setMcpEditing({ ...mcpEditing, name: e.target.value })} />
             </label>
             <label className="field">
+              <span>{zh ? '描述（可选，≤200）' : 'Description (optional, ≤200)'}</span>
+              <Input value={mcpEditing.description} maxLength={200} onChange={(e) => setMcpEditing({ ...mcpEditing, description: e.target.value })} />
+            </label>
+            <label className="field">
               <span>{zh ? 'URL（Streamable HTTP 端点）' : 'URL (Streamable HTTP endpoint)'}</span>
               <Input value={mcpEditing.url} maxLength={512} placeholder="http://host/mcp" onChange={(e) => setMcpEditing({ ...mcpEditing, url: e.target.value })} />
             </label>
@@ -2085,11 +2581,66 @@ export default function AISettingsPanel({
                 onChange={(e) => setMcpEditing({ ...mcpEditing, auth_header: e.target.value })}
               />
             </label>
+            {/* 多认证头：键必填、值留空 = 保持已配置值；删除行 = 移除该头。 */}
+            <div className="field">
+              <span>{zh ? '认证头（附加自定义 Header）' : 'Auth headers (custom headers)'}</span>
+              {mcpEditing.headersDraft.map((h, i) => (
+                <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <Input
+                    style={{ width: 180 }}
+                    placeholder="X-Api-Key"
+                    value={h.key}
+                    onChange={(e) => setMcpEditing({ ...mcpEditing, headersDraft: mcpEditing.headersDraft.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)) })}
+                  />
+                  <Input.Password
+                    placeholder={zh ? '留空 = 保持已配置值' : 'Empty = keep the configured value'}
+                    autoComplete="new-password"
+                    value={h.value}
+                    onChange={(e) => setMcpEditing({ ...mcpEditing, headersDraft: mcpEditing.headersDraft.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })}
+                  />
+                  <Button size="small" type="text" danger onClick={() => setMcpEditing({ ...mcpEditing, headersDraft: mcpEditing.headersDraft.filter((_, j) => j !== i) })}>
+                    <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+                  </Button>
+                </div>
+              ))}
+              <div>
+                <Button size="small" disabled={mcpEditing.headersDraft.length >= 8} onClick={() => setMcpEditing({ ...mcpEditing, headersDraft: [...mcpEditing.headersDraft, { key: '', value: '' }] })}>
+                  <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                  <span>{zh ? '添加认证头' : 'Add header'}</span>
+                </Button>
+              </div>
+            </div>
+            <label className="field">
+              <span>
+                {zh ? '超时（秒）' : 'Timeout (seconds)'}
+                <Tooltip title={zh ? '单服务请求超时；0 = 默认 8 秒，上限 60。' : 'Per-service request timeout; 0 = default 8s, max 60.'}>
+                  <QuestionCircleOutlined style={{ marginLeft: 4, color: '#888' }} />
+                </Tooltip>
+              </span>
+              <InputNumber min={0} max={60} value={mcpEditing.timeoutSec || undefined} placeholder={zh ? '默认 8' : 'Default 8'} onChange={(v) => setMcpEditing({ ...mcpEditing, timeoutSec: Number(v ?? 0) })} />
+            </label>
+            <label className="field">
+              <span>
+                {zh ? '禁用工具' : 'Disabled tools'}
+                <Tooltip title={zh ? '注入对话时跳过已勾选工具的声明。' : 'Checked tools are not declared when injected into chats.'}>
+                  <QuestionCircleOutlined style={{ marginLeft: 4, color: '#888' }} />
+                </Tooltip>
+              </span>
+              <Select
+                mode="multiple"
+                size="small"
+                allowClear
+                value={mcpEditing.disabledTools}
+                options={(mcpModalTest?.toolNames ?? []).map((n) => ({ value: n, label: n }))}
+                onChange={(v) => setMcpEditing({ ...mcpEditing, disabledTools: v })}
+              />
+              <span className="hint">{zh ? '先「测试连接」拉取工具列表后勾选要禁用的工具。' : 'Run "Test connection" first to list tools, then pick the ones to disable.'}</span>
+            </label>
             <label className="check-item">
               <Switch checked={mcpEditing.enabled} onChange={(v) => setMcpEditing({ ...mcpEditing, enabled: v })} />
               <span>{t(locale, 'adminAIEnabled')}</span>
             </label>
-            {/* 草稿测试结果（测试按表单当前 url/auth_header，未保存修改可直接验证）。 */}
+            {/* 草稿测试结果（测试按表单当前 url/密钥/认证头/超时，未保存修改可直接验证）。 */}
             {mcpModalTest && <MCPTestResult state={mcpModalTest} zh={zh} />}
           </div>
           <div className="modal-actions">

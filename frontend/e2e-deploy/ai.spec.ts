@@ -354,14 +354,17 @@ test.describe.serial('AI 基座验收', () => {
     const data = await usage.json()
     expect(data.total.calls).toBeGreaterThanOrEqual(1)
     expect(data.total.tokens).toBeGreaterThanOrEqual(1)
-    // UI：管理面板用量表有行。
+    // UI：管理面板用量表有行（AI 设置已 Tabs 化——先切「用量统计」页签）。
     await openAuthed(page, '/admin/ai')
+    await page.getByRole('tab', { name: '用量统计' }).click()
     await expect(page.locator('.ai-admin-panel table tbody tr').first()).toBeVisible({ timeout: 15000 })
   })
 
   // ------------------------------------------- 9 总开关关闭 → 全站隐藏 + 404
   test('9 总开关 ai.enabled 关闭：入口隐藏 + 网关 404（配置保留）', async ({ page }) => {
     await openAuthed(page, '/admin/ai')
+    // 总开关在「默认项与限流」页签（AI 设置已 Tabs 化）。
+    await page.getByRole('tab', { name: '默认项与限流' }).click()
     // 面板总开关当前 on；切到 off（触发保存）。
     const toggle = page.locator('.ai-master-toggle .ant-switch')
     await expect(toggle).toHaveClass(/ant-switch-checked/)

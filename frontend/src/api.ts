@@ -2850,6 +2850,9 @@ export interface AIChatOptions {
   /** Agent 技能包 id（可选）：编辑页 Agent 循环携带；进 ai.chat 审计
    *  metadata.package 供管理端统计各技能包使用次数。 */
   agent_package?: string
+  /** 对话技能 id（可选，Cherry Studio 式 Skills）：合并视图按 id 解析
+   *  （内置 → 平台启用 → 个人），内容整段注入本轮 system；未命中/停用 400。 */
+  chatSkill?: string
 }
 
 /** AI 对话流式回调集合。 */
@@ -2890,6 +2893,7 @@ export async function aiChat(opts: AIChatOptions, handlers: AIChatStreamHandlers
   if (opts.work_root) body.work_root = opts.work_root
   if (opts.conversation_id) body.conversation_id = opts.conversation_id
   if (opts.agent_package) body.agent_package = opts.agent_package
+  if (opts.chatSkill) body.chat_skill = opts.chatSkill
   if (opts.reasoning_effort) body.reasoning_effort = opts.reasoning_effort
   if (opts.context_budget) body.context_budget = opts.context_budget
   if (opts.ragQuery !== undefined || opts.fileIds !== undefined) {
@@ -3173,14 +3177,17 @@ export interface AIPlatformPersona {
   system_prompt: string
 }
 
-/** 联网搜索配置（对话 web_search 增强）：provider ''=禁用 / searxng / tavily；
- *  tavily_api_key 只写不读（空 = 保持现值），GET 回显 tavily_api_key_configured。 */
+/** 联网搜索配置（对话 web_search 增强）：provider ''=禁用 / searxng /
+ *  tavily / duckduckgo / bing（后两者内置免 Key，非官方页面解析可能失效）；
+ *  tavily_api_key 只写不读（空 = 保持现值），GET 回显 tavily_api_key_configured；
+ *  proxy_url 出站代理（非密钥明文；env AI_OUTBOUND_PROXY 兜底，库值优先）。 */
 export interface AISearchSettings {
   provider: string
   searxng_url: string
   max_results: number
   tavily_api_key?: string
   tavily_api_key_configured?: boolean
+  proxy_url?: string
 }
 
 export interface AISettingsData {
@@ -3198,8 +3205,10 @@ export interface AISettingsData {
   ocr?: AIOCRSettings
   /** 联网搜索（GET/PUT /admin/settings/ai 响应字段；旧后端缺省）。 */
   search?: AISearchSettings
-  /** 对话历史检索（v7.15 A8）：'keyword'（默认）| 'off'；旧后端缺省 = keyword。 */
+  /** 对话历史检索：'keyword'（默认）| 'vector'（语义召回，不可用自动降级 keyword）| 'off'；旧后端缺省 = keyword。 */
   history_search?: string
+  /** 默认人设 id（空/缺省 = 不注入；builtin- 前缀或平台 personas id）。 */
+  default_persona?: string | null
   /** 备选模型链（H2）：普通对话首选上游失败且零增量时依序切换；旧后端缺省 = 空。 */
   fallback_models?: AIModelRef[]
   env: { enabled: boolean; base_url: string; model: string }
@@ -3237,8 +3246,10 @@ export async function putAISettings(input: {
   personas?: AIPlatformPersona[]
   ocr?: AIOCRSettings
   search?: AISearchSettings
-  /** 对话历史检索（'keyword' | 'off'；缺省 = 保持现值）。 */
+  /** 对话历史检索（'keyword' | 'vector' | 'off'；缺省 = 保持现值）。 */
   history_search?: string
+  /** 默认人设 id（空串 = 显式清除不注入；builtin- 前缀或平台 personas id）。 */
+  default_persona?: string
   /** 备选模型链（H2；缺省 = 保持现值，空数组 = 清空）。 */
   fallback_models?: AIModelRef[]
 }): Promise<AISettingsData> {
@@ -3292,22 +3303,36 @@ export async function testAIRAG(): Promise<{ ok: boolean; message?: string; erro
 
 // ---------- 平台 MCP 工具服务（管理员 /admin/settings/ai/mcp；登录侧 /ai/mcp） ----------
 
-/** 管理端 MCP 服务视图（auth_header 永不回显，仅报 configured）。 */
+/** 管理端 MCP 服务视图（auth_header 与 headers 值永不回显，仅报 configured
+ *  与 headers 键名列表）。 */
 export interface AIMCPAdminView {
   id: string
   name: string
+  description?: string
   /** Streamable HTTP 端点（如 http://host/mcp）。 */
   url: string
   enabled: boolean
   auth_header_configured: boolean
+  /** 多认证头键名列表（值不回显）。 */
+  auth_headers?: string[]
+  headers_configured?: boolean
+  /** 单服务请求超时（0=默认 8s，上限 60）。 */
+  timeout_sec?: number
+  /** 禁用的原始工具名（注入对话时跳过声明）。 */
+  disabled_tools?: string[]
 }
 
-/** MCP 服务 PUT 条目（整块保存，≤8 条；auth_header 留空 = 保持现值）。 */
+/** MCP 服务 PUT 条目（整块保存，≤8 条；auth_header 留空 = 保持现值；
+ *  headers 值留空 = 按 ID+键继承现值）。 */
 export interface AIMCPInput {
   id: string
   name: string
+  description?: string
   url: string
   auth_header?: string
+  headers?: Record<string, string>
+  timeout_sec?: number
+  disabled_tools?: string[]
   enabled: boolean
 }
 
@@ -3329,25 +3354,147 @@ export async function getAIMCPServices(): Promise<{ id: string; name: string }[]
   return data.services ?? []
 }
 
-/** MCP 服务连通性测试结果（HTTP 恒 200；ok=false 时 error 给出原因）。 */
+/** MCP 服务连通性测试结果（HTTP 恒 200；ok=false 时 error 给出原因）。
+ *  tool_list 为全量工具预览（≤200 条，供「禁用单个工具」选择）。 */
 export interface AIMCPTestResult {
   ok: boolean
   tools: number
   names: string[]
+  tool_list?: { name: string; description: string }[]
   latency_ms: number
   error?: string
 }
 
-/** 测试 MCP 服务连通性（POST {url, auth_header?}；返回工具数/名称/延迟）。 */
-export async function testAIMCP(url: string, authHeader?: string): Promise<AIMCPTestResult> {
-  const body: { url: string; auth_header?: string } = { url }
+/** 测试 MCP 服务连通性（POST {url, auth_header?, headers?, timeout_sec?}；
+ *  返回工具数/全量工具预览/延迟；支持测试未保存的草稿配置）。 */
+export async function testAIMCP(url: string, authHeader?: string, headers?: Record<string, string>, timeoutSec?: number): Promise<AIMCPTestResult> {
+  const body: Record<string, unknown> = { url }
   if (authHeader && authHeader.trim()) body.auth_header = authHeader.trim()
+  if (headers && Object.keys(headers).length > 0) body.headers = headers
+  if (timeoutSec && timeoutSec > 0) body.timeout_sec = timeoutSec
   return api<AIMCPTestResult>('/api/v1/admin/settings/ai/mcp/test', jsonInit('POST', body))
+}
+
+/** MCP JSON 快速导入结果（{imported, updated, skipped:[{name,reason}], total}）。 */
+export interface AIMCPImportResult {
+  imported: number
+  updated: number
+  skipped: { name: string; reason: string }[]
+  total: number
+  services: AIMCPAdminView[]
+}
+
+/** MCP JSON 快速导入（粘贴 {"mcpServers":{name:{url,headers,...}}}；stdio
+ *  条目跳过并说明——仅支持 Streamable HTTP）。 */
+export async function importAIMCP(content: string): Promise<AIMCPImportResult> {
+  return api<AIMCPImportResult>('/api/v1/admin/settings/ai/mcp/import', jsonInit('POST', { content }))
+}
+
+/** MCP 服务导出为 mcpServers JSON 文本（密钥不导出；触发下载用）。 */
+export async function exportAIMCP(): Promise<string> {
+  return api<string>('/api/v1/admin/settings/ai/mcp/export')
 }
 
 /** 重建 RAG 向量索引（遍历文件重投索引任务；spaceID 缺省 = 全部空间）。 */
 export async function reindexAIRAG(spaceID?: string): Promise<{ queued: number }> {
   return api<{ queued: number }>('/api/v1/admin/settings/ai/reindex', jsonInit('POST', spaceID ? { space_id: spaceID } : {}))
+}
+
+// ---------- 对话技能（Cherry Studio 式 Skills，三层增量合并） ----------
+
+/** 对话技能条目（登录侧合并视图含 source 徽标；管理端为平台层定义）。 */
+export interface AIChatSkillDef {
+  id: string
+  name: string
+  description?: string
+  /** lucide 图标名（空/无效前端兜底默认图标）。 */
+  icon?: string
+  /** Markdown 指令内容（选中后整段注入本轮 system，1..4000 字符）。 */
+  content: string
+  enabled?: boolean
+  /** 登录侧合并视图的来源徽标：builtin（编译期只读）/ platform / user。 */
+  source?: 'builtin' | 'platform' | 'user'
+}
+
+/** 登录侧合并视图（内置 → 平台启用 → 个人，按 id 个人覆盖平台）。 */
+export async function getAIChatSkills(): Promise<AIChatSkillDef[]> {
+  const data = await api<{ skills: AIChatSkillDef[] }>('/api/v1/ai/chat-skills')
+  return data.skills ?? []
+}
+
+/** 管理端平台层全量（含停用项；内置不在此列表）。 */
+export async function adminGetAIChatSkills(): Promise<AIChatSkillDef[]> {
+  const data = await api<{ skills: AIChatSkillDef[] }>('/api/v1/admin/settings/ai/chat-skills')
+  return data.skills ?? []
+}
+
+/** 管理端整块替换平台层（≤50）。 */
+export async function adminPutAIChatSkills(skills: AIChatSkillDef[]): Promise<AIChatSkillDef[]> {
+  const data = await api<{ skills: AIChatSkillDef[] }>('/api/v1/admin/settings/ai/chat-skills', jsonInit('PUT', { skills }))
+  return data.skills ?? []
+}
+
+/** 个人对话技能列表（≤30）。 */
+export async function getAIPersonalChatSkills(): Promise<AIPersonalChatSkill[]> {
+  const data = await api<{ skills: AIPersonalChatSkill[] }>('/api/v1/ai/personal/chat-skills')
+  return data.skills ?? []
+}
+
+/** 整块保存个人对话技能（其余个人配置子集不受影响）。 */
+export async function putAIPersonalChatSkills(skills: AIPersonalChatSkill[]): Promise<AIPersonalChatSkill[]> {
+  const data = await api<{ skills: AIPersonalChatSkill[] }>('/api/v1/ai/personal/chat-skills', jsonInit('PUT', { skills }))
+  return data.skills ?? []
+}
+
+// ---------- AI 规则（叠加型：平台 + 个人） ----------
+
+/** 平台规则（≤4000 字符；显式空串 = 清空）。 */
+export async function adminGetAIRules(): Promise<string> {
+  const data = await api<{ rules: string }>('/api/v1/admin/settings/ai/rules')
+  return data.rules ?? ''
+}
+
+export async function adminPutAIRules(rules: string): Promise<string> {
+  const data = await api<{ rules: string }>('/api/v1/admin/settings/ai/rules', jsonInit('PUT', { rules }))
+  return data.rules ?? ''
+}
+
+/** 个人规则（≤2000 字符；与平台规则叠加注入所有对话）。 */
+export async function getAIPersonalRules(): Promise<string> {
+  const data = await api<{ rules: string }>('/api/v1/ai/personal/rules')
+  return data.rules ?? ''
+}
+
+export async function putAIPersonalRules(rules: string): Promise<string> {
+  const data = await api<{ rules: string }>('/api/v1/ai/personal/rules', jsonInit('PUT', { rules }))
+  return data.rules ?? ''
+}
+
+// ---------- 双层生效配置（覆盖型 + 来源徽标） ----------
+
+/** 生效配置条目：value 为生效值，source 标来源（platform|user）。 */
+export interface AIEffectiveItem<T = unknown> {
+  value: T
+  source: 'platform' | 'user'
+}
+
+/** GET /ai/effective-config 响应（三态控件与「跟随平台/个人覆盖」徽标数据源）。 */
+export interface AIEffectiveConfig {
+  web_search: AIEffectiveItem<boolean>
+  history_search: AIEffectiveItem<string>
+  default_persona: AIEffectiveItem<string>
+  temperature: AIEffectiveItem<number>
+  ocr: AIEffectiveItem<{ enabled?: boolean; provider_id?: string; model_id?: string }>
+  rules: { platform_present: boolean; user_present: boolean }
+}
+
+export async function getAIEffectiveConfig(): Promise<AIEffectiveConfig> {
+  return api<AIEffectiveConfig>('/api/v1/ai/effective-config')
+}
+
+/** 会话历史向量全量重建（vector 档；未就绪时 400 VECTOR_DISABLED）。 */
+export async function reindexAIHistoryVector(): Promise<{ conversations: number; messages: number }> {
+  return api<{ conversations: number; messages: number }>('/api/v1/admin/settings/ai/history/reindex', jsonInit('POST', {}))
 }
 
 /** AI 用量聚合行。 */
@@ -3471,6 +3618,9 @@ export interface AIPersonalMCPServerInput {
   name: string
   url: string
   auth_headers?: Record<string, string>
+  description?: string
+  timeout_sec?: number
+  disabled_tools?: string[]
 }
 
 /** 个人 MCP 服务掩码视图（认证头值永不回显，仅键名列表 + configured）。 */
@@ -3481,6 +3631,33 @@ export interface AIPersonalMCPServerView {
   /** 已配置认证头的键名列表（字典序；值为空串的编辑草稿 = 留空保持现值）。 */
   auth_headers?: string[]
   auth_headers_configured: boolean
+  description?: string
+  timeout_sec?: number
+  disabled_tools?: string[]
+}
+
+/** 个人对话技能（Cherry Studio 式 Skills；与平台 ai.chat_skills 按 id
+ *  增量合并，个人覆盖平台同 id）。 */
+export interface AIPersonalChatSkill {
+  id: string
+  name: string
+  description?: string
+  icon?: string
+  content: string
+}
+
+/** 覆盖型个人偏好（字段缺省 = 跟随平台值；生效视图见 getAIEffectiveConfig）。 */
+export interface AIPersonalOverrides {
+  /** 对话联网搜索默认开关。 */
+  web_search?: boolean
+  /** 历史检索模式 keyword/vector/off。 */
+  history_search?: string
+  /** 默认人设 id（""=不注入）。 */
+  default_persona?: string
+  /** 对话温度 0..2。 */
+  temperature?: number
+  /** 图片兜底识图模型（个人池 vision 模型）。 */
+  ocr?: AIPersonalModelRef
 }
 
 /** 个人 AI 配置掩码视图（GET/PUT 响应的 prefs 载荷）。 */
@@ -3491,6 +3668,12 @@ export interface AIPersonalPrefsView {
   skills?: AIPersonalSkill[]
   mcp_servers?: AIPersonalMCPServerView[]
   prefer_personal: boolean
+  /** 个人对话技能（≤30）。 */
+  chat_skills?: AIPersonalChatSkill[]
+  /** 个人 AI 规则（≤2000 字符；与平台规则叠加注入）。 */
+  rules?: string
+  /** 覆盖型偏好（缺省 = 跟随平台）。 */
+  overrides?: AIPersonalOverrides
   /** 自动记忆：AI 自动从对话中提取长期偏好（缺省 false=关）。 */
   memory_auto?: boolean
 }
@@ -3501,6 +3684,9 @@ export interface AIPersonalPrefsInput {
   default_models?: Record<string, AIPersonalModelRef>
   personas?: AIPersonalPersona[]
   prefer_personal: boolean
+  chat_skills?: AIPersonalChatSkill[]
+  rules?: string
+  overrides?: AIPersonalOverrides
   /** 自动记忆：AI 自动从对话中提取长期偏好（缺省 false=关）。 */
   memory_auto?: boolean
 }
