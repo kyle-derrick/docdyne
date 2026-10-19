@@ -9,10 +9,13 @@
 //  （展示型；令牌由各用户在「设置 → WebDAV」自行创建）。
 // 全部键经 /admin/settings（system_settings 通道）读写；GET 缺键（后端
 // 并行升级未收录）时按默认值展示，保存报错经行内提示「后端未就绪」不阻塞。
+// 布局走共享 SettingsSection/SettingsField 原语（根挂 settings-surface），
+// 与 AI 设置页同一视觉系统：统一分区标题、行布局与 44px 定宽开关。
 import { useEffect, useState } from 'react'
 import { Button, InputNumber, Select, Switch } from 'antd'
 import { ApiError, SettingItem, adminGetSettings, adminPutSetting } from '../api'
 import { SETTING_KEY_META } from './settings/PlatformPanels'
+import { SettingsField, SettingsSection } from './settings/SettingsSections'
 import { useLocale } from '../i18n'
 
 /** 本面板管理的键与后端默认值/范围（GET 缺键或后端未收录时按默认展示；
@@ -124,39 +127,39 @@ export default function SecurityPanel({ onError, onNotice }: { onError: (m: stri
     const current = (items?.[key]?.value as number | undefined) ?? (spec.def as number)
     const dirty = draft !== undefined && Number(draft) !== current
     return (
-      <div key={key} className="setting-row">
-        <div className="setting-main">
-          <div className="setting-key">
-            <span>{label(key)}</span>
+      <SettingsField
+        key={key}
+        label={label(key)}
+        badge={
+          <>
             <code className="setting-key-code" title={key}>{key}</code>
             {effectBadge(key)}
-          </div>
-          <div className="setting-desc muted">{desc(key)}</div>
-        </div>
-        <div className="setting-control">
-          <InputNumber
-            min={spec.min}
-            max={spec.max}
-            step={1}
-            precision={0}
-            style={{ width: 130 }}
-            value={typeof draft === 'number' ? draft : Number(draft)}
-            disabled={savingKey !== null}
-            onChange={(v) => setDrafts((prev) => ({ ...prev, [key]: v === null || v === undefined ? (spec.def as number) : v }))}
-            addonAfter={unit ? (zh ? unit.zh : unit.en) : undefined}
-            aria-label={label(key)}
-          />
-          <Button
-            size="small"
-            type="primary"
-            loading={savingKey === key}
-            disabled={savingKey !== null || !dirty}
-            onClick={() => void save(key, Number(drafts[key]))}
-          >
-            {zh ? '保存' : 'Save'}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        hint={desc(key)}
+      >
+        <InputNumber
+          min={spec.min}
+          max={spec.max}
+          step={1}
+          precision={0}
+          style={{ width: 130 }}
+          value={typeof draft === 'number' ? draft : Number(draft)}
+          disabled={savingKey !== null}
+          onChange={(v) => setDrafts((prev) => ({ ...prev, [key]: v === null || v === undefined ? (spec.def as number) : v }))}
+          addonAfter={unit ? (zh ? unit.zh : unit.en) : undefined}
+          aria-label={label(key)}
+        />
+        <Button
+          size="small"
+          type="primary"
+          loading={savingKey === key}
+          disabled={savingKey !== null || !dirty}
+          onClick={() => void save(key, Number(drafts[key]))}
+        >
+          {zh ? '保存' : 'Save'}
+        </Button>
+      </SettingsField>
     )
   }
 
@@ -166,47 +169,47 @@ export default function SecurityPanel({ onError, onNotice }: { onError: (m: stri
     const draft = String(drafts[key] ?? MANAGED[key].def)
     const current = String((items?.[key]?.value as string | undefined) ?? MANAGED[key].def)
     return (
-      <div key={key} className="setting-row">
-        <div className="setting-main">
-          <div className="setting-key">
-            <span>{label(key)}</span>
+      <SettingsField
+        key={key}
+        label={label(key)}
+        badge={
+          <>
             <code className="setting-key-code" title={key}>{key}</code>
             {effectBadge(key)}
-          </div>
-          <div className="setting-desc muted">
-            {zh
-              ? '扫描失败处理策略：quarantine（隔离，可在「威胁防护」处置）或 reject（上传时直接拒绝）'
-              : 'Policy on scan failure: quarantine (handled in Threat protection) or reject (refuse at upload)'}
-          </div>
-        </div>
-        <div className="setting-control">
-          <Select
-            style={{ width: 200 }}
-            disabled={savingKey !== null}
-            value={draft}
-            onChange={(v) => setDrafts((prev) => ({ ...prev, [key]: v }))}
-            options={[
-              { value: 'quarantine', label: zh ? 'quarantine（隔离）' : 'quarantine' },
-              { value: 'reject', label: zh ? 'reject（拒绝）' : 'reject' },
-            ]}
-          />
-          <Button
-            size="small"
-            type="primary"
-            loading={savingKey === key}
-            disabled={savingKey !== null || draft === current}
-            onClick={() => void save(key, draft)}
-          >
-            {zh ? '保存' : 'Save'}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        hint={
+          zh
+            ? '扫描失败处理策略：quarantine（隔离，可在「威胁防护」处置）或 reject（上传时直接拒绝）'
+            : 'Policy on scan failure: quarantine (handled in Threat protection) or reject (refuse at upload)'
+        }
+      >
+        <Select
+          style={{ width: 200 }}
+          disabled={savingKey !== null}
+          value={draft}
+          onChange={(v) => setDrafts((prev) => ({ ...prev, [key]: v }))}
+          options={[
+            { value: 'quarantine', label: zh ? 'quarantine（隔离）' : 'quarantine' },
+            { value: 'reject', label: zh ? 'reject（拒绝）' : 'reject' },
+          ]}
+        />
+        <Button
+          size="small"
+          type="primary"
+          loading={savingKey === key}
+          disabled={savingKey !== null || draft === current}
+          onClick={() => void save(key, draft)}
+        >
+          {zh ? '保存' : 'Save'}
+        </Button>
+      </SettingsField>
     )
   }
 
   if (loading) {
     return (
-      <div className="panel setting-group">
+      <div className="panel setting-group settings-surface">
         <h3>{zh ? '安全与访问' : 'Security & access'}</h3>
         <div className="hint">{zh ? '加载中…' : 'Loading…'}</div>
       </div>
@@ -217,63 +220,68 @@ export default function SecurityPanel({ onError, onNotice }: { onError: (m: stri
 
   return (
     <>
-      {/* 登录防爆破（键名冻结：security.login_max_retries / login_lock_minutes）。 */}
-      <div className="panel setting-group">
-        <h3>{zh ? '登录防爆破' : 'Login anti-bruteforce'}</h3>
-        <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-          {zh
-            ? '同一「用户名 + IP」连续登录失败达到阈值后锁定一段时间，覆盖 Web 登录与 WebDAV Basic Auth；锁定到期自动解除，管理员也可在「人员与组」启用用户提前解锁。'
-            : 'The same username+IP is locked out after N consecutive failures, covering web login and WebDAV basic auth; the lock lifts automatically on expiry, or an admin can re-enable the user early under People & groups.'}
-        </div>
-        {intRow('security.login_max_retries', { zh: '次', en: 'times' })}
-        {intRow('security.login_lock_minutes', { zh: '分钟', en: 'min' })}
-      </div>
+      <div className="panel setting-group settings-surface">
+        <h3>{zh ? '安全与访问' : 'Security & access'}</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* 登录防爆破（键名冻结：security.login_max_retries / login_lock_minutes）。 */}
+          <SettingsSection
+            title={zh ? '登录防爆破' : 'Login anti-bruteforce'}
+            desc={
+              zh
+                ? '同一「用户名 + IP」连续登录失败达到阈值后锁定一段时间，覆盖 Web 登录与 WebDAV Basic Auth；锁定到期自动解除，管理员也可在「人员与组」启用用户提前解锁。'
+                : 'The same username+IP is locked out after N consecutive failures, covering web login and WebDAV basic auth; the lock lifts automatically on expiry, or an admin can re-enable the user early under People & groups.'
+            }
+          >
+            {intRow('security.login_max_retries', { zh: '次', en: 'times' })}
+            {intRow('security.login_lock_minutes', { zh: '分钟', en: 'min' })}
+          </SettingsSection>
 
-      {/* 认证限流与扫描策略（security.* 其余两键，随本面板统一管理）。 */}
-      <div className="panel setting-group">
-        <h3>{zh ? '认证限流与扫描策略' : 'Auth rate limit & scan policy'}</h3>
-        <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-          {zh
-            ? '认证类 API 的每分钟请求上限与安全扫描失败处理策略；security.* 键全部在「安全与访问」面板管理，不再出现在「系统设置」。'
-            : 'Per-minute cap for auth APIs and the policy on scan failures; all security.* keys are managed here, not in System settings.'}
-        </div>
-        {intRow('security.rate_limit_per_minute', { zh: '次/分', en: 'req/min' })}
-        {policyRow()}
-      </div>
+          {/* 认证限流与扫描策略（security.* 其余两键，随本面板统一管理）。 */}
+          <SettingsSection
+            title={zh ? '认证限流与扫描策略' : 'Auth rate limit & scan policy'}
+            desc={
+              zh
+                ? '认证类 API 的每分钟请求上限与安全扫描失败处理策略；security.* 键全部在「安全与访问」面板管理，不再出现在「系统设置」。'
+                : 'Per-minute cap for auth APIs and the policy on scan failures; all security.* keys are managed here, not in System settings.'
+            }
+          >
+            {intRow('security.rate_limit_per_minute', { zh: '次/分', en: 'req/min' })}
+            {policyRow()}
+          </SettingsSection>
 
-      {/* WebDAV 文件挂载：平台开关 + 展示型接入指引。 */}
-      <div className="panel setting-group">
-        <h3>{zh ? 'WebDAV 文件挂载' : 'WebDAV file mount'}</h3>
-        <div className="setting-row">
-          <div className="setting-main">
-            <div className="setting-key">
-              <span>{label('webdav.enabled')}</span>
-              <code className="setting-key-code" title="webdav.enabled">webdav.enabled</code>
-              {effectBadge('webdav.enabled')}
+          {/* WebDAV 文件挂载：平台开关 + 展示型接入指引。 */}
+          <SettingsSection title={zh ? 'WebDAV 文件挂载' : 'WebDAV file mount'}>
+            <SettingsField
+              label={label('webdav.enabled')}
+              badge={
+                <>
+                  <code className="setting-key-code" title="webdav.enabled">webdav.enabled</code>
+                  {effectBadge('webdav.enabled')}
+                </>
+              }
+              hint={desc('webdav.enabled')}
+            >
+              <span className="setting-bool" title={zh ? 'bool 行直开直关：切换后立即保存' : 'Boolean rows save immediately on toggle'}>
+                <Switch
+                  size="small"
+                  checked={webdavOn}
+                  loading={savingKey === 'webdav.enabled'}
+                  onChange={(v) => void save('webdav.enabled', v)}
+                />
+                <span>{savingKey === 'webdav.enabled' ? (zh ? '保存中…' : 'Saving…') : webdavOn ? (zh ? '开启' : 'On') : (zh ? '关闭' : 'Off')}</span>
+              </span>
+            </SettingsField>
+            <div className="panel-inner">
+              <div className="setting-key" style={{ marginBottom: 4 }}>{zh ? '接入指引' : 'How to connect'}</div>
+              <div className="setting-desc muted">
+                {zh ? '挂载路径格式 ' : 'Mount path format '}
+                <code className="setting-key-code">{'/webdav/{空间名}/{路径}'}</code>
+                {zh
+                  ? '（根路径列出该账号有权限的全部空间）。鉴权为 Basic Auth：用户名为平台邮箱/用户名，密码为个人 WebDAV 令牌——由各用户在「设置 → WebDAV」创建与吊销；登录防爆破与上方一致（同一用户名+IP 连续失败锁定）。客户端：Windows「映射网络驱动器」、macOS Finder「连接服务器」、Linux davfs2；详见 docs/configuration.md。'
+                  : ' (the root lists every space the account can access). Auth is basic: username is the platform email/username, password is a personal WebDAV token created under Settings → WebDAV; the anti-bruteforce rules above apply here too (per username+IP). Clients: Windows map network drive, macOS Finder Connect to Server, Linux davfs2; see docs/configuration.md.'}
+              </div>
             </div>
-            <div className="setting-desc muted">{desc('webdav.enabled')}</div>
-          </div>
-          <div className="setting-control">
-            <span className="setting-bool" title={zh ? 'bool 行直开直关：切换后立即保存' : 'Boolean rows save immediately on toggle'}>
-              <Switch
-                size="small"
-                checked={webdavOn}
-                loading={savingKey === 'webdav.enabled'}
-                onChange={(v) => void save('webdav.enabled', v)}
-              />
-              <span>{savingKey === 'webdav.enabled' ? (zh ? '保存中…' : 'Saving…') : webdavOn ? (zh ? '开启' : 'On') : (zh ? '关闭' : 'Off')}</span>
-            </span>
-          </div>
-        </div>
-        <div className="panel-inner">
-          <div className="setting-key" style={{ marginBottom: 4 }}>{zh ? '接入指引' : 'How to connect'}</div>
-          <div className="setting-desc muted">
-            {zh ? '挂载路径格式 ' : 'Mount path format '}
-            <code className="setting-key-code">{'/webdav/{空间名}/{路径}'}</code>
-            {zh
-              ? '（根路径列出该账号有权限的全部空间）。鉴权为 Basic Auth：用户名为平台邮箱/用户名，密码为个人 WebDAV 令牌——由各用户在「设置 → WebDAV」创建与吊销；登录防爆破与上方一致（同一用户名+IP 连续失败锁定）。客户端：Windows「映射网络驱动器」、macOS Finder「连接服务器」、Linux davfs2；详见 docs/configuration.md。'
-              : ' (the root lists every space the account can access). Auth is basic: username is the platform email/username, password is a personal WebDAV token created under Settings → WebDAV; the anti-bruteforce rules above apply here too (per username+IP). Clients: Windows map network drive, macOS Finder Connect to Server, Linux davfs2; see docs/configuration.md.'}
-          </div>
+          </SettingsSection>
         </div>
       </div>
 

@@ -6,6 +6,8 @@
 //   分组；space.* / backup.* 键组卡片复用于「空间」「备份」分区）。
 // 仅管理员可达（AdminPage 403 守卫）；与个人设置（SettingsPage）物理分离，
 // 消除此前「管理面板定义在个人设置文件内导出复用」的职责倒挂。
+// 面板根挂 settings-surface、分区/行走共享 SettingsSection/SettingsField
+// 原语（与 AI 设置页同一视觉系统：统一分区标题、行布局与 44px 定宽开关）。
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, InputNumber, Radio, Select, Switch, Upload } from 'antd'
 import { ApiError, adminGetSettings, adminGetSmtpSettings, adminGetTls, adminPutSetting, adminPutSmtpSettings, adminPutTls, adminTestSmtp, adminUploadTlsCert } from '../../api'
@@ -13,6 +15,7 @@ import type { AdminSettingsResult, SettingItem, SettingValue, SmtpSettingsView, 
 import { formatQuota, formatTime } from '../FileBrowser'
 import QuotaInput from '../QuotaInput'
 import { useLocale } from '../../i18n'
+import { SettingsField, SettingsSection } from './SettingsSections'
 // ---- admin 专属面板（v2.3 由管理页迁入设置页：邮件配置 / TLS / 系统设置） ----
 
 /** TLS 模式选项（值与后端 caddytls.Mode 对齐）。 */
@@ -99,7 +102,7 @@ export function TlsPanel({ onNotice }: { onNotice: (msg: string) => void }) {
   }
 
   return (
-    <div className="panel setting-group">
+    <div className="panel setting-group settings-surface">
       <h3>HTTPS / TLS</h3>
       {status === null ? (
         <div className="hint">TLS 状态加载失败</div>
@@ -110,11 +113,10 @@ export function TlsPanel({ onNotice }: { onNotice: (msg: string) => void }) {
           未设置时为 HTTP 明文（本地验证）。
         </div>
       ) : (
-        <form className="setting-edit" onSubmit={submit} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-          <div className="setting-row" style={{ width: '100%' }}>
-            <div className="setting-main">
-              <div className="setting-key">当前模式</div>
-              <div className="setting-desc muted">
+        <form className="setting-edit" onSubmit={submit} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 20 }}>
+          <SettingsSection title="模式与域名">
+            <SettingsField label="当前模式">
+              <span className="muted">
                 {status.mode === 'http'
                   ? 'HTTP 明文'
                   : status.mode === 'auto'
@@ -122,40 +124,38 @@ export function TlsPanel({ onNotice }: { onNotice: (msg: string) => void }) {
                     : status.mode === 'internal'
                       ? `HTTPS 自签${status.domain ? `（${status.domain}）` : ''}`
                       : `HTTPS 自定义证书${status.domain ? `（${status.domain}）` : ''}`}
-              </div>
+              </span>
+            </SettingsField>
+            <Radio.Group
+              value={mode}
+              onChange={(e) => setMode(e.target.value as TlsMode)}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}
+            >
+              {tlsModeOptions.map((opt) => (
+                <Radio key={opt.value} value={opt.value}>
+                  {opt.label}
+                  <span className="muted" style={{ marginLeft: 6 }}>{opt.desc}</span>
+                </Radio>
+              ))}
+            </Radio.Group>
+            {mode !== 'http' && (
+              <SettingsField label="站点域名或 IP">
+                <Input
+                  placeholder="如 docdyne.example.com / 192.168.1.10"
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                />
+              </SettingsField>
+            )}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Button type="primary" size="small" htmlType="submit" loading={saving}>
+                {saving ? '下发中…' : '保存并立即生效'}
+              </Button>
+              {rowError && <span className="badge failed">{rowError}</span>}
             </div>
-          </div>
-          <Radio.Group
-            value={mode}
-            onChange={(e) => setMode(e.target.value as TlsMode)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}
-          >
-            {tlsModeOptions.map((opt) => (
-              <Radio key={opt.value} value={opt.value}>
-                {opt.label}
-                <span className="muted" style={{ marginLeft: 6 }}>{opt.desc}</span>
-              </Radio>
-            ))}
-          </Radio.Group>
-          {mode !== 'http' && (
-            <label className="field">
-              <span>站点域名或 IP</span>
-              <Input
-                placeholder="如 docdyne.example.com / 192.168.1.10"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-              />
-            </label>
-          )}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Button type="primary" size="small" htmlType="submit" loading={saving}>
-              {saving ? '下发中…' : '保存并立即生效'}
-            </Button>
-            {rowError && <span className="badge failed">{rowError}</span>}
-          </div>
+          </SettingsSection>
           {(mode === 'custom' || status.cert) && (
-            <div className="tls-cert-box">
-              <div className="setting-key">自定义证书（custom 模式）</div>
+            <SettingsSection title="自定义证书（custom 模式）">
               <TlsCertInfo cert={status.cert} />
               {mode === 'custom' && (
                 <div className="tls-cert-upload">
@@ -205,7 +205,7 @@ export function TlsPanel({ onNotice }: { onNotice: (msg: string) => void }) {
                   </span>
                 </div>
               )}
-            </div>
+            </SettingsSection>
           )}
         </form>
       )}
@@ -299,7 +299,7 @@ export function MailPanel({ onNotice, onError }: { onNotice: (m: string) => void
 
   if (loading) {
     return (
-      <div className="panel setting-group">
+      <div className="panel setting-group settings-surface">
         <h3>邮件配置（SMTP）</h3>
         <div className="empty">SMTP 配置加载中…</div>
       </div>
@@ -307,143 +307,142 @@ export function MailPanel({ onNotice, onError }: { onNotice: (m: string) => void
   }
 
   return (
-    <div className="panel setting-group">
+    <div className="panel setting-group settings-surface">
       <h3>邮件配置（SMTP）</h3>
       <div className="setting-desc muted" style={{ marginBottom: 12 }}>
         邮件通道（邀请注册、密码重置、通知副本）在此保存即时生效：表单值即为
         生效配置（输入框占位符提示 .env 基线值）；密码留空表示保持现值
         （不回显）；未启用时使用日志通道（链接输出到 backend 日志，不发送邮件）。
       </div>
-      {view && (
-        <form className="smtp-form" onSubmit={handleSave}>
-          <div className="setting-row" style={{ borderBottom: 0, paddingBottom: 0 }}>
-            <div className="setting-main">
-              <div className="setting-key">通道状态 <code className="setting-desc muted">smtp.enabled</code></div>
-              <div className="setting-desc muted">启用时经 SMTP 投递；未启用为 Noop 日志通道（env 基线：{view.env.enabled ? '启用' : '未启用'}）</div>
-            </div>
-            <div className="setting-control">
-              <span className="setting-bool">
-                <Switch size="small" checked={form.enabled} onChange={(v) => setForm((prev) => ({ ...prev, enabled: v }))} />
-                <span>{form.enabled ? '开启' : '关闭'}</span>
-              </span>
-            </div>
-          </div>
-          <div className="smtp-grid">
-            <label className="field">
-              <span>服务器地址（SMTP_HOST）</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {view && (
+          <SettingsSection title="启用与服务器">
+            <form
+              className="smtp-form"
+              onSubmit={handleSave}
+              style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+            >
+              <SettingsField
+                label={<>通道状态 <code className="setting-desc muted">smtp.enabled</code></>}
+                hint={<>启用时经 SMTP 投递；未启用为 Noop 日志通道（env 基线：{view.env.enabled ? '启用' : '未启用'}）</>}
+              >
+                <span className="setting-bool">
+                  <Switch size="small" checked={form.enabled} onChange={(v) => setForm((prev) => ({ ...prev, enabled: v }))} />
+                  <span>{form.enabled ? '开启' : '关闭'}</span>
+                </span>
+              </SettingsField>
+              <div className="smtp-grid">
+                <label className="field">
+                  <span>服务器地址（SMTP_HOST）</span>
+                  <Input
+                    value={form.host}
+                    onChange={(e) => setForm((prev) => ({ ...prev, host: e.target.value }))}
+                    placeholder={view.env.host || '如 smtp.example.com'}
+                  />
+                </label>
+                <label className="field">
+                  <span>端口（SMTP_PORT）</span>
+                  <InputNumber
+                    min={1}
+                    max={65535}
+                    value={form.port}
+                    onChange={(v) => setForm((prev) => ({ ...prev, port: v }))}
+                    placeholder={String(view.env.port || 587)}
+                    style={{ width: '100%' }}
+                  />
+                </label>
+                <label className="field">
+                  <span>加密方式（smtp.tls_mode）</span>
+                  <Select
+                    value={form.tls_mode}
+                    onChange={(v) => setForm((prev) => ({ ...prev, tls_mode: v }))}
+                    options={[
+                      { value: 'auto', label: 'auto（STARTTLS 自动协商，默认）' },
+                      { value: 'ssl', label: 'ssl（隐式 TLS / SMTPS，465 常见）' },
+                      { value: 'none', label: 'none（不协商，仅内网中继）' },
+                    ]}
+                  />
+                </label>
+                <label className="field">
+                  <span>发件人（SMTP_FROM，启用时必填）</span>
+                  <Input
+                    value={form.from}
+                    onChange={(e) => setForm((prev) => ({ ...prev, from: e.target.value }))}
+                    placeholder={view.env.from || '如 docdyne@example.com'}
+                  />
+                </label>
+                <label className="field">
+                  <span>认证用户名（SMTP_USER，空 = 匿名投递）</span>
+                  <Input
+                    value={form.user}
+                    onChange={(e) => setForm((prev) => ({ ...prev, user: e.target.value }))}
+                    placeholder={view.env.user || '匿名投递'}
+                  />
+                </label>
+                <label className="field">
+                  <span>认证密码（SMTP_PASS，留空保持现值）</span>
+                  <Input.Password
+                    value={form.pass}
+                    onChange={(e) => setForm((prev) => ({ ...prev, pass: e.target.value }))}
+                    placeholder={view.password_configured ? '已配置（留空保持不变）' : '未配置'}
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
+              {formError && <div className="error-text">{formError}</div>}
+              <div className="modal-actions" style={{ marginTop: 4 }}>
+                <Button disabled={saving} onClick={() => void load()}>重置</Button>
+                <Button type="primary" htmlType="submit" loading={saving}>
+                  {saving ? '保存中…' : '保存（即时生效）'}
+                </Button>
+              </div>
+            </form>
+          </SettingsSection>
+        )}
+        {/* 站点地址（PUBLIC_BASE_URL）：env-only 只读展示行（不随 view 门控）。 */}
+        <SettingsField
+          label={<>站点地址 <code className="setting-desc muted">PUBLIC_BASE_URL</code></>}
+          hint="邮件内邀请/重置链接的前缀（env-only，不可在此修改）；为空时链接退化为相对路径（仅日志可见）"
+        >
+          {view?.public_base_url ? <span className="setting-value-mono">{view.public_base_url}</span> : <span className="badge">未设置</span>}
+        </SettingsField>
+        {/* 发送测试邮件：用当前生效配置投递一封测试邮件；错误详情经 Alert 回显。 */}
+        <SettingsSection
+          title="发送测试邮件"
+          desc="用当前生效配置（DB 覆盖 → env 回退）投递一封测试邮件验证连通性；表单修改后须先「保存（即时生效）」再测试。失败时下方展示服务端错误详情（网络/认证/拒收等）。"
+        >
+          <div className="team-create-row" style={{ marginBottom: testResult ? 8 : 0 }}>
+            <label className="field" style={{ flex: 1 }}>
+              <span>收件邮箱</span>
               <Input
-                value={form.host}
-                onChange={(e) => setForm((prev) => ({ ...prev, host: e.target.value }))}
-                placeholder={view.env.host || '如 smtp.example.com'}
+                type="email"
+                allowClear
+                value={testTo}
+                onChange={(e) => setTestTo(e.target.value)}
+                placeholder="you@example.com"
+                onPressEnter={() => void sendTest()}
               />
             </label>
-            <label className="field">
-              <span>端口（SMTP_PORT）</span>
-              <InputNumber
-                min={1}
-                max={65535}
-                value={form.port}
-                onChange={(v) => setForm((prev) => ({ ...prev, port: v }))}
-                placeholder={String(view.env.port || 587)}
-                style={{ width: '100%' }}
-              />
-            </label>
-            <label className="field">
-              <span>加密方式（smtp.tls_mode）</span>
-              <Select
-                value={form.tls_mode}
-                onChange={(v) => setForm((prev) => ({ ...prev, tls_mode: v }))}
-                options={[
-                  { value: 'auto', label: 'auto（STARTTLS 自动协商，默认）' },
-                  { value: 'ssl', label: 'ssl（隐式 TLS / SMTPS，465 常见）' },
-                  { value: 'none', label: 'none（不协商，仅内网中继）' },
-                ]}
-              />
-            </label>
-            <label className="field">
-              <span>发件人（SMTP_FROM，启用时必填）</span>
-              <Input
-                value={form.from}
-                onChange={(e) => setForm((prev) => ({ ...prev, from: e.target.value }))}
-                placeholder={view.env.from || '如 docdyne@example.com'}
-              />
-            </label>
-            <label className="field">
-              <span>认证用户名（SMTP_USER，空 = 匿名投递）</span>
-              <Input
-                value={form.user}
-                onChange={(e) => setForm((prev) => ({ ...prev, user: e.target.value }))}
-                placeholder={view.env.user || '匿名投递'}
-              />
-            </label>
-            <label className="field">
-              <span>认证密码（SMTP_PASS，留空保持现值）</span>
-              <Input.Password
-                value={form.pass}
-                onChange={(e) => setForm((prev) => ({ ...prev, pass: e.target.value }))}
-                placeholder={view.password_configured ? '已配置（留空保持不变）' : '未配置'}
-                autoComplete="new-password"
-              />
-            </label>
-          </div>
-          {formError && <div className="error-text">{formError}</div>}
-          <div className="modal-actions" style={{ marginTop: 4 }}>
-            <Button disabled={saving} onClick={() => void load()}>重置</Button>
-            <Button type="primary" htmlType="submit" loading={saving}>
-              {saving ? '保存中…' : '保存（即时生效）'}
+            <Button
+              type="primary"
+              loading={testing}
+              disabled={testing || testTo.trim() === ''}
+              onClick={() => void sendTest()}
+            >
+              {testing ? '发送中…' : '发送测试邮件'}
             </Button>
           </div>
-        </form>
-      )}
-      <div className="setting-row" style={{ marginTop: 12 }}>
-        <div className="setting-main">
-          <div className="setting-key">站点地址 <code className="setting-desc muted">PUBLIC_BASE_URL</code></div>
-          <div className="setting-desc muted">邮件内邀请/重置链接的前缀（env-only，不可在此修改）；为空时链接退化为相对路径（仅日志可见）</div>
-        </div>
-        <div className="setting-control">
-          {view?.public_base_url ? <span className="setting-value-mono">{view.public_base_url}</span> : <span className="badge">未设置</span>}
-        </div>
-      </div>
-      {/* 发送测试邮件：用当前生效配置投递一封测试邮件；错误详情回显。
-          v2.6 双线修复：上方「站点地址」setting-row 自带 border-bottom，
-          本块不再叠加 borderTop（此前两条分隔线相距 12px）。 */}
-      <div className="panel-inner" style={{ marginTop: 12, paddingTop: 12 }}>
-        <div className="setting-key" style={{ marginBottom: 4 }}>发送测试邮件</div>
-        <div className="setting-desc muted" style={{ marginBottom: 8 }}>
-          用当前生效配置（DB 覆盖 → env 回退）投递一封测试邮件验证连通性；
-          表单修改后须先「保存（即时生效）」再测试。失败时下方展示服务端错误详情（网络/认证/拒收等）。
-        </div>
-        <div className="team-create-row" style={{ marginBottom: testResult ? 8 : 0 }}>
-          <label className="field" style={{ flex: 1 }}>
-            <span>收件邮箱</span>
-            <Input
-              type="email"
-              allowClear
-              value={testTo}
-              onChange={(e) => setTestTo(e.target.value)}
-              placeholder="you@example.com"
-              onPressEnter={() => void sendTest()}
+          {testResult && (
+            <Alert
+              type={testResult.ok ? 'success' : 'error'}
+              showIcon
+              closable
+              message={testResult.ok ? '发送成功' : '发送失败'}
+              description={testResult.message}
+              onClose={() => setTestResult(null)}
             />
-          </label>
-          <Button
-            type="primary"
-            loading={testing}
-            disabled={testing || testTo.trim() === ''}
-            onClick={() => void sendTest()}
-          >
-            {testing ? '发送中…' : '发送测试邮件'}
-          </Button>
-        </div>
-        {testResult && (
-          <Alert
-            type={testResult.ok ? 'success' : 'error'}
-            showIcon
-            closable
-            message={testResult.ok ? '发送成功' : '发送失败'}
-            description={testResult.message}
-            onClose={() => setTestResult(null)}
-          />
-        )}
+          )}
+        </SettingsSection>
       </div>
     </div>
   )
@@ -646,7 +645,6 @@ function renderSettingControl(
         max={range?.max}
         step={1}
         precision={0}
-        style={{ width: 200 }}
         value={typeof draft === 'number' ? draft : null}
         onChange={(v) => setDraft(v ?? null)}
         addonAfter={unit ? (zh ? unit.zh : unit.en) : undefined}
@@ -657,7 +655,6 @@ function renderSettingControl(
   if (options) {
     return (
       <Select
-        style={{ width: 260 }}
         value={typeof draft === 'string' ? draft : String(draft ?? '')}
         onChange={(v) => setDraft(v)}
         options={options}
@@ -667,7 +664,6 @@ function renderSettingControl(
   return (
     <Input
       allowClear
-      style={{ width: 280 }}
       value={typeof draft === 'string' ? draft : String(draft ?? '')}
       onChange={(e) => setDraft(e.target.value)}
       placeholder={item.key === 'upload.blocked_extensions' ? (zh ? '如 exe,bat,sh（空 = 不拦截）' : 'e.g. exe,bat,sh (empty = allow all)') : undefined}
@@ -690,28 +686,29 @@ function SettingItemRow({
   zh: boolean
 }) {
   return (
-    <div className="setting-row">
-      <div className="setting-main">
-        {/* 中文名为主标识（悬浮提示原 key），不再裸显 key 行。 */}
-        <div className="setting-key" title={item.key}>
-          {settingKeyLabel(item.key, zh) || item.key}
-          {item.effect && (
-            <span className="badge" style={{ marginLeft: 8 }} title={zh ? '变更生效方式' : 'How changes take effect'}>
-              {(() => {
-                const text = effectText[item.effect]
-                return text ? (zh ? text.zh : text.en) : item.effect
-              })()}
-            </span>
-          )}
-        </div>
-        <div className="setting-desc muted">{settingKeyDesc(item.key, item.description, zh)}</div>
-        <div className="setting-meta muted">
-          {zh ? '默认值' : 'Default'} {QUOTA_BYTE_KEYS.has(item.key) ? formatQuota(Number(item.default)) : String(item.default)}
-          {item.updated_at && ` · ${zh ? '更新于' : 'updated'} ${formatTime(item.updated_at)}`}
-        </div>
-      </div>
-      <div className="setting-control">{renderSettingControl(item, draft, setDraft, zh)}</div>
-    </div>
+    <SettingsField
+      label={<span title={item.key}>{settingKeyLabel(item.key, zh) || item.key}</span>}
+      badge={item.effect && (
+        <span className="badge" style={{ marginLeft: 8 }} title={zh ? '变更生效方式' : 'How changes take effect'}>
+          {(() => {
+            const text = effectText[item.effect]
+            return text ? (zh ? text.zh : text.en) : item.effect
+          })()}
+        </span>
+      )}
+      hint={
+        <>
+          {settingKeyDesc(item.key, item.description, zh)}
+          <br />
+          <span className="setting-meta">
+            {zh ? '默认值' : 'Default'} {QUOTA_BYTE_KEYS.has(item.key) ? formatQuota(Number(item.default)) : String(item.default)}
+            {item.updated_at && ` · ${zh ? '更新于' : 'updated'} ${formatTime(item.updated_at)}`}
+          </span>
+        </>
+      }
+    >
+      {renderSettingControl(item, draft, setDraft, zh)}
+    </SettingsField>
   )
 }
 
@@ -841,7 +838,7 @@ export function SystemSettingKeysCard({
 
   if (loading) {
     return (
-      <div className="panel setting-group">
+      <div className="panel setting-group settings-surface">
         <h3>{cardTitle}</h3>
         <div className="hint">{zh ? '加载中…' : 'Loading…'}</div>
       </div>
@@ -849,13 +846,13 @@ export function SystemSettingKeysCard({
   }
 
   return (
-    <div className="panel setting-group">
+    <div className="panel setting-group settings-surface">
       <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {cardTitle}
         <span className="setting-meta muted">{zh ? `（${items.length} 项）` : `(${items.length})`}</span>
         {dirty && !saving && <span className="badge">{zh ? '有未保存修改' : 'Unsaved changes'}</span>}
       </h3>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {items.map((item) => (
           <SettingItemRow
             key={item.key}
@@ -994,7 +991,7 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
 
   if (forbidden) {
     return (
-      <div className="panel setting-group">
+      <div className="panel setting-group settings-surface">
         <h3>{zh ? '系统设置' : 'System settings'}</h3>
         <div className="empty">{zh ? '仅系统管理员可访问' : 'Administrators only'}</div>
       </div>
@@ -1003,7 +1000,7 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
 
   return (
     <>
-      <div className="panel setting-group" style={{ padding: '12px 16px' }}>
+      <div className="panel setting-group settings-surface" style={{ padding: '12px 16px' }}>
         <form className="team-create-row" style={{ marginBottom: 0 }} onSubmit={(e) => e.preventDefault()}>
           <label className="field" style={{ flex: 1 }}>
             <span>{zh ? '过滤设置项（按中文名 / key / 说明匹配；过滤时分组自动展开）' : 'Filter settings (by name / key / description; groups auto-expand while filtering)'}</span>
@@ -1032,7 +1029,7 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
         const dirty = groupDirty(items)
         const saving = savingGroup === group.id
         return (
-          <div key={group.id} className="panel setting-group">
+          <div key={group.id} className="panel setting-group settings-surface">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Button
                 type="text"
@@ -1047,7 +1044,10 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
               {dirty && !saving && <span className="badge">{zh ? '有未保存修改' : 'Unsaved changes'}</span>}
             </h3>
             {!isCollapsed && (
-              <form onSubmit={(e) => { e.preventDefault(); void saveGroup(group.id, items, title) }}>
+              <form
+                onSubmit={(e) => { e.preventDefault(); void saveGroup(group.id, items, title) }}
+                style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+              >
                 {items.map((item) => (
                   <SettingItemRow
                     key={item.key}

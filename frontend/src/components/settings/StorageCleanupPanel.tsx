@@ -11,6 +11,7 @@ import {
   listSpaces, listSpaceFiles,
 } from '../../api'
 import { formatQuota } from '../FileBrowser'
+import { SettingsSection } from './SettingsSections'
 
 /** 清理项条目。 */
 interface CleanupItem {
@@ -298,95 +299,97 @@ export default function StorageCleanupPanel({ onError, onNotice }: { onError: (m
   }
 
   return (
-    <div className="panel setting-group">
-      <h3><HardDrive size={16} strokeWidth={2} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -2 }} />存储清理</h3>
-      <div className="setting-desc muted">扫描并清理可释放的存储空间：历史旧版本、AI 对话附件、回收站文件。</div>
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={<><HardDrive size={16} strokeWidth={2} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -2 }} />存储清理</>}
+        desc="扫描并清理可释放的存储空间：历史旧版本、AI 对话附件、回收站文件。"
+      >
+        {scanning && <div style={{ padding: 24, textAlign: 'center' }}><Spin tip="扫描中…" /></div>}
 
-      {scanning && <div style={{ padding: 24, textAlign: 'center' }}><Spin tip="扫描中…" /></div>}
-
-      {!scanning && categories.length === 0 && (
-        <div className="empty" style={{ padding: 24 }}>
-          未发现可清理项，存储空间已优化 ✓
-        </div>
-      )}
-
-      {!scanning && categories.length > 0 && (
-        <>
-          {/* 总览条 */}
-          <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <Progress
-                percent={totalAll > 0 ? Math.round((totalCleanable / totalAll) * 100) : 0}
-                size="small"
-                format={() => `${formatQuota(totalCleanable, false)} / ${formatQuota(totalAll, false)}`}
-              />
-            </div>
-            <Button size="small" onClick={toggleAll}>
-              {categories.every((cat) => (checked[cat.key] ?? new Set()).size >= cat.items.length) ? '取消全选' : '全选所有'}
-            </Button>
-            <Button type="primary" danger disabled={totalCleanable === 0 && Object.values(checked).every((s) => s.size === 0)} loading={cleaning} onClick={executeCleanup}>
-              清理选中项{Object.values(checked).reduce((a, s) => a + s.size, 0) > 0 ? `（${Object.values(checked).reduce((a, s) => a + s.size, 0)} 项）` : ''}
-            </Button>
-            <Button onClick={() => void scan()} disabled={cleaning}>重新扫描</Button>
+        {!scanning && categories.length === 0 && (
+          <div className="empty" style={{ padding: 24 }}>
+            未发现可清理项，存储空间已优化 ✓
           </div>
+        )}
 
-          {/* 分类卡片 */}
-          {categories.map((cat) => {
-            const catChecked = checked[cat.key] ?? new Set<string>()
-            const catSize = cat.items.reduce((a, i) => a + i.size, 0)
-            const catCheckedSize = cat.items.filter((i) => catChecked.has(i.id)).reduce((a, i) => a + i.size, 0)
-            return (
-              <div key={cat.key} className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: 'var(--primary)' }}>{cat.icon}</span>
-                  <b>{cat.title}</b>
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    {cat.items.length} 项 · {formatQuota(catSize, false)}
-                    {catCheckedSize > 0 && catCheckedSize < catSize ? `（已选 ${formatQuota(catCheckedSize, false)}）` : ''}
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <Button size="small" type="text" onClick={() => toggleCategory(cat.key, cat.items)}>
-                    {catChecked.size >= cat.items.length ? '取消全选' : '全选'}
-                  </Button>
-                </div>
-                <div className="muted" style={{ fontSize: 12 }}>{cat.desc}</div>
-                <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
-                  {groupBySpace(cat.items).map(([spaceName, spaceItems]) => (
-                    <div key={spaceName || '_default'}>
-                      {spaceName && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 4px 2px', borderBottom: '1px solid var(--border)' }}>
-                          <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>{spaceName}</span>
-                          <span className="muted" style={{ fontSize: 10 }}>{spaceItems.length} 项</span>
-                          <span style={{ flex: 1 }} />
-                          <Button size="small" type="text" style={{ fontSize: 10, padding: '0 4px' }}
-                            onClick={() => toggleSpaceGroup(cat.key, spaceName, cat.items)}>
-                            {(spaceItems.every((i) => catChecked.has(i.id))) ? '取消' : '全选'}
-                          </Button>
-                        </div>
-                      )}
-                      {spaceItems.map((item) => (
-                        <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', cursor: 'pointer', borderRadius: 4 }}>
-                          <input
-                            type="checkbox"
-                            checked={catChecked.has(item.id)}
-                            onChange={() => toggleItem(cat.key, item.id)}
-                          />
-                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                            {item.label}
-                          </span>
-                          <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{item.detail}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ))}
-                </div>
+        {!scanning && categories.length > 0 && (
+          <>
+            {/* 总览条 */}
+            <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <Progress
+                  percent={totalAll > 0 ? Math.round((totalCleanable / totalAll) * 100) : 0}
+                  size="small"
+                  format={() => `${formatQuota(totalCleanable, false)} / ${formatQuota(totalAll, false)}`}
+                />
               </div>
-            )
-          })}
-        </>
-      )}
+              <Button size="small" onClick={toggleAll}>
+                {categories.every((cat) => (checked[cat.key] ?? new Set()).size >= cat.items.length) ? '取消全选' : '全选所有'}
+              </Button>
+              <Button type="primary" danger disabled={totalCleanable === 0 && Object.values(checked).every((s) => s.size === 0)} loading={cleaning} onClick={executeCleanup}>
+                清理选中项{Object.values(checked).reduce((a, s) => a + s.size, 0) > 0 ? `（${Object.values(checked).reduce((a, s) => a + s.size, 0)} 项）` : ''}
+              </Button>
+              <Button onClick={() => void scan()} disabled={cleaning}>重新扫描</Button>
+            </div>
 
-      {error && <div className="banner error">{error}</div>}
+            {/* 分类卡片 */}
+            {categories.map((cat) => {
+              const catChecked = checked[cat.key] ?? new Set<string>()
+              const catSize = cat.items.reduce((a, i) => a + i.size, 0)
+              const catCheckedSize = cat.items.filter((i) => catChecked.has(i.id)).reduce((a, i) => a + i.size, 0)
+              return (
+                <div key={cat.key} className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: 'var(--primary)' }}>{cat.icon}</span>
+                    <b>{cat.title}</b>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {cat.items.length} 项 · {formatQuota(catSize, false)}
+                      {catCheckedSize > 0 && catCheckedSize < catSize ? `（已选 ${formatQuota(catCheckedSize, false)}）` : ''}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <Button size="small" type="text" onClick={() => toggleCategory(cat.key, cat.items)}>
+                      {catChecked.size >= cat.items.length ? '取消全选' : '全选'}
+                    </Button>
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>{cat.desc}</div>
+                  <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 4 }}>
+                    {groupBySpace(cat.items).map(([spaceName, spaceItems]) => (
+                      <div key={spaceName || '_default'}>
+                        {spaceName && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 4px 2px', borderBottom: '1px solid var(--border)' }}>
+                            <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>{spaceName}</span>
+                            <span className="muted" style={{ fontSize: 10 }}>{spaceItems.length} 项</span>
+                            <span style={{ flex: 1 }} />
+                            <Button size="small" type="text" style={{ fontSize: 10, padding: '0 4px' }}
+                              onClick={() => toggleSpaceGroup(cat.key, spaceName, cat.items)}>
+                              {(spaceItems.every((i) => catChecked.has(i.id))) ? '取消' : '全选'}
+                            </Button>
+                          </div>
+                        )}
+                        {spaceItems.map((item) => (
+                          <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', cursor: 'pointer', borderRadius: 4 }}>
+                            <input
+                              type="checkbox"
+                              checked={catChecked.has(item.id)}
+                              onChange={() => toggleItem(cat.key, item.id)}
+                            />
+                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                              {item.label}
+                            </span>
+                            <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{item.detail}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </>
+        )}
+
+        {error && <div className="banner error">{error}</div>}
+      </SettingsSection>
     </div>
   )
 }

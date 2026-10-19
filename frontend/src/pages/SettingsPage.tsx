@@ -72,6 +72,7 @@ import { useAIEnabled } from '../aiFeature'
 import { THEME_ACCENTS, ThemeAccent, ThemeMode, ThemePreference, THEME_EVENT, loadTheme, saveTheme } from '../theme'
 import { MessageKey, saveLocale, t, useLocale } from '../i18n'
 import StorageCleanupPanel from '../components/settings/StorageCleanupPanel'
+import { SettingsField, SettingsSection } from '../components/settings/SettingsSections'
 
 /** 通知事件类型的中文标签与说明（顺序即设置页展示顺序）。 */
 const NOTIFICATION_TYPE_META: Array<{ type: NotificationEventType; label: string; desc: string }> = [
@@ -146,40 +147,41 @@ function SessionsPanel({ onError, onNotice }: { onError: (msg: string) => void; 
   }
 
   return (
-    <div className="panel setting-group">
-      <h3>{msg('sessionsTitle')}</h3>
-      <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        当前登录的全部活跃设备/浏览器。撤销全部时会包含当前会话，随后需重新登录。
-      </div>
-      {loading ? (
-        <div className="hint">{msg('loading')}</div>
-      ) : sessions.length === 0 ? (
-        <div className="empty">{msg('noSessions')}</div>
-      ) : (
-        sessions.map((s) => (
-          <div key={s.id} className="setting-row">
-            <div className="setting-main">
-              <div className="setting-key">{s.ip ?? '未知 IP'}</div>
-              <div className="setting-meta muted" title={s.user_agent}>
-                {uaSummary(s.user_agent)} · 最后活跃 {formatTime(s.last_active_at)}
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={msg('sessionsTitle')}
+        desc="当前登录的全部活跃设备/浏览器。撤销全部时会包含当前会话，随后需重新登录。"
+      >
+        {loading ? (
+          <div className="hint">{msg('loading')}</div>
+        ) : sessions.length === 0 ? (
+          <div className="empty">{msg('noSessions')}</div>
+        ) : (
+          sessions.map((s) => (
+            <div key={s.id} className="setting-row">
+              <div className="setting-main">
+                <div className="setting-key">{s.ip ?? '未知 IP'}</div>
+                <div className="setting-meta muted" title={s.user_agent}>
+                  {uaSummary(s.user_agent)} · 最后活跃 {formatTime(s.last_active_at)}
+                </div>
+                <div className="setting-desc muted">
+                  登录于 {formatTime(s.created_at)} · 有效期至 {formatTime(s.expires_at)}
+                </div>
               </div>
-              <div className="setting-desc muted">
-                登录于 {formatTime(s.created_at)} · 有效期至 {formatTime(s.expires_at)}
+              <div className="setting-control">
+                <Button
+                  size="small"
+                  danger
+                  disabled={revoking !== null || revokingAll}
+                  onClick={() => void revokeOne(s.id)}
+                >
+                  {revoking === s.id ? '撤销中…' : '撤销'}
+                </Button>
               </div>
             </div>
-            <div className="setting-control">
-              <Button
-                size="small"
-                danger
-                disabled={revoking !== null || revokingAll}
-                onClick={() => void revokeOne(s.id)}
-              >
-                {revoking === s.id ? '撤销中…' : '撤销'}
-              </Button>
-            </div>
-          </div>
-        ))
-      )}
+          ))
+        )}
+      </SettingsSection>
       <div style={{ marginTop: 12 }}>
         <Button danger disabled={revokingAll || loading || sessions.length === 0} onClick={() => void revokeAll()}>
           {revokingAll ? '撤销中…' : '撤销全部会话并登出'}
@@ -285,68 +287,69 @@ function TokensPanel({ onError, onNotice }: { onError: (msg: string) => void; on
   }
 
   return (
-    <div className="panel setting-group">
-      <h3>{msg('patTitle')}</h3>
-      <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        供脚本/CI 等以 Bearer ddpat_… 直接调用 API；令牌仅创建时可见一次，撤销立即失效。
-      </div>
-      {oneTimeToken && (
-        <>
-          <div className="share-link" style={{ marginBottom: 8 }}>
-            <Input readOnly value={oneTimeToken} onFocus={(e) => e.currentTarget.select()} />
-            <Button size="small" onClick={() => void copyToken()}>
-              {copied ? '已复制' : '复制令牌'}
-            </Button>
-          </div>
-          <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-            该令牌明文仅显示这一次，请立即复制保存；关闭后无法再次查看。
-          </div>
-        </>
-      )}
-      {loading ? (
-        <div className="hint">{msg('loading')}</div>
-      ) : tokens.length === 0 ? (
-        <div className="empty">{msg('noTokens')}</div>
-      ) : (
-        tokens.map((t) => (
-          <div key={t.id} className="setting-row">
-            <div className="setting-main">
-              {editing === t.id ? (
-                <div className="team-create-row">
-                  <Input allowClear value={editName} onChange={(e) => setEditName(e.target.value)} />
-                  {(aiOn ? ['files:read', 'files:write', 'ai:chat'] : ['files:read', 'files:write']).map((scope) => (
-                    <label key={scope} className="check-item" title={scope}>
-                      <input type="checkbox" checked={editScopes.includes(scope)} onChange={(e) => setEditScopes(e.target.checked ? [...editScopes, scope] : editScopes.filter((s) => s !== scope))} />
-                      {scope === 'files:read' ? '文件只读（files:read）' : scope === 'files:write' ? '文件读写（files:write）' : 'AI 对话（ai:chat）'}
-                    </label>
-                  ))}
-                </div>
-              ) : <div className="setting-key">{t.name}</div>}
-              <div className="setting-meta muted">
-                {t.prefix}… · 创建于 {formatTime(t.created_at)}
-                {t.last_used_at ? ` · 最近使用 ${formatTime(t.last_used_at)}` : ' · 未使用'}
-                {t.expires_at && ` · 有效期至 ${formatTime(t.expires_at)}`}
-              </div>
-            </div>
-            <div className="setting-control">
-              {editing === t.id ? <><Button size="small" type="primary" onClick={() => void saveEdit(t.id)}>保存</Button><Button size="small" onClick={() => setEditing(null)}>取消</Button></> : <Button size="small" onClick={() => { setEditing(t.id); setEditName(t.name); setEditScopes(t.scopes ?? []) }}>修改</Button>}
-              {t.expires_at && new Date(t.expires_at).getTime() < Date.now() ? (
-                <span className="badge failed">已过期</span>
-              ) : (
-                <span className="badge available">有效</span>
-              )}
-              <Button
-                size="small"
-                danger
-                disabled={revoking !== null}
-                onClick={() => void revoke(t.id)}
-              >
-                {revoking === t.id ? '撤销中…' : '撤销'}
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={msg('patTitle')}
+        desc="供脚本/CI 等以 Bearer ddpat_… 直接调用 API；令牌仅创建时可见一次，撤销立即失效。"
+      >
+        {oneTimeToken && (
+          <>
+            <div className="share-link" style={{ marginBottom: 8 }}>
+              <Input readOnly value={oneTimeToken} onFocus={(e) => e.currentTarget.select()} />
+              <Button size="small" onClick={() => void copyToken()}>
+                {copied ? '已复制' : '复制令牌'}
               </Button>
             </div>
-          </div>
-        ))
-      )}
+            <div className="setting-desc muted" style={{ marginBottom: 12 }}>
+              该令牌明文仅显示这一次，请立即复制保存；关闭后无法再次查看。
+            </div>
+          </>
+        )}
+        {loading ? (
+          <div className="hint">{msg('loading')}</div>
+        ) : tokens.length === 0 ? (
+          <div className="empty">{msg('noTokens')}</div>
+        ) : (
+          tokens.map((t) => (
+            <div key={t.id} className="setting-row">
+              <div className="setting-main">
+                {editing === t.id ? (
+                  <div className="team-create-row">
+                    <Input allowClear value={editName} onChange={(e) => setEditName(e.target.value)} />
+                    {(aiOn ? ['files:read', 'files:write', 'ai:chat'] : ['files:read', 'files:write']).map((scope) => (
+                      <label key={scope} className="check-item" title={scope}>
+                        <input type="checkbox" checked={editScopes.includes(scope)} onChange={(e) => setEditScopes(e.target.checked ? [...editScopes, scope] : editScopes.filter((s) => s !== scope))} />
+                        {scope === 'files:read' ? '文件只读（files:read）' : scope === 'files:write' ? '文件读写（files:write）' : 'AI 对话（ai:chat）'}
+                      </label>
+                    ))}
+                  </div>
+                ) : <div className="setting-key">{t.name}</div>}
+                <div className="setting-meta muted">
+                  {t.prefix}… · 创建于 {formatTime(t.created_at)}
+                  {t.last_used_at ? ` · 最近使用 ${formatTime(t.last_used_at)}` : ' · 未使用'}
+                  {t.expires_at && ` · 有效期至 ${formatTime(t.expires_at)}`}
+                </div>
+              </div>
+              <div className="setting-control">
+                {editing === t.id ? <><Button size="small" type="primary" onClick={() => void saveEdit(t.id)}>保存</Button><Button size="small" onClick={() => setEditing(null)}>取消</Button></> : <Button size="small" onClick={() => { setEditing(t.id); setEditName(t.name); setEditScopes(t.scopes ?? []) }}>修改</Button>}
+                {t.expires_at && new Date(t.expires_at).getTime() < Date.now() ? (
+                  <span className="badge failed">已过期</span>
+                ) : (
+                  <span className="badge available">有效</span>
+                )}
+                <Button
+                  size="small"
+                  danger
+                  disabled={revoking !== null}
+                  onClick={() => void revoke(t.id)}
+                >
+                  {revoking === t.id ? '撤销中…' : '撤销'}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </SettingsSection>
       <div style={{ marginTop: 12 }}>
         <Button type="primary" onClick={() => { setOneTimeToken(''); setShowCreate(true) }}>
           {msg('createTokenBtn')}
@@ -864,62 +867,61 @@ function AppearancePanel() {
   }
 
   return (
-    <div className="panel setting-group">
-      <h3>{msg('appearance')}</h3>
-      <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        主题色影响按钮、链接与强调元素；明暗模式即时生效，偏好仅保存在本浏览器。
-        顶栏右侧的外观快捷入口与本面板状态实时同步。
-      </div>
-      <div className="setting-main">
-        <div className="setting-key">主题色</div>
-        <div className="setting-desc muted" style={{ marginBottom: 20 }}>五选一，默认靛蓝。</div>
-        <div className="theme-swatches">
-          {THEME_ACCENTS.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              className={`theme-swatch${accent === t.value ? ' active' : ''}`}
-              style={{ background: t.color }}
-              title={t.label}
-              aria-label={`主题色：${t.label}`}
-              aria-pressed={accent === t.value}
-              onClick={() => update({ accent: t.value })}
-            >
-              <span className="theme-swatch-name">{t.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="setting-main" style={{ marginTop: 16 }}>
-        <div className="setting-key">明暗模式</div>
-        <div className="setting-desc muted" style={{ marginBottom: 8 }}>跟随系统时按操作系统偏好实时切换。</div>
-        <div style={{ maxWidth: 360 }}>
-          <Segmented
-            value={mode}
-            onChange={(v) => update({ mode: v as ThemeMode })}
-            options={THEME_MODES.map((m) => ({ value: m.value, label: m.label }))}
-          />
-        </div>
-      </div>
-      <div className="setting-main" style={{ marginTop: 16 }}>
-        <div className="setting-key">界面语言</div>
-        <div className="setting-desc muted" style={{ marginBottom: 8 }}>同时写入个人资料的语言偏好字段。</div>
-        <div style={{ maxWidth: 360 }}>
-          <Segmented
-            value={locale}
-            onChange={(v) => {
-              const next = v === 'en-US' ? 'en-US' : 'zh-CN'
-              saveLocale(next)
-              window.dispatchEvent(new Event('docdyne:locale'))
-              void updateMe({ language: next }).catch(() => { /* 资料字段写入失败不阻塞界面语言切换 */ })
-            }}
-            options={[
-              { value: 'zh-CN', label: '简体中文' },
-              { value: 'en-US', label: 'English' },
-            ]}
-          />
-        </div>
-      </div>
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={msg('appearance')}
+        desc={
+          <>
+            主题色影响按钮、链接与强调元素；明暗模式即时生效，偏好仅保存在本浏览器。
+            顶栏右侧的外观快捷入口与本面板状态实时同步。
+          </>
+        }
+      >
+        <SettingsField label="主题色" hint="五选一，默认靛蓝。">
+          <div className="theme-swatches">
+            {THEME_ACCENTS.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                className={`theme-swatch${accent === t.value ? ' active' : ''}`}
+                style={{ background: t.color }}
+                title={t.label}
+                aria-label={`主题色：${t.label}`}
+                aria-pressed={accent === t.value}
+                onClick={() => update({ accent: t.value })}
+              >
+                <span className="theme-swatch-name">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </SettingsField>
+        <SettingsField label="明暗模式" hint="跟随系统时按操作系统偏好实时切换。">
+          <div style={{ maxWidth: 360 }}>
+            <Segmented
+              value={mode}
+              onChange={(v) => update({ mode: v as ThemeMode })}
+              options={THEME_MODES.map((m) => ({ value: m.value, label: m.label }))}
+            />
+          </div>
+        </SettingsField>
+        <SettingsField label="界面语言" hint="同时写入个人资料的语言偏好字段。">
+          <div style={{ maxWidth: 360 }}>
+            <Segmented
+              value={locale}
+              onChange={(v) => {
+                const next = v === 'en-US' ? 'en-US' : 'zh-CN'
+                saveLocale(next)
+                window.dispatchEvent(new Event('docdyne:locale'))
+                void updateMe({ language: next }).catch(() => { /* 资料字段写入失败不阻塞界面语言切换 */ })
+              }}
+              options={[
+                { value: 'zh-CN', label: '简体中文' },
+                { value: 'en-US', label: 'English' },
+              ]}
+            />
+          </div>
+        </SettingsField>
+      </SettingsSection>
     </div>
   )
 }
@@ -1036,69 +1038,74 @@ function WebhooksPanel({ onError, onNotice }: { onError: (msg: string) => void; 
   }
 
   return (
-    <div className="panel setting-group">
-      <h3>{msg('webhookTitle')}</h3>
-      <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        事件发生时向回调 URL POST JSON（X-DocDyne-Signature 头含 HMAC-SHA256 签名，以创建时下发的一次性
-        secret 验签）；受「通知偏好」同一开关控制。连续 10 次投递失败将自动停用。
-      </div>
-      {oneTimeSecret && (
-        <>
-          <div className="share-link" style={{ marginBottom: 8 }}>
-            <Input readOnly value={oneTimeSecret} onFocus={(e) => e.currentTarget.select()} />
-            <Button size="small" onClick={() => void copySecret()}>
-              {secretCopied ? '已复制' : '复制 secret'}
-            </Button>
-          </div>
-          <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-            该签名 secret 仅显示这一次，请立即复制保存；接收方以其复算 HMAC 验签，关闭后无法再次查看。
-          </div>
-        </>
-      )}
-      {loading ? (
-        <div className="hint">{msg('loading')}</div>
-      ) : hooks.length === 0 ? (
-        <div className="empty">{msg('noWebhooks')}</div>
-      ) : (
-        hooks.map((w) => (
-          <div key={w.id} className="setting-row">
-            <div className="setting-main">
-              <div className="setting-key" title={w.url}>
-                {urlSummary(w.url)}
-              </div>
-              <div className="event-badges">
-                {w.events.map((e) => (
-                  <span key={e} className="badge">
-                    {NOTIFICATION_TYPE_META.find((m) => m.type === e)?.label ?? e}
-                  </span>
-                ))}
-              </div>
-              <div className="setting-desc muted">
-                {deliverySummary(w)} · 连续失败 {w.failure_count} 次 · 创建于 {formatTime(w.created_at)}
-              </div>
-            </div>
-            <div className="setting-control">
-              <label className="setting-bool">
-                <input
-                  type="checkbox"
-                  checked={w.enabled}
-                  disabled={toggling !== null}
-                  onChange={(e) => void toggle(w.id, e.target.checked)}
-                />
-                {toggling === w.id ? '处理中…' : w.enabled ? '启用' : '停用'}
-              </label>
-              <Button
-                size="small"
-                danger
-                disabled={deleting !== null}
-                onClick={() => void remove(w.id)}
-              >
-                {deleting === w.id ? '删除中…' : '删除'}
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={msg('webhookTitle')}
+        desc={
+          <>
+            事件发生时向回调 URL POST JSON（X-DocDyne-Signature 头含 HMAC-SHA256 签名，以创建时下发的一次性
+            secret 验签）；受「通知偏好」同一开关控制。连续 10 次投递失败将自动停用。
+          </>
+        }
+      >
+        {oneTimeSecret && (
+          <>
+            <div className="share-link" style={{ marginBottom: 8 }}>
+              <Input readOnly value={oneTimeSecret} onFocus={(e) => e.currentTarget.select()} />
+              <Button size="small" onClick={() => void copySecret()}>
+                {secretCopied ? '已复制' : '复制 secret'}
               </Button>
             </div>
-          </div>
-        ))
-      )}
+            <div className="setting-desc muted" style={{ marginBottom: 12 }}>
+              该签名 secret 仅显示这一次，请立即复制保存；接收方以其复算 HMAC 验签，关闭后无法再次查看。
+            </div>
+          </>
+        )}
+        {loading ? (
+          <div className="hint">{msg('loading')}</div>
+        ) : hooks.length === 0 ? (
+          <div className="empty">{msg('noWebhooks')}</div>
+        ) : (
+          hooks.map((w) => (
+            <div key={w.id} className="setting-row">
+              <div className="setting-main">
+                <div className="setting-key" title={w.url}>
+                  {urlSummary(w.url)}
+                </div>
+                <div className="event-badges">
+                  {w.events.map((e) => (
+                    <span key={e} className="badge">
+                      {NOTIFICATION_TYPE_META.find((m) => m.type === e)?.label ?? e}
+                    </span>
+                  ))}
+                </div>
+                <div className="setting-desc muted">
+                  {deliverySummary(w)} · 连续失败 {w.failure_count} 次 · 创建于 {formatTime(w.created_at)}
+                </div>
+              </div>
+              <div className="setting-control">
+                <label className="setting-bool">
+                  <input
+                    type="checkbox"
+                    checked={w.enabled}
+                    disabled={toggling !== null}
+                    onChange={(e) => void toggle(w.id, e.target.checked)}
+                  />
+                  {toggling === w.id ? '处理中…' : w.enabled ? '启用' : '停用'}
+                </label>
+                <Button
+                  size="small"
+                  danger
+                  disabled={deleting !== null}
+                  onClick={() => void remove(w.id)}
+                >
+                  {deleting === w.id ? '删除中…' : '删除'}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </SettingsSection>
       <div style={{ marginTop: 12 }}>
         <Button
           type="primary"
@@ -1217,21 +1224,16 @@ function NotificationsPanel({ onError, onNotice }: { onError: (msg: string) => v
   }
 
   return (
-    <div className="panel setting-group">
-      <h3>{msg('notifPrefsTitle')}</h3>
-      <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        站内通知的事件类型开关；关闭后对应事件不再生成通知（默认全部开启）。
-      </div>
-      {loading ? (
-        <div className="hint">{msg('loading')}</div>
-      ) : (
-        NOTIFICATION_TYPE_META.map((meta) => (
-          <div key={meta.type} className="setting-row">
-            <div className="setting-main">
-              <div className="setting-key">{meta.label}</div>
-              <div className="setting-desc muted">{meta.desc}</div>
-            </div>
-            <div className="setting-control">
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={msg('notifPrefsTitle')}
+        desc="站内通知的事件类型开关；关闭后对应事件不再生成通知（默认全部开启）。"
+      >
+        {loading ? (
+          <div className="hint">{msg('loading')}</div>
+        ) : (
+          NOTIFICATION_TYPE_META.map((meta) => (
+            <SettingsField key={meta.type} label={meta.label} hint={meta.desc}>
               <label className="setting-bool">
                 <input
                   type="checkbox"
@@ -1241,10 +1243,10 @@ function NotificationsPanel({ onError, onNotice }: { onError: (msg: string) => v
                 />
                 {saving === meta.type ? '保存中…' : prefs[meta.type] ?? true ? '开启' : '关闭'}
               </label>
-            </div>
-          </div>
-        ))
-      )}
+            </SettingsField>
+          ))
+        )}
+      </SettingsSection>
     </div>
   )
 }
@@ -1391,124 +1393,129 @@ function OpenWithPanel({ onError, onNotice }: { onError: (msg: string) => void; 
   const draftExt = newExt.trim().toLowerCase().replace(/^\.+/, '')
 
   return (
-    <div className="panel setting-group">
-      <h3>打开方式</h3>
-      <div className="setting-desc muted" style={{ marginBottom: 12 }}>
-        按扩展名管理默认的查看 / 编辑方式。下表预填全部内置默认（未覆盖行直接显示内置值，
-        修改即创建覆盖、改回内置值自动恢复默认）；标「已覆盖」的行是你显式保存过的配置，
-        可重置恢复内置。下拉列出全部方式由你自选（不按扩展名过滤，如 .docx 也可强制用
-        富文本查看）；文件右键菜单的「打开方式」选择不再改写这里的配置。
-      </div>
-      {/* 「添加」行（v2.2 移至面板顶部）：扩展名 + 查看/编辑方式（默认取该扩展内置）。 */}
-      <form className="team-create-row" style={{ marginBottom: 12 }} onSubmit={(e) => void submitAdd(e)}>
-        <label className="field">
-          <span>扩展名</span>
-          <Input
-            allowClear
-            maxLength={17}
-            value={newExt}
-            onChange={(e) => {
-              setNewExt(e.target.value)
-              setNewView('')
-              setNewEdit('')
-            }}
-            placeholder="如 docx / md / drawio"
-            aria-label="扩展名"
-          />
-        </label>
-        <label className="field">
-          <span>查看方式</span>
-          <Select
-            value={newView || (draftExt ? builtinOpenWith(draftExt).view : '')}
-            onChange={(v) => setNewView(v as ViewMethod)}
-            disabled={!draftExt || busy}
-            options={viewSelectOptions(draftExt)}
-            style={{ minWidth: 140 }}
-            aria-label="查看方式"
-          />
-        </label>
-        <label className="field">
-          <span>编辑方式</span>
-          <Select
-            value={newEdit || (draftExt ? builtinOpenWith(draftExt).edit : '')}
-            onChange={(v) => setNewEdit(v as EditMethod)}
-            disabled={!draftExt || busy}
-            options={editSelectOptions}
-            style={{ minWidth: 140 }}
-            aria-label="编辑方式"
-          />
-        </label>
-        <Button type="primary" htmlType="submit" disabled={busy || !/^[a-z0-9]{1,16}$/.test(draftExt)}>
-          {busy ? '保存中…' : '添加'}
-        </Button>
-      </form>
-      {loading ? (
-        <div className="hint">加载中…</div>
-      ) : (
-        <table className="file-table openwith-table">
-          <thead>
-            <tr>
-              <th>扩展名</th>
-              <th>查看方式</th>
-              <th>编辑方式</th>
-              <th>状态</th>
-              <th className="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rowExts.map((ext) => {
-              const builtin = builtinOpenWith(ext)
-              const overridden = Boolean(prefs[ext])
-              const currentView = prefs[ext]?.view ?? builtin.view
-              const currentEdit = prefs[ext]?.edit ?? builtin.edit
-              return (
-                <tr key={ext} className={overridden ? 'openwith-overridden' : undefined}>
-                  <td><code>.{ext}</code></td>
-                  <td>
-                    <Select
-                      size="small"
-                      disabled={busy}
-                      value={currentView}
-                      onChange={(v) => void saveField(ext, 'view', v as ViewMethod)}
-                      options={viewSelectOptions(ext)}
-                      style={{ minWidth: 140 }}
-                    />
-                  </td>
-                  <td>
-                    <Select
-                      size="small"
-                      disabled={busy}
-                      value={currentEdit}
-                      onChange={(v) => void saveField(ext, 'edit', v as EditMethod)}
-                      options={editSelectOptions}
-                      style={{ minWidth: 140 }}
-                    />
-                  </td>
-                  <td>
-                    {overridden
-                      ? <span className="badge openwith-badge">已覆盖</span>
-                      : <span className="muted">内置默认</span>}
-                  </td>
-                  <td className="col-actions">
-                    {overridden && (
-                      <Button size="small" disabled={busy} onClick={() => void resetExt(ext)}>
-                        重置
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
-            <tr>
-              <td><span className="muted">其他（默认）</span></td>
-              <td className="muted">{viewMethodLabel(fallbackBuiltin.view, true)}</td>
-              <td className="muted">不支持</td>
-              <td className="muted">内置兜底</td>
-              <td className="col-actions" />
-            </tr>
-          </tbody>
-        </table>
-      )}
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title="打开方式"
+        desc={
+          <>
+            按扩展名管理默认的查看 / 编辑方式。下表预填全部内置默认（未覆盖行直接显示内置值，
+            修改即创建覆盖、改回内置值自动恢复默认）；标「已覆盖」的行是你显式保存过的配置，
+            可重置恢复内置。下拉列出全部方式由你自选（不按扩展名过滤，如 .docx 也可强制用
+            富文本查看）；文件右键菜单的「打开方式」选择不再改写这里的配置。
+          </>
+        }
+      >
+        {/* 「添加」行（v2.2 移至面板顶部）：扩展名 + 查看/编辑方式（默认取该扩展内置）。 */}
+        <form className="team-create-row" style={{ marginBottom: 12 }} onSubmit={(e) => void submitAdd(e)}>
+          <label className="field">
+            <span>扩展名</span>
+            <Input
+              allowClear
+              maxLength={17}
+              value={newExt}
+              onChange={(e) => {
+                setNewExt(e.target.value)
+                setNewView('')
+                setNewEdit('')
+              }}
+              placeholder="如 docx / md / drawio"
+              aria-label="扩展名"
+            />
+          </label>
+          <label className="field">
+            <span>查看方式</span>
+            <Select
+              value={newView || (draftExt ? builtinOpenWith(draftExt).view : '')}
+              onChange={(v) => setNewView(v as ViewMethod)}
+              disabled={!draftExt || busy}
+              options={viewSelectOptions(draftExt)}
+              style={{ minWidth: 140 }}
+              aria-label="查看方式"
+            />
+          </label>
+          <label className="field">
+            <span>编辑方式</span>
+            <Select
+              value={newEdit || (draftExt ? builtinOpenWith(draftExt).edit : '')}
+              onChange={(v) => setNewEdit(v as EditMethod)}
+              disabled={!draftExt || busy}
+              options={editSelectOptions}
+              style={{ minWidth: 140 }}
+              aria-label="编辑方式"
+            />
+          </label>
+          <Button type="primary" htmlType="submit" disabled={busy || !/^[a-z0-9]{1,16}$/.test(draftExt)}>
+            {busy ? '保存中…' : '添加'}
+          </Button>
+        </form>
+        {loading ? (
+          <div className="hint">加载中…</div>
+        ) : (
+          <table className="file-table openwith-table">
+            <thead>
+              <tr>
+                <th>扩展名</th>
+                <th>查看方式</th>
+                <th>编辑方式</th>
+                <th>状态</th>
+                <th className="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rowExts.map((ext) => {
+                const builtin = builtinOpenWith(ext)
+                const overridden = Boolean(prefs[ext])
+                const currentView = prefs[ext]?.view ?? builtin.view
+                const currentEdit = prefs[ext]?.edit ?? builtin.edit
+                return (
+                  <tr key={ext} className={overridden ? 'openwith-overridden' : undefined}>
+                    <td><code>.{ext}</code></td>
+                    <td>
+                      <Select
+                        size="small"
+                        disabled={busy}
+                        value={currentView}
+                        onChange={(v) => void saveField(ext, 'view', v as ViewMethod)}
+                        options={viewSelectOptions(ext)}
+                        style={{ minWidth: 140 }}
+                      />
+                    </td>
+                    <td>
+                      <Select
+                        size="small"
+                        disabled={busy}
+                        value={currentEdit}
+                        onChange={(v) => void saveField(ext, 'edit', v as EditMethod)}
+                        options={editSelectOptions}
+                        style={{ minWidth: 140 }}
+                      />
+                    </td>
+                    <td>
+                      {overridden
+                        ? <span className="badge openwith-badge">已覆盖</span>
+                        : <span className="muted">内置默认</span>}
+                    </td>
+                    <td className="col-actions">
+                      {overridden && (
+                        <Button size="small" disabled={busy} onClick={() => void resetExt(ext)}>
+                          重置
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+              <tr>
+                <td><span className="muted">其他（默认）</span></td>
+                <td className="muted">{viewMethodLabel(fallbackBuiltin.view, true)}</td>
+                <td className="muted">不支持</td>
+                <td className="muted">内置兜底</td>
+                <td className="col-actions" />
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </SettingsSection>
     </div>
   )
 }
@@ -1546,38 +1553,41 @@ function McpPanel({ onNotice }: { onNotice: (msg: string) => void }) {
     }
   }
   return (
-    <div className="panel setting-group">
-      <h3>MCP{zh ? ' 服务（AI 接入）' : ' service (AI access)'}</h3>
-      <div className="setting-desc muted">
-        {zh ? (
-          <>DocDyne 已内置 MCP（Model Context Protocol）服务端：在 Claude Desktop / Cursor / Cline 等
-            AI 客户端接入后，AI 可直接操作你的文件（浏览 / 读写 / 版本管理 / 分享 / 全文检索，共 21 个工具）。
-            权限与你的账号完全一致，写入走完整上传管线（病毒扫描 / 配额 / 黑名单）。</>
-        ) : (
-          <>DocDyne ships a built-in MCP (Model Context Protocol) server: connect from Claude Desktop,
-            Cursor, Cline and let AI operate your files (browse / read / write / versions / shares / search,
-            21 tools). Permissions mirror your account; writes go through the full upload pipeline.</>
-        )}
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span>{zh ? '服务端点（POST /mcp，JSON-RPC 2.0，限流 60 次/分钟/IP）' : 'Endpoint (POST /mcp, JSON-RPC 2.0, 60 req/min/IP)'}</span>
-        <div className="share-link">
-          <Input readOnly value={endpoint} onFocus={(e) => e.currentTarget.select()} />
-          <Button onClick={() => void copy('url', endpoint)}>
-            {copied === 'url' ? (zh ? '已复制 ✓' : 'Copied ✓') : zh ? '复制' : 'Copy'}
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title={`MCP${zh ? ' 服务（AI 接入）' : ' service (AI access)'}`}
+        desc={
+          zh ? (
+            <>DocDyne 已内置 MCP（Model Context Protocol）服务端：在 Claude Desktop / Cursor / Cline 等
+              AI 客户端接入后，AI 可直接操作你的文件（浏览 / 读写 / 版本管理 / 分享 / 全文检索，共 21 个工具）。
+              权限与你的账号完全一致，写入走完整上传管线（病毒扫描 / 配额 / 黑名单）。</>
+          ) : (
+            <>DocDyne ships a built-in MCP (Model Context Protocol) server: connect from Claude Desktop,
+              Cursor, Cline and let AI operate your files (browse / read / write / versions / shares / search,
+              21 tools). Permissions mirror your account; writes go through the full upload pipeline.</>
+          )
+        }
+      >
+        <div className="field" style={{ marginTop: 10 }}>
+          <span>{zh ? '服务端点（POST /mcp，JSON-RPC 2.0，限流 60 次/分钟/IP）' : 'Endpoint (POST /mcp, JSON-RPC 2.0, 60 req/min/IP)'}</span>
+          <div className="share-link">
+            <Input readOnly value={endpoint} onFocus={(e) => e.currentTarget.select()} />
+            <Button onClick={() => void copy('url', endpoint)}>
+              {copied === 'url' ? (zh ? '已复制 ✓' : 'Copied ✓') : zh ? '复制' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+        <div className="field" style={{ marginTop: 10 }}>
+          <span>
+            {zh ? '客户端配置示例（先在本页「个人访问令牌」创建 PAT，建议限定 files:read 或 files:write scope）'
+              : 'Client config (create a PAT below first; scope it to files:read or files:write)'}
+          </span>
+          <pre className="mcp-config-sample">{clientConfig}</pre>
+          <Button size="small" style={{ marginTop: 6 }} onClick={() => void copy('json', clientConfig)}>
+            {copied === 'json' ? (zh ? '已复制 ✓' : 'Copied ✓') : zh ? '复制配置' : 'Copy config'}
           </Button>
         </div>
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span>
-          {zh ? '客户端配置示例（先在本页「个人访问令牌」创建 PAT，建议限定 files:read 或 files:write scope）'
-            : 'Client config (create a PAT below first; scope it to files:read or files:write)'}
-        </span>
-        <pre className="mcp-config-sample">{clientConfig}</pre>
-        <Button size="small" style={{ marginTop: 6 }} onClick={() => void copy('json', clientConfig)}>
-          {copied === 'json' ? (zh ? '已复制 ✓' : 'Copied ✓') : zh ? '复制配置' : 'Copy config'}
-        </Button>
-      </div>
+      </SettingsSection>
     </div>
   )
 }
@@ -1599,7 +1609,62 @@ const baseSettingsSections: ReadonlyArray<readonly [string, string, string]> = [
   ['aipersonal', 'AI 个人配置', 'AI personal'],
   ['cleanup', '存储清理', 'Storage cleanup'],
 ]
-export function WebDAVPanel({ onError, onNotice }: { onError: (m: string) => void; onNotice: (m: string) => void }) { const [items,setItems]=useState<WebDAVToken[]>([]); const [name,setName]=useState(''); const [token,setToken]=useState(''); const load=async()=>{try{setItems(await listWebDAVTokens())}catch(e){onError(e instanceof Error?e.message:'加载失败')}}; useEffect(()=>{void load()},[]); const create=async()=>{try{const x=await createWebDAVToken(name,90);setToken(x.token);setName('');await load();onNotice('令牌已创建，请立即复制') }catch(e){onError(e instanceof Error?e.message:'创建失败')}}; return <div className="panel setting-group"><h3>WebDAV 文件挂载（个人令牌）</h3><div className="setting-desc muted">URL：{window.location.origin}/webdav；Windows 映射网络驱动器，Linux 使用 davfs2，macOS 使用 Finder“连接服务器”。WebDAV 使用 Basic Auth：用户名为平台邮箱/用户名，密码为下方一次性令牌；服务端开关由管理员在「管理 → 安全与访问」中配置。</div>{token&&<div className="share-link"><Input readOnly value={token}/><Button onClick={()=>void navigator.clipboard.writeText(token)}>复制令牌</Button></div>} {items.map(x=><div className="setting-row" key={x.id}><div className="setting-main"><b>{x.name}</b><div className="muted">最后使用：{x.last_used_at||'未使用'} · 过期：{x.expires_at||'永不过期'}</div></div><Button danger onClick={()=>void revokeWebDAVToken(x.id).then(load)}>吊销</Button></div>)}<div className="team-create-row"><Input placeholder="令牌名称（如：我的电脑）" style={{ maxWidth: 240 }} value={name} onChange={e=>setName(e.target.value)}/><Button type="primary" disabled={!name.trim()} onClick={()=>void create()}>创建令牌</Button></div></div>}
+/** WebDAV 文件挂载面板（个人令牌）：令牌列表 / 创建（一次性明文展示+复制）/ 吊销。
+ * Basic Auth：用户名 = 平台邮箱/用户名，密码 = 一次性令牌；服务端开关由管理员
+ * 在「管理 → 安全与访问」中配置。 */
+export function WebDAVPanel({ onError, onNotice }: { onError: (m: string) => void; onNotice: (m: string) => void }) {
+  const [items, setItems] = useState<WebDAVToken[]>([])
+  const [name, setName] = useState('')
+  /** 最近一次创建的一次性令牌明文（仅展示一次，保存在内存）。 */
+  const [token, setToken] = useState('')
+  const load = async () => {
+    try {
+      setItems(await listWebDAVTokens())
+    } catch (e) {
+      onError(e instanceof Error ? e.message : '加载失败')
+    }
+  }
+  useEffect(() => { void load() }, [])
+  const create = async () => {
+    try {
+      const x = await createWebDAVToken(name, 90)
+      setToken(x.token)
+      setName('')
+      await load()
+      onNotice('令牌已创建，请立即复制')
+    } catch (e) {
+      onError(e instanceof Error ? e.message : '创建失败')
+    }
+  }
+  return (
+    <div className="panel setting-group settings-surface">
+      <SettingsSection
+        title="WebDAV 文件挂载（个人令牌）"
+        desc={<>URL：{window.location.origin}/webdav；Windows 映射网络驱动器，Linux 使用 davfs2，macOS 使用 Finder“连接服务器”。WebDAV 使用 Basic Auth：用户名为平台邮箱/用户名，密码为下方一次性令牌；服务端开关由管理员在「管理 → 安全与访问」中配置。</>}
+      >
+        {token && (
+          <div className="share-link">
+            <Input readOnly value={token} />
+            <Button onClick={() => void navigator.clipboard.writeText(token)}>复制令牌</Button>
+          </div>
+        )}
+        {items.map((x) => (
+          <div className="setting-row" key={x.id}>
+            <div className="setting-main">
+              <b>{x.name}</b>
+              <div className="muted">最后使用：{x.last_used_at || '未使用'} · 过期：{x.expires_at || '永不过期'}</div>
+            </div>
+            <Button danger onClick={() => void revokeWebDAVToken(x.id).then(load)}>吊销</Button>
+          </div>
+        ))}
+        <div className="team-create-row">
+          <Input placeholder="令牌名称（如：我的电脑）" style={{ maxWidth: 240 }} value={name} onChange={(e) => setName(e.target.value)} />
+          <Button type="primary" disabled={!name.trim()} onClick={() => void create()}>创建令牌</Button>
+        </div>
+      </SettingsSection>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const { section = 'appearance' } = useParams()
@@ -1670,7 +1735,7 @@ export default function SettingsPage() {
       )}
       {section === 'developer' && (
         <>
-          <div className="panel setting-group" style={{ padding: '12px 16px' }}>
+          <div className="panel setting-group settings-surface" style={{ padding: '12px 16px' }}>
             <div className="setting-desc muted" style={{ marginBottom: 0 }}>
               开发者工具：MCP 服务接入（DocDyne 内置 MCP 服务端的连接指引）、
               Webhook（事件发生时向回调 URL 推送 HMAC 签名的 JSON）与个人访问令牌
