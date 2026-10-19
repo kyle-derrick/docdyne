@@ -1,5 +1,15 @@
 .PHONY: run test fmt seed migrate e2e build-frontend sync-frontend validate-compose deploy deploy-minimal deploy-full deploy-auto up-minimal up-full down backup backup-verify backup-windows backup-windows-verify init-env
 
+# 部署/env 脚本跨平台分发：Windows（开发机）走 ps1，Linux/macOS（服务器）
+# 走 sh——两版同构（见 scripts/deploy.ps1 与 scripts/deploy.sh）。
+ifeq ($(OS),Windows_NT)
+INIT_ENV = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-env.ps1
+DEPLOY_CMD = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile
+else
+INIT_ENV = bash scripts/gen-env.sh
+DEPLOY_CMD = bash scripts/deploy.sh --profile
+endif
+
 run:
 	go run ./cmd/server
 
@@ -35,10 +45,10 @@ e2e:
 	cd frontend && npm run e2e
 
 # 一键生成 .env：交互式为 PG 密码/JWT/初始管理员等提供「随机生成/手动输入」
-#（Linux/macOS 用 scripts/gen-env.sh，支持 --auto 全自动）。deploy.ps1 在
-# .env 缺失或含占位符时也会自动调用（-Auto 无人值守）。
+#（Linux/macOS 用 scripts/gen-env.sh，支持 --auto 全自动）。deploy.* 在
+# .env 缺失或含占位符时也会自动调用（--auto/-Auto 无人值守）。
 init-env:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-env.ps1
+	$(INIT_ENV)
 
 # 构建 caddy 入口镜像（多阶段：前端 vite 构建产物并入 caddy 镜像，
 # 见 frontend/Dockerfile；即 docker compose 中 caddy 服务所用的镜像）。
@@ -58,15 +68,25 @@ sync-frontend:
 validate-compose:
 	docker compose config --quiet
 
-# 从源码一键部署；首次运行会创建 .env 并提示补齐密钥，不覆盖已有 .env。
+# 从源码一键部署；首次运行会创建 .env（交互式可逐项输入/回车随机生成，
+# --auto 全随机无人值守），不覆盖已有 .env。Windows 走 ps1、Linux 走 sh。
 deploy:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile minimal
+	$(DEPLOY_CMD) minimal
 
 deploy-minimal:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile minimal
+	$(DEPLOY_CMD) minimal
 
 deploy-full:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile full
+	$(DEPLOY_CMD) full
+
+# 无人值守部署（密钥全随机；CI/脚本化场景）。Linux：--auto；Windows：-Auto。
+ifeq ($(OS),Windows_NT)
+deploy-auto:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile minimal -Auto
+else
+deploy-auto:
+	bash scripts/deploy.sh --profile minimal --auto
+endif
 
 # 极简部署（caddy + backend + postgres，caddy 唯一宿主端口 80/443）。
 up-minimal:

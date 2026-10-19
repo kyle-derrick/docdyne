@@ -93,13 +93,18 @@ docker push <registry>/docdyne/caddy:1.0.0
 
 ### 从源码一键部署
 
-无需预先存在 DocDyne 镜像，部署入口会校验 Docker Compose、创建（但不覆盖）`.env`、构建前端/Caddy 与 backend 镜像，并按 `postgres → migrate → seed → backend → caddy` 依赖顺序启动：
+无需预先存在 DocDyne 镜像，部署入口会校验 Docker Compose、创建（但不覆盖）`.env`、构建前端/Caddy 与 backend 镜像，并按 `postgres → migrate → seed → backend → caddy` 依赖顺序启动。**跨平台**：`make` 会自动分发——Windows 走 `scripts/deploy.ps1`，Linux/macOS 服务器走 `scripts/deploy.sh`（两版同构）。
 
 ```bash
-# 首次运行会复制 .env.example 后提示补齐密钥，再次运行即可
+# 交互式：.env 缺失时逐项「回车 = 随机生成 / m = 手动输入 / s = 跳过」；
+# 已存在时部署前展示非敏感配置摘要（回车部署 / e 编辑 .env / q 退出）。
 make deploy-minimal
 make deploy-full
-# 或直接执行：powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile minimal
+# 无人值守（密钥全部随机生成，适合脚本/CI）：
+make deploy-auto
+# 也可直接执行脚本：
+bash scripts/deploy.sh --profile full        # Linux/macOS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile full   # Windows
 ```
 
 脚本要求在已有 `.env` 中设置随机的 `JWT_SECRET`、`POSTGRES_PASSWORD`、`SEED_ADMIN_PASSWORD`，不会把真实密钥写入仓库。访问地址默认是 `http://localhost/`；默认账号由 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_USERNAME` 和 `SEED_ADMIN_PASSWORD` 决定，首次登录后请立即改密。

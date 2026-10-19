@@ -21,7 +21,7 @@
 | 前端构建+类型检查 | `cd frontend && npm run build`（须 `NODE_OPTIONS=--max-old-space-size=6144`，否则 OOM） |
 | E2E（Playwright） | `make e2e`（需真实 PostgreSQL + `E2E_DATABASE_URL`） |
 | Compose 校验 | `make validate-compose` |
-| 一键部署 | `make deploy-minimal` / `make deploy-full`（内部调用 `scripts/deploy.ps1`） |
+| 一键部署 | `make deploy-minimal` / `make deploy-full`（跨平台分发：Windows 调 `scripts/deploy.ps1`，Linux/macOS 调 `scripts/deploy.sh`；`make deploy-auto` 无人值守全随机） |
 | 备份 | `make backup` / `make backup-windows` |
 
 本地开发 DB：`postgres://docdyne:change-this-password@localhost:5432/docdyne`
