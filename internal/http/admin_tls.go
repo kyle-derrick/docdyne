@@ -6,9 +6,9 @@ import (
 	"mime/multipart"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/caddytls"
-	"github.com/gin-gonic/gin"
 )
 
 // SetCaddyTLS 注入 HTTPS 运行时切换服务（幂等 Setter，模式参照

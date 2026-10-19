@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // 本文件实现个人档案与配额查询端点（C3/C21a，设计 3.2.1/6.3.1/6.12.4）：

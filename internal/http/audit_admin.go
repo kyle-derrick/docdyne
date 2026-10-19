@@ -1,9 +1,9 @@
 package http
 
 import (
-	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"io"
 	"strconv"
 	"time"

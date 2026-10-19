@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/share"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
 )
 
 // 预览白名单常量：仅允许可安全内联展示的媒体类型。

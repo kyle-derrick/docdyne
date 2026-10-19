@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/google/uuid"
 )
 
 // 用户映射哨兵错误（HTTP 层据此映射 401/403/500）。

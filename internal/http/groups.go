@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/group"
-	"github.com/gin-gonic/gin"
 )
 
 // 本文件实现管理端用户组管理（migration 035，仅 admin 组路由）：

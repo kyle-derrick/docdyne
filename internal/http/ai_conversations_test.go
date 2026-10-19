@@ -258,7 +258,7 @@ func TestAIConversationsCRUD(t *testing.T) {
 }
 
 // TestAIConversationsScopeValidation source 非法 400；assistant 域
-//（file_id 为空）与 editor 域互不串扰。
+// （file_id 为空）与 editor 域互不串扰。
 func TestAIConversationsScopeValidation(t *testing.T) {
 	actor := uuid.New()
 	store := &fakeAIConvoStore{}

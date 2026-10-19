@@ -11,12 +11,12 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
 	"github.com/kyle-derrick/docdyne/internal/share"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // onlyofficeRateLimitDefault 为 onlyoffice 公开组（download/callback）独立

@@ -61,7 +61,7 @@ var rawContentTypes = map[string]string{
 	".xml":        "text/plain; charset=utf-8",
 	".excalidraw": "text/plain; charset=utf-8",
 	".ddrt":       "text/plain; charset=utf-8",
-	".ddoc":      "text/plain; charset=utf-8",
+	".ddoc":       "text/plain; charset=utf-8",
 	".xmind":      "application/octet-stream",
 }
 

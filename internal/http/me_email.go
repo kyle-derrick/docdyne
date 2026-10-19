@@ -7,10 +7,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/kyle-derrick/docdyne/internal/audit"
-	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // 本文件实现账号安全「换绑邮箱」（v2.4 整改项 14）的两段式确认流：

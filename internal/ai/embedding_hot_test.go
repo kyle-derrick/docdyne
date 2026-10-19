@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/kyle-derrick/docdyne/internal/settings"
-	"github.com/google/uuid"
 )
 
 func hotConfig(provider, model string) settings.AIConfig {

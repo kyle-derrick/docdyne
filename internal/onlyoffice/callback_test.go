@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/files"
-	"github.com/google/uuid"
 )
 
 const sameOriginURL = "http://onlyoffice:80/cache/files/data.docx"

@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // versionJSON 组装版本条目（含 blob status/size/sha256/mime）。

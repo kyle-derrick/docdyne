@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/space"
-	"github.com/google/uuid"
 )
 
 type davResource struct {

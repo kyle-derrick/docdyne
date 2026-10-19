@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // fakeUserDirectory 是 userDirectory 的内存实现，记录 Lookup 调用参数供断言。

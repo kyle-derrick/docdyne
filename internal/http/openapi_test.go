@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/oidc"
 	"github.com/kyle-derrick/docdyne/internal/onlyoffice"
 	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/kyle-derrick/docdyne/internal/tagging"
 	"github.com/kyle-derrick/docdyne/internal/webpkg"
-	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 )
 

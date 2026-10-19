@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // tus 1.0.0 核心协议 + creation/expiration 扩展，基于 upload.Service 自实现（不引入 tusd）。

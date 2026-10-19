@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/notify"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 )
 
 // fakeBroadcaster 模拟 Redis Pub/Sub 语义：Publish 同步扇出给全部订阅者

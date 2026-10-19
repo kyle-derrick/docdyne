@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // fakeVersionReader 是 versionContentReader 的内存实现：按 (user,file,version)

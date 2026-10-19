@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/kyle-derrick/docdyne/internal/audit"
-	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 type snapshotCreateRequest struct {

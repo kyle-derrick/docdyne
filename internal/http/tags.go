@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/kyle-derrick/docdyne/internal/files"
-	"github.com/kyle-derrick/docdyne/internal/tagging"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/files"
+	"github.com/kyle-derrick/docdyne/internal/tagging"
 )
 
 // tagError 统一映射标签服务错误到 HTTP 状态码；文件侧错误（读授权等）

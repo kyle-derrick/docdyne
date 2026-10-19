@@ -63,12 +63,12 @@ func HigherRole(a, b string) string {
 // Space 对应 spaces 表（migration 040，统一空间模型）：唯一文件容器，
 // 每用户注册自动建默认空间（is_default，可改名不可删除）。
 type Space struct {
-	ID          uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	Name        string     `gorm:"size:100;not null" json:"name"`
-	Description string     `json:"description"`
-	QuotaBytes  int64      `gorm:"not null;default:0" json:"quota_bytes"`
-	OwnerID     uuid.UUID  `gorm:"type:uuid;not null;index" json:"-"`
-	IsDefault   bool       `gorm:"not null;default:false" json:"is_default"`
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	Name        string    `gorm:"size:100;not null" json:"name"`
+	Description string    `json:"description"`
+	QuotaBytes  int64     `gorm:"not null;default:0" json:"quota_bytes"`
+	OwnerID     uuid.UUID `gorm:"type:uuid;not null;index" json:"-"`
+	IsDefault   bool      `gorm:"not null;default:false" json:"is_default"`
 	// Hidden 系统管理空间（如「AI 对话附件」）：不出现在用户可见空间列表
 	//（/spaces 与文件页切换器）；管理端列表不受过滤（migration 055）。
 	Hidden    bool       `gorm:"not null;default:false" json:"hidden"`

@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 

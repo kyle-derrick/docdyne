@@ -1,7 +1,6 @@
 package onlyoffice
 
 import (
-	"time"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,11 +11,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/metrics"
-	"github.com/google/uuid"
 )
 
 // callbackRequest 是 DocumentServer 回调体的协议字段子集；

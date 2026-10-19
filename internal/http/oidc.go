@@ -5,9 +5,9 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/oidc"
-	"github.com/gin-gonic/gin"
 )
 
 // 本文件实现 OIDC 单点登录端点（公开，无 Bearer 认证）：

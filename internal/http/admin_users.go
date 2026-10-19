@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kyle-derrick/docdyne/internal/audit"
-	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // 本文件实现管理端用户管理（C6，设计 6.2.1/9.1.1，仅 admin 组）：

@@ -345,7 +345,7 @@ func (g *gormVersionsRepo) MarkBlobDeletingIfZero(id uuid.UUID) (bool, error) {
 }
 
 // SetMaxVersions 设置每文件保留版本数上限（幂等；n<0 忽略）：0 = 不限
-//（F4 默认——全量保留），正数 = 保留最新 n 个。
+// （F4 默认——全量保留），正数 = 保留最新 n 个。
 func (s *Store) SetMaxVersions(n int) {
 	if n >= 0 {
 		s.maxVersions = n

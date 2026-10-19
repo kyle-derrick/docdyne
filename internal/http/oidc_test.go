@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/kyle-derrick/docdyne/internal/oidc"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/oidc"
 )
 
 // oidcDirectoryFake 实现 oidc.Directory（HTTP 端点测试用内存目录）。

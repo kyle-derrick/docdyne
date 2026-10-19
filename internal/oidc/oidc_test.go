@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // sha256Sum 返回原始 SHA-256 摘要（ChallengeS256 的前置步骤）。

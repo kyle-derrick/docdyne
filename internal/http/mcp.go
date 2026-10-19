@@ -4,11 +4,11 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/ai"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/mcp"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

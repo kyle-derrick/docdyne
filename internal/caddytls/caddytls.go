@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

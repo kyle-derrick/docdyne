@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/search"
 )
 
 type HybridRetriever struct {

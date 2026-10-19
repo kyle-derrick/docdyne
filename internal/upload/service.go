@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/metrics"
-	"github.com/google/uuid"
 )
 
 var (

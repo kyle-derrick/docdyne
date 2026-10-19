@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/invite"
-	"github.com/gin-gonic/gin"
 )
 
 // 本文件实现管理端邀请管理（admin 组，RequireRole(admin) 之后）：

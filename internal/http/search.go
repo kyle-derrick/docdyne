@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/search"
 )
 
 // searchService 抽象全文检索能力；生产实现为 *search.Store（SetSearch 注入）。

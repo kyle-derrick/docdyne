@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/kyle-derrick/docdyne/internal/notify"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 )
 
 // notificationsTestEnv 构造注入内存通知服务的 Handler。

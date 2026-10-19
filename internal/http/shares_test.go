@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/share"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // 公开分享接口的限流独立按 IP 计数，不要求认证、不设置 cookie。

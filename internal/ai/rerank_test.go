@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/kyle-derrick/docdyne/internal/settings"
-	"github.com/google/uuid"
 )
 
 // rerankCfgFor 构造「chat 走 mock + rerank 指向 baseURL 的 openai_compatible

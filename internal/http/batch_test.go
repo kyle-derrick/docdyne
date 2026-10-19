@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
+	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
 // batchTestRouter 构建挂载幂等中间件的测试路由（前置中间件设置 user

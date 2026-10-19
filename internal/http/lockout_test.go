@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/settings"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // lockoutTestEnv 构造 login/login-totp 公开端点的测试环境（fakeAccount 目录

@@ -3,9 +3,9 @@ package janitor
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 

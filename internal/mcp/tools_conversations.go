@@ -2,10 +2,10 @@
 //
 // 把平台的 AI 编辑会话（ai_conversations，source=assistant/editor/plugin 按
 // 文件分域）暴露给外部 agent：读列表/读正文（files:read）+ 追加事件
-//（files:write，外部 agent 可把方案/结论灌进会话）；dd_platform_skills
+// （files:write，外部 agent 可把方案/结论灌进会话）；dd_platform_skills
 // 返回内置领域知识（drawio XML / excalidraw 骨架 / Office 编辑规范）——
 // 外部 agent 拿到与站内 Agent 同等的提示词知识即可直接产出合法文件内容
-//（配合 dd_write_file / dd_write_version 落地）。
+// （配合 dd_write_file / dd_write_version 落地）。
 package mcp
 
 import (

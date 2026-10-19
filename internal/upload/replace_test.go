@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // fakeTargetFile 模拟 files.Store 侧的目标文件（AddVersion+Prune 的注入等价物），

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/search"
 )
 
 func TestDocsContextBlock(t *testing.T) {

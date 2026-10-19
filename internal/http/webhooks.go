@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/webhook"
-	"github.com/gin-gonic/gin"
 )
 
 // 本文件实现 Webhook 通知渠道端点（v1.1，本人维度）：

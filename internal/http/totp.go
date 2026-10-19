@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
-	"github.com/gin-gonic/gin"
 )
 
 // 本文件实现两步验证（TOTP）端点（v2 设计）：

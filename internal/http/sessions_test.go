@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/audit"
-	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/audit"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // memAuditRecorder 记录审计条目（token.create / token.revoke 断言用）。

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/group"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // groupsTestEnv 构造用户组管理测试环境：内存组服务 + fakeAccount 用户目录

@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/files"
 )
 
 // memoryCallbackStore 契约：首次 TryRecord 插入成功、同 (file,key,url) 重复

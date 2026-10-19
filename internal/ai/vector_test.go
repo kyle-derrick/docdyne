@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kyle-derrick/docdyne/internal/search"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/search"
 )
 
 func TestChunkBoundaries(t *testing.T) {

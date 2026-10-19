@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/share"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // newPasswordFlowEnv 构造完整公开分享链路（内存仓库 + 内存文件源 + 本地存储），
@@ -154,7 +154,6 @@ func TestPublicSharePasswordFlow(t *testing.T) {
 	if info["watermark_enabled"] != false {
 		t.Fatalf("watermark_enabled = %v", info["watermark_enabled"])
 	}
-
 
 	// 携带 cookie：预览 200（事件 action=preview）。
 	if w := doPublic(router, http.MethodGet, infoPath+"/preview", cookie); w.Code != http.StatusOK {

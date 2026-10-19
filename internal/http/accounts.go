@@ -5,10 +5,10 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/kyle-derrick/docdyne/internal/invite"
-	"github.com/gin-gonic/gin"
 )
 
 // 本文件实现邀请制注册与密码管理的公开/认证端点：

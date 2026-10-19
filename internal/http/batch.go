@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/kyle-derrick/docdyne/internal/files"
 	"github.com/kyle-derrick/docdyne/internal/settings"
 	"github.com/kyle-derrick/docdyne/internal/upload"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // batchMaxItems 单次批量操作上限的回退值（settings 读取失败/未注入时）；

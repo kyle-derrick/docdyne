@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
 // RateLimiter 是内存实现的固定窗口限流器（每分钟 N 次）。

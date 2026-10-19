@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kyle-derrick/docdyne/internal/notify"
 	"github.com/gin-gonic/gin"
+	"github.com/kyle-derrick/docdyne/internal/notify"
 )
 
 // 本文件实现站内通知与通知偏好端点（本人维度）：
