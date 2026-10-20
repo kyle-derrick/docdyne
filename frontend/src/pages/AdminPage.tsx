@@ -1922,11 +1922,11 @@ function UserEditModal({
       <form className="team-create-row" style={{ flexDirection: 'column', alignItems: 'stretch' }} onSubmit={(e) => void submit(e)}>
         <label className="field">
           <span>昵称（≤64 字符，留空清除）</span>
-          <Input maxLength={64} value={nickname} onChange={(e) => setNickname(e.target.value)} />
+          <Input maxLength={64} value={nickname} placeholder={user.username} onChange={(e) => setNickname(e.target.value)} />
         </label>
         <div className="team-create-row">
           <label className="field">
-            <span>角色</span>
+            <span>角色{user.id === selfId ? '（不可修改自己的角色）' : ''}</span>
             <Select
               value={role}
               disabled={user.id === selfId}
@@ -1938,7 +1938,7 @@ function UserEditModal({
             />
           </label>
           <label className="field">
-            <span>状态（禁用立即撤销全部会话；启用解除锁定）</span>
+            <span>状态{user.id === selfId ? '（不可修改自己的状态）' : ''}（禁用立即撤销全部会话）</span>
             <Select
               value={status}
               disabled={user.id === selfId}
@@ -1960,9 +1960,9 @@ function UserEditModal({
             />
           </label>
         </div>
-        {groups.length > 0 && (
-          <label className="field">
-            <span>所属用户组（可多选）</span>
+        <label className="field">
+          <span>所属用户组{groups.length === 0 ? '（暂无用户组——请先在「人员管理 → 用户组」创建）' : '（可多选）'}</span>
+          {groups.length > 0 ? (
             <Select
               mode="multiple"
               allowClear
@@ -1972,8 +1972,10 @@ function UserEditModal({
               options={groups.map((g) => ({ value: g.name, label: g.name }))}
               placeholder="选择用户组"
             />
-          </label>
-        )}
+          ) : (
+            <Input disabled placeholder="暂无用户组可分配" />
+          )}
+        </label>
         <div className="setting-control" style={{ marginTop: 8 }}>
           <Button type="primary" htmlType="submit" disabled={busy} loading={busy}>保存</Button>
           <Button disabled={busy} onClick={onClose}>取消</Button>

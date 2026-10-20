@@ -472,8 +472,10 @@ const SYSTEM_SETTING_GROUPS: Array<{ id: string; prefixes: string[]; title: { zh
 const INT_RANGES: Record<string, { min: number; max: number }> = {
   'upload.max_versions_per_file': { min: 0, max: 1000 },
   'upload.version_retention_days': { min: 0, max: 3650 },
-  'upload.max_file_size': { min: 1, max: 1 << 40 },
-  'upload.default_quota': { min: 1, max: 1 << 50 },
+  // JS 的 << 是 32 位位移，1<<40/1<<50 溢出为 256/262144——配额类大数
+  // 须用 ** 指数运算（2**40 = 1TiB、2**50 = 1PiB 字节）。
+  'upload.max_file_size': { min: 1, max: 2 ** 40 },
+  'upload.default_quota': { min: 1, max: 2 ** 50 },
   'upload.max_concurrent_uploads_per_user': { min: 1, max: 100 },
   'share.default_expiry_hours': { min: 1, max: 8760 },
   'retention.trash_days': { min: 1, max: 3650 },
@@ -482,8 +484,8 @@ const INT_RANGES: Record<string, { min: number; max: number }> = {
   'folder.max_depth': { min: 1, max: 1000 },
   'backup.retention_days': { min: 1, max: 3650 },
   'audit.retention_days': { min: 0, max: 3650 },
-  'space.default_quota': { min: 0, max: 1 << 50 },
-  'space.max_quota': { min: 0, max: 1 << 50 },
+  'space.default_quota': { min: 0, max: 2 ** 50 },
+  'space.max_quota': { min: 0, max: 2 ** 50 },
   'space.max_per_user': { min: 1, max: 1000 },
 }
 
