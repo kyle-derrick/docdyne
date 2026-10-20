@@ -218,6 +218,23 @@ edit_field() { # $1=key
 }
 
 tls_invalid_msg=''
+# 管理员密码策略（cmd/seed 同款：≥12 位且含大写、小写与数字）——不合规
+# 会在部署期 seed 容器退出 1 拦住 backend/caddy，前置到配置器拦截。
+pw_policy_ok() {
+  local p="$1"
+  [[ ${#p} -ge 12 ]] && [[ "$p" =~ [A-Z] ]] && [[ "$p" =~ [a-z] ]] && [[ "$p" =~ [0-9] ]]
+}
+ensure_admin_pw() { # 不合规时：交互提示重设；仍不合规/非交互则随机生成兜底
+  while ! pw_policy_ok "$(fval SEED_ADMIN_PASSWORD)"; do
+    echo "  ↳ SEED_ADMIN_PASSWORD 不满足策略（≥12 位且含大写、小写与数字）"
+    if interactive; then
+      edit_field SEED_ADMIN_PASSWORD
+    else
+      printf -v F_SEED_ADMIN_PASSWORD '%s' "$(gen_for SEED_ADMIN_PASSWORD)"; fresh+=(SEED_ADMIN_PASSWORD)
+      echo "  ↳ 已随机重新生成（保存后见输出；需自定义请在交互模式修改）"
+    fi
+  done
+}
 tls_valid() {
   tls_invalid_msg=''
   local m d; m="$(fval TLS_MODE)"; d="$(fval APP_DOMAIN)"
@@ -250,7 +267,7 @@ if interactive; then
     done
     echo '  [r] 重新生成全部随机密钥    [回车] 完成保存'
     act=''; ask '选择编号修改：' act
-    [[ -z "$act" ]] && { tls_valid && break; echo "  ↳ $tls_invalid_msg"; continue; }
+    [[ -z "$act" ]] && { tls_valid && ensure_admin_pw && break; echo "  ↳ $tls_invalid_msg"; continue; }
     if [[ "$act" == "r" ]]; then regen_all; continue; fi
     if [[ "$act" =~ ^[0-9]+$ ]] && [[ "$act" -ge 1 && "$act" -le "${#keys[@]}" ]]; then
       k="${keys[act - 1]}"
@@ -261,7 +278,8 @@ if interactive; then
   done
 fi
 
-# ---------- 落盘 ----------
+# ---------- 落盘（管理员密码策略兜底：覆盖 --auto 与既有 .env 弱密码） ----------
+ensure_admin_pw
 set_kv CADDY_TLS_INIT_MODE "$(fval TLS_MODE)"
 set_kv APP_DOMAIN "$(fval APP_DOMAIN)"
 set_kv POSTGRES_PASSWORD "$(fval POSTGRES_PASSWORD)"
