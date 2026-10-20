@@ -96,14 +96,21 @@ docker push <registry>/docdyne/caddy:1.0.0
 无需预先存在 DocDyne 镜像，部署入口会校验 Docker Compose、创建（但不覆盖）`.env`、构建前端/Caddy 与 backend 镜像，并按 `postgres → migrate → seed → backend → caddy` 依赖顺序启动。**跨平台**：`make` 会自动分发——Windows 走 `scripts/deploy.ps1`，Linux/macOS 服务器走 `scripts/deploy.sh`（两版同构）。
 
 ```bash
-# 交互式（TUI）：一次性展示全部配置项（密钥已自动生成、值字段带默认值），
+# 交互式（TUI）：首屏选择 HTTPS 模式——
+#   自动签发（默认，输入公网域名，ACME 自动申请/续期证书）
+#   自签证书（域名/内网 IP 均可，浏览器首次访问需手动信任）
+#   关闭 HTTPS（纯 HTTP，内网/IP 访问）
+# 随后一次性展示全部配置项（密钥已自动生成、值字段带默认值），
 # ↑↓ 选择要改的条目回车编辑，其余不用管；「✅ 完成」保存并继续部署。
-# 已有 .env 时直接复用（绝不轮换既有密钥），部署前展示非敏感摘要
-#（回车部署 / e 编辑 .env / c 重新配置 / q 退出）。
+# 已有 .env（且 HTTPS 已配置）时直接复用（绝不轮换既有密钥/不重问），
+# 部署前展示非敏感摘要（回车部署 / e 编辑 .env / c 重新配置 / q 退出）。
+# 部署后仍可随时在「管理 → TLS」热切换（自动/自签/自定义证书），互不冲突。
 make deploy-minimal
 make deploy-full
-# 无人值守（密钥全部随机生成，适合脚本/CI）：
+# 无人值守（密钥全部随机生成；无域名来源时按 HTTP 部署）：
 make deploy-auto
+# 无人值守 + HTTPS（脚本/CI）：
+bash scripts/deploy.sh --auto --domain docdyne.example.com --profile full
 # 也可直接执行脚本：
 bash scripts/deploy.sh --profile full        # Linux/macOS
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile full   # Windows

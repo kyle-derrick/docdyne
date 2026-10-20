@@ -680,6 +680,12 @@ func main() {
 		caddyTLS := caddytls.NewService(db, cfg.CaddyAdminAddr, cfg.TLSCertDir)
 		caddyTLS.SetAuditRecorder(auditStore)
 		handler.SetCaddyTLS(caddyTLS)
+		// 部署期 TLS 初始模式播种（CADDY_TLS_INIT_MODE + APP_DOMAIN，
+		// scripts/configure.sh 写入）：仅在 tls_state 为出厂态时生效
+		//（管理页偏好优先）；随后 ReapplyStartup 按持久化偏好统一下发。
+		if err := caddyTLS.SeedInitial(caddytls.Mode(strings.TrimSpace(cfg.CaddyTLSInitMode)), strings.TrimSpace(cfg.AppDomain)); err != nil {
+			log.Printf("caddy tls seed skipped: %v", err)
+		}
 		go caddyTLS.ReapplyStartup(ctx)
 		log.Printf("caddy tls runtime switching enabled (admin=%s)", cfg.CaddyAdminAddr)
 	}

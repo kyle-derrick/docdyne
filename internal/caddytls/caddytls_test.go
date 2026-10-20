@@ -387,3 +387,71 @@ func TestReapplyStartup(t *testing.T) {
 		t.Fatalf("state: %v", err)
 	}
 }
+
+// TestSeedInitial 部署期播种：出厂态（http+空域名+零值审计字段）写入
+// auto/internal；管理页已形成的偏好（含主动改回 http）绝不覆盖；非法
+// 模式/域名 no-op 或报错；auto 拒绝纯 IP。
+func TestSeedInitial(t *testing.T) {
+	// 1) 出厂态 + auto + 域名 → 播种成功。
+	s, repo, _ := newTestService("caddy:2019")
+	if err := s.SeedInitial(ModeAuto, "docdyne.example.com"); err != nil {
+		t.Fatalf("seed auto: %v", err)
+	}
+	st, _ := repo.GetState()
+	if st.Mode != ModeAuto || st.Domain != "docdyne.example.com" {
+		t.Fatalf("seeded state = %+v", st)
+	}
+	// 2) 已播种后再 seed（如重启/重复部署）→ no-op 不覆盖。
+	if err := s.SeedInitial(ModeInternal, "other.example.com"); err != nil {
+		t.Fatalf("re-seed should noop: %v", err)
+	}
+	st, _ = repo.GetState()
+	if st.Mode != ModeAuto || st.Domain != "docdyne.example.com" {
+		t.Fatalf("re-seed overwrote: %+v", st)
+	}
+
+	// 3) 管理页用户偏好（UpdatedAt/UpdatedBy 已写）→ 绝不覆盖。
+	actor := uuid.Must(uuid.NewV7())
+	s2, repo2, _ := newTestService("caddy:2019")
+	if err := repo2.UpsertState(State{ID: 1, Mode: ModeHTTP, UpdatedBy: &actor, UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SeedInitial(ModeAuto, "docdyne.example.com"); err != nil {
+		t.Fatalf("seed on user-pref: %v", err)
+	}
+	st2, _ := repo2.GetState()
+	if st2.Mode != ModeHTTP {
+		t.Fatalf("user pref overwritten: %+v", st2)
+	}
+
+	// 4) http / custom 模式 → no-op（先铺迁移播种的出厂 http 行）。
+	s3, repo3, _ := newTestService("caddy:2019")
+	if err := repo3.UpsertState(State{ID: 1, Mode: ModeHTTP}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s3.SeedInitial(ModeHTTP, "")
+	_ = s3.SeedInitial(ModeCustom, "x.example.com")
+	st3, _ := repo3.GetState()
+	if st3.Mode != ModeHTTP || st3.Domain != "" {
+		t.Fatalf("http/custom should noop: %+v", st3)
+	}
+
+	// 5) auto + 纯 IP / 空域名 / 非法格式 → 报错不落库。
+	s4, repo4, _ := newTestService("caddy:2019")
+	if err := s4.SeedInitial(ModeAuto, "192.168.1.10"); err == nil {
+		t.Fatal("auto + IP should be rejected")
+	}
+	if err := s4.SeedInitial(ModeInternal, "192.168.1.10"); err != nil {
+		t.Fatalf("internal + IP is legal: %v", err)
+	}
+	if err := s4.SeedInitial(ModeAuto, ""); err == nil {
+		t.Fatal("auto + empty domain should be rejected")
+	}
+	if err := s4.SeedInitial(ModeAuto, "https://x.example.com"); err == nil {
+		t.Fatal("scheme should be rejected")
+	}
+	st4, _ := repo4.GetState()
+	if st4.Mode != ModeInternal {
+		t.Fatalf("only the legal internal seed should persist: %+v", st4)
+	}
+}

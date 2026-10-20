@@ -116,6 +116,10 @@ services:
       # HTTPS 运行时切换（管理页面 /api/v1/admin/tls）：Caddy admin API 地址；
       # 默认指向 compose 内网 caddy（开箱可用）；显式置空可关闭该功能。
       CADDY_ADMIN_ADDR: ${CADDY_ADMIN_ADDR:-caddy:2019}
+      # 部署期 TLS 初始模式播种（configure.sh 三选一写入）：auto|internal；
+      # 仅出厂态生效（管理页偏好优先），APP_DOMAIN 同源传入作播种域名。
+      CADDY_TLS_INIT_MODE: ${CADDY_TLS_INIT_MODE:-}
+      APP_DOMAIN: ${APP_DOMAIN:-}
       # 自定义证书目录（custom 模式）：管理页上传的 cert.pem/key.pem 落盘
       # 于此（0600），与 caddy 共享 tls_certs 卷（backend 可写 / caddy 只读）。
       TLS_CERT_DIR: /data/tls

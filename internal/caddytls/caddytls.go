@@ -183,6 +183,31 @@ func (s *Service) Apply(ctx context.Context, mode Mode, domain, actor string) (S
 	return st, nil
 }
 
+// SeedInitial 部署期 TLS 初始模式播种（env CADDY_TLS_INIT_MODE + APP_DOMAIN，
+// scripts/configure.sh 写入）：仅当 tls_state 仍为迁移播种的出厂态
+// （mode=http、domain 空、UpdatedBy/UpdatedAt 零值——即管理页从未改过）
+// 且目标为 auto/internal（domain 经 validateDomain 校验）时落盘；管理页
+// 已形成的任何偏好（含用户主动改回 http）绝不覆盖。只写库不热下发——
+// 随后的 ReapplyStartup 会按持久化偏好统一下发。幂等：非出厂态即 no-op。
+func (s *Service) SeedInitial(mode Mode, domain string) error {
+	if mode != ModeAuto && mode != ModeInternal {
+		return nil // http（出厂默认无需播种）/custom（证书依赖管理页上传）
+	}
+	domain = strings.TrimSpace(domain)
+	if err := validateDomain(mode, domain); err != nil {
+		return fmt.Errorf("seed tls mode %s: %w", mode, err)
+	}
+	st, err := s.repo.GetState()
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	// 无行（迁移未播种的极端情形）等同出厂态；有行则须为出厂态才播种。
+	if err == nil && (st.Mode != ModeHTTP || strings.TrimSpace(st.Domain) != "" || st.UpdatedBy != nil || !st.UpdatedAt.IsZero()) {
+		return nil // 管理页已有偏好（或已播种过）：不动
+	}
+	return s.repo.UpsertState(State{ID: 1, Mode: mode, Domain: domain})
+}
+
 // push 向 Caddy admin API 下发 Caddyfile 文本（POST /load）。
 func (s *Service) push(ctx context.Context, caddyfile string) error {
 	url := "http://" + s.adminAddr + "/load"
