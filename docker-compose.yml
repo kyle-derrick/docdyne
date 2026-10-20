@@ -353,16 +353,17 @@ services:
 
   # MinIO S3 兼容对象存储（storage profile，可与 full 叠加）。
   # local 是默认存储驱动，不会自动启用此服务；启用 S3 时配置 STORAGE_DRIVER=s3。
-  # ⚠ 2026-10 实测：MinIO 社区版镜像已转私有（quay.io 匿名 401，配合
-  #   AIStor 商业化），新部署默认不可拉取。推荐路径：
-  #   ① 单机：STORAGE_DRIVER=local（默认，零依赖）
-  #   ② 云 S3：改 S3_ENDPOINT 指向 AWS/OSS/COS，不起本容器
-  #   ③ 必须本地 S3：.env 设 MINIO_IMAGE 走镜像站（如 daocloud，缓存了
-  #     封锁前副本，可能随时失效）或 Docker daemon 配代理后 quay 直连
+  # 2026-10：MinIO 社区版镜像从 quay.io 转私有（配合 AIStor 商业化），
+  # 改为从 GitHub 源码自建（deploy/minio/Dockerfile，基础镜像 Docker Hub，
+  # 无 quay 依赖）。也可 .env 设 MINIO_IMAGE 覆盖为自有镜像。
   #  说明：曾用 chrislusf/seaweedfs:3.80，真实联动验证中其 S3 网关 DELETE
   #  间歇性 500（含存在的 key），导致上传 complete 失败，故切换 MinIO。
   minio:
-    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2024-09-13T20-26-02Z}
+    build:
+      context: deploy/minio
+      args:
+        MINIO_RELEASE: ${MINIO_RELEASE:-RELEASE.2024-09-13T20-26-02Z}
+    image: ${MINIO_IMAGE:-docdyne/minio:RELEASE.2024-09-13T20-26-02Z}
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docdyne}
