@@ -73,6 +73,9 @@ for img in "${images[@]}"; do
 
   if [[ "$code" =~ ^2 ]]; then
     echo "  ✓ $img"
+  elif docker manifest inspect "$img" > /dev/null 2>&1; then
+    # quay.io 等非标 auth flow：curl 握手可能不兼容，docker 自带客户端兜底
+    echo "  ✓ $img (via docker)"
   else
     echo "  ✗ $img  (HTTP $code)" >&2
     fail=$((fail + 1))
