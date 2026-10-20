@@ -79,19 +79,12 @@ jobs:
           done
           [ $fail -eq 0 ] && echo "全部 shell 脚本语法正确"
 
-      - name: Compose validation
-        run: |
-          # compose 的 :? 必填变量在无 .env 时报错——CI 用 dummy 值做结构校验
-          printf 'JWT_SECRET=ci-dummy-32-byte-secret-for-config\nPOSTGRES_PASSWORD=ci-dummy-pg\nDATABASE_URL=postgres://docdyne:ci-dummy-pg@postgres:5432/docdyne?sslmode=disable\nSEED_ADMIN_PASSWORD=CiDummy-Passw0rd-2026\nSEED_ADMIN_EMAIL=ci@test.dev\nSEED_ADMIN_USERNAME=ci\nONLYOFFICE_JWT_SECRET=ci-dummy-onlyoffice-32-byte-secret\n' > .env
-          docker compose config --quiet
-          rm -f .env
-
       - name: External image tag verification
         run: bash scripts/verify-image-tags.sh
 
       - name: Configure dry-run (--auto)
         run: |
-          # 全新自动配置（单机模板 → 密钥全随机 → local 存储 → HTTP）
+          # 全新自动配置（单机模板 → 密钥全随机 → local 存储）
           # 域名不用 example.com（配置器视为模板占位符会拒）
           bash scripts/configure.sh --auto --domain ci-deploy-test.docdyne.dev
           # 校验产物
@@ -110,12 +103,13 @@ jobs:
           assert "APP_DOMAIN=ci-deploy-test.docdyne.dev" '[[ "$APP_DOMAIN" == "ci-deploy-test.docdyne.dev" ]]'
           assert "CADDY_TLS_INIT_MODE=auto" '[[ "$CADDY_TLS_INIT_MODE" == "auto" ]]'
           echo "配置器干跑通过：.env 已生成且全部断言通过"
-          rm -f .env
 
-      - name: Configure dry-run (--auto, 弱密码既有 .env)
+      - name: Compose validation (用上一步随机生成的 .env)
+        run: docker compose config --quiet
+
+      - name: Configure dry-run (弱密码既有 .env)
         run: |
           # 模拟「旧版脚本时期写入的弱密码」→ configure 应自动重生成合规密码
-          bash scripts/configure.sh --auto --domain ci.docdyne.dev
           sed -i 's/^SEED_ADMIN_PASSWORD=.*/SEED_ADMIN_PASSWORD=weakpass/' .env
           bash scripts/configure.sh --auto
           source .env 2>/dev/null || true
