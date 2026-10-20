@@ -124,6 +124,35 @@ make update    # git pull --ff-only（工作区须干净）→ 探测当前运�
                # 增量迁移幂等重跑、数据卷不动，.env 有效则零问答。
 ```
 
+#### 中国区部署可选加速
+
+以下环境变量在**服务器 shell 中 `export`** 即生效（无需写入 `.env`），用于解决国内网络访问 GitHub / Google / Alpine CDN 的超时问题。海外部署**不需要任何配置**：
+
+```bash
+# 按需组合（部署前 export，仅影响当次构建）：
+
+# Go 依赖下载加速（proxy.golang.org 国内不通；七牛 Go 模块代理）
+export GOPROXY=https://goproxy.cn,direct
+
+# Alpine 包安装加速（apk 下载慢时；阿里云 Alpine 镜像）
+export ALPINE_MIRROR=mirrors.aliyun.com
+
+# HTTP 代理（GitHub 源码下载 / Docker 镜像拉取等）
+export HTTP_PROXY=http://<代理地址>:<端口>
+export HTTPS_PROXY=http://<代理地址>:<端口>
+
+# 然后正常部署
+make deploy-full
+```
+
+| 变量 | 影响什么 | 不设时 | 国内建议 |
+|---|---|---|---|
+| `GOPROXY` | `go build` 下载 Go 依赖 | `proxy.golang.org`（Google IP，国内不通） | `https://goproxy.cn,direct` |
+| `ALPINE_MIRROR` | Dockerfile 里 `apk add` 包下载 | `dl-cdn.alpinelinux.org`（可能很慢） | `mirrors.aliyun.com` |
+| `HTTP_PROXY` / `HTTPS_PROXY` | 所有构建期 HTTP 请求 | 直连 | 本地代理地址 |
+
+> 注意：`HTTP_PROXY` 在 Docker 构建容器内不等于宿主机的 `127.0.0.1`——使用 `172.17.0.1`（Docker 网关）或宿主机局域网 IP。
+
 #### 部署常见问题（FAQ）
 
 **中文乱码（`vi`/`nano`/`less` 打开 `.env` 等文件是乱码）**
