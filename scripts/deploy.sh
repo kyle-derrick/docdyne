@@ -67,6 +67,37 @@ elif [[ -n "$(secret_placeholder_keys)" ]]; then
   [[ -n "$left" ]] && { echo "自动补齐后仍有密钥占位残留：$left——请手动检查 .env。" >&2; exit 1; }
 fi
 
+# ---------- 管理员密码策略兜底（存量 .env 复用路径的最后一道闸） ----------
+# configure.sh 已在输入侧校验（同款策略：≥12 位且含大写/小写/数字 ==
+# auth.ValidatePasswordStrength）；此处拦截“旧版脚本时期写入/手工编辑”
+# 的弱密码——否则会一路裸奔到 seed 容器才 fatal（compose 阻断 backend）。
+seed_pw_ok() {
+  local p; p="$(grep -E '^SEED_ADMIN_PASSWORD=' .env | head -1 | cut -d= -f2-)"
+  [[ ${#p} -ge 12 && "$p" =~ [A-Z] && "$p" =~ [a-z] && "$p" =~ [0-9] ]]
+}
+if ! seed_pw_ok; then
+  fixpw=1
+  if [[ $AUTO -eq 1 || ! -t 0 ]]; then
+    fixpw=2 # 无人值守/非交互（管道/CI）：自动换合规随机密码，与 configure --auto 同语义
+  else
+    echo ''
+    echo '错误：.env 的 SEED_ADMIN_PASSWORD 不满足策略（≥12 位且含大写、小写与数字），'
+    echo 'seed 容器会因此失败并阻断 backend/caddy 启动。'
+    read -r -p '回车 = 进配置器重新设置（列表选改）/ a = 自动换合规随机密码 / q = 退出：' ans || true
+    case "$ans" in
+      q) echo '已退出。'; exit 1 ;;
+      a) fixpw=2 ;;
+      *) run bash "$CONFIGURE" ;;
+    esac
+  fi
+  if [[ $fixpw -eq 2 ]]; then
+    NEWPW="Docdyne-$(openssl rand -hex 6)"
+    sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$NEWPW|" .env
+    echo "★ 已自动更换管理员密码：$NEWPW（请立即记录，登录用）"
+  fi
+  seed_pw_ok || { echo '密码仍不合规——请手动修改 .env 后重试。' >&2; exit 1; }
+fi
+
 # ---------- 部署前摘要（交互式；密钥不回显） ----------
 show_summary() {
   echo ''
