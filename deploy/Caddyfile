@@ -59,10 +59,14 @@
 	}
 
 	# 路径兼容：内容 origin 的安全策略和 Cookie 隔离由此代理保证。
+	# CONTENT_CSP 可覆盖沙箱策略（默认 sandbox allow-scripts，禁止
+	# localStorage；需要 localStorage 的网页包设 CONTENT_CSP=
+	# "sandbox allow-scripts allow-same-origin" 放行——自托管场景安全
+	# 风险较低，按需开启）。
 	handle /content/* {
 		header {
 			-Cookie
-			Content-Security-Policy "sandbox allow-scripts"
+			Content-Security-Policy "{$CONTENT_CSP:sandbox allow-scripts}"
 			X-Content-Type-Options nosniff
 		}
 		reverse_proxy {$CONTENT_UPSTREAM:backend:8080} {
@@ -77,7 +81,7 @@
 	handle /raw/* {
 		header {
 			-Cookie
-			Content-Security-Policy "sandbox allow-scripts"
+			Content-Security-Policy "{$CONTENT_CSP:sandbox allow-scripts}"
 			X-Content-Type-Options nosniff
 			Referrer-Policy no-referrer
 		}
@@ -168,7 +172,7 @@
 	encode gzip
 	header {
 		-Cookie
-		Content-Security-Policy "sandbox allow-scripts"
+		Content-Security-Policy "{$CONTENT_CSP:sandbox allow-scripts}"
 		X-Content-Type-Options nosniff
 	}
 	reverse_proxy /content/* {$CONTENT_UPSTREAM:backend:8080} {

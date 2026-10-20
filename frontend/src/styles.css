@@ -4980,9 +4980,15 @@ kbd {
   max-height: 48vh;
   overflow-y: auto;
 }
-/* closeIcon 组（preClose + 原生 X）：最大化等前置按钮与关闭并排。 */
-.docdyne-modal-close-group { display: inline-flex; align-items: center; gap: 2px; }
-.docdyne-modal-close-group .ant-btn { padding-inline: 4px; }
+/* closeIcon 组（preClose + 原生 X）：最大化等前置按钮与关闭并排。
+ * gap 8px 保证点击区域不重叠（用户反馈 2px 时误触）。 */
+.docdyne-modal-close-group { display: inline-flex; align-items: center; gap: 8px; }
+.docdyne-modal-close-group .modal-fullscreen-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; cursor: pointer; border-radius: 4px;
+  color: var(--muted);
+}
+.docdyne-modal-close-group .modal-fullscreen-btn:hover { background: var(--surface-2); }
 /* 全屏态高度链：此前仅宽度撑满（内联 height:min(76vh,760px) 生效），现
    body/preview-embed 全链路 100vh 视口化（!important 压过内联 styles）。 */
 .modal-viewer-fullscreen .ant-modal,
@@ -5696,10 +5702,6 @@ kbd {
 .modal-viewer-fullscreen .ant-modal-body {
   height: calc(100vh - 140px) !important;
   max-height: calc(100vh - 140px);
-}
-
-.modal-fullscreen-btn {
-  flex-shrink: 0;
 }
 
 /* 编辑视图（FileEditorDispatch）在弹窗内去视口化：编辑页组件默认

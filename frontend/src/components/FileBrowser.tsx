@@ -3351,9 +3351,8 @@ export default function FileBrowser({
           /* 最大化/还原：移至右上角关闭按钮左侧（closeIcon 组内），点击
            * stopPropagation 防误触关闭。 */
           preClose={(
-            <Button
-              size="small"
-              type="text"
+            <span
+              role="button"
               className="modal-fullscreen-btn"
               aria-label={previewFullscreen ? '还原' : '最大化'}
               title={previewFullscreen
@@ -3367,7 +3366,7 @@ export default function FileBrowser({
               {previewFullscreen
                 ? <Minimize2 size={14} strokeWidth={2} aria-hidden="true" />
                 : <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />}
-            </Button>
+            </span>
           )}
         >
           {/* 弹窗内容：网页目录 = sandbox iframe（raw_url）；编辑视图（v2.7）=
