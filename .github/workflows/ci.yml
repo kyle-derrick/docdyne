@@ -80,7 +80,11 @@ jobs:
           [ $fail -eq 0 ] && echo "全部 shell 脚本语法正确"
 
       - name: Compose validation
-        run: docker compose config --quiet
+        run: |
+          # compose 的 :? 必填变量在无 .env 时报错——CI 用 dummy 值做结构校验
+          printf 'JWT_SECRET=ci-dummy-32-byte-secret-for-config\nPOSTGRES_PASSWORD=ci-dummy-pg\nDATABASE_URL=postgres://docdyne:ci-dummy-pg@postgres:5432/docdyne?sslmode=disable\nSEED_ADMIN_PASSWORD=CiDummy-Passw0rd-2026\nSEED_ADMIN_EMAIL=ci@test.dev\nSEED_ADMIN_USERNAME=ci\nONLYOFFICE_JWT_SECRET=ci-dummy-onlyoffice-32-byte-secret\n' > .env
+          docker compose config --quiet
+          rm -f .env
 
       - name: External image tag verification
         run: bash scripts/verify-image-tags.sh
