@@ -2,8 +2,9 @@
 //
 // 替代 Caddyfile 的静态 CSP——从 system_settings 的 content.allow_same_origin
 // 键热读取（管理页 Toggle 即时生效，无需重启/reload Caddy）：
-//   false（默认）= sandbox allow-scripts（严格隔离，禁 localStorage）
-//   true         = sandbox allow-scripts allow-same-origin（localStorage 可用）
+//
+//	false（默认）= sandbox allow-scripts（严格隔离，禁 localStorage）
+//	true         = sandbox allow-scripts allow-same-origin（localStorage 可用）
 package http
 
 import (
