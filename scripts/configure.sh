@@ -184,7 +184,7 @@ fi
 
 preview() {
   case "$1" in
-    secret) if [[ -z "$2" ]]; then echo '待生成'; else echo "已设置 · ${2:0:4}****（${#2} 位）"; fi ;;
+    secret) if [[ -z "$2" ]]; then echo '待生成'; else echo "已设置 · ****（${#2} 位）"; fi ;;
     *) if [[ "$2" == *example.com* ]]; then echo "$2 ← 模板占位，建议修改"
        elif [[ -z "$2" ]]; then echo '(空)'
        else echo "$2"; fi ;;
@@ -199,20 +199,23 @@ regen_all() {
   done
 }
 
-edit_field() { # $1=key
+edit_field() { # $1=key（secret 类输入不回显：read -s，屏幕无明文）
   local k="$1" kind=secret cur nv
   for f in "${VALUE_FIELDS[@]}"; do [[ "$f" == "$k" ]] && kind=value; done
   for f in "${MANUAL_FIELDS[@]}"; do [[ "$f" == "$k" ]] && kind=manual; done
   cur="$(fval "$k")"
   printf '  %s 当前：%s\n' "$k" "$(preview "$kind" "$cur")"
-  nv="$cur"; ask '  新值（回车 = 保持）：' nv
-  if [[ -z "$nv" ]]; then
-    if [[ "$kind" == "secret" ]]; then
+  if [[ "$kind" == "secret" ]]; then
+    nv=''
+    read -rs -p '  新值（输入不回显；回车 = 重新随机生成）：' nv || true
+    printf '\n'
+    if [[ -z "$nv" ]]; then
       nv="$(gen_for "$k")"; fresh+=("$k")
-      printf '  ↳ 已重新生成：%s\n' "$(preview secret "$nv")"
-    else
-      return 0
+      printf '  ↳ 已重新随机生成\n'
     fi
+  else
+    nv="$cur"; ask '  新值（回车 = 保持）：' nv
+    [[ -z "$nv" ]] && return 0
   fi
   printf -v "F_$k" '%s' "$nv"
 }
@@ -246,26 +249,32 @@ tls_valid() {
   return 0
 }
 
-# ---------- 交互主循环（编号选改）----------
+# ---------- 交互主循环（编号选改；按语义分组 + 序号定宽）----------
 if interactive; then
   while :; do
     echo ''
     echo "==== 配置项（基底：$BASE）===="
-    echo '  [1] HTTPS 模式   改选（自动签发/自签/关闭）'
-    i=2; keys=(TLS)
-    for k in "${ALWAYS_SECRETS[@]}"; do
-      printf '  [%d] %-18s %s\n' "$i" "$k" "$(preview secret "$(fval "$k")")"
-      keys+=("$k"); i=$((i + 1))
-    done
-    for k in "${VALUE_FIELDS[@]}"; do
-      printf '  [%d] %-18s %s\n' "$i" "$k" "$(preview value "$(fval "$k")")"
-      keys+=("$k"); i=$((i + 1))
-    done
-    for k in "${MANUAL_FIELDS[@]}"; do
-      printf '  [%d] %-18s %s（需真实值，不自动生成）\n' "$i" "$k" "$(preview value "$(fval "$k")")"
-      keys+=("$k"); i=$((i + 1))
-    done
-    echo '  [r] 重新生成全部随机密钥    [回车] 完成保存'
+    keys=(); i=1
+    __row() { # $1=字段id $2=显示名 $3=状态列
+      printf '  [%2d] %-22s %s\n' "$i" "$2" "$3"
+      keys+=("$1"); i=$((i + 1))
+    }
+    echo '  ── 站点与访问 ──────────────────'
+    __row TLS "HTTPS 模式" "$(tls_mode_label "$(fval TLS_MODE)" "$(fval APP_DOMAIN)")"
+    __row CONTENT_DOMAIN "CONTENT_DOMAIN" "$(preview value "$(fval CONTENT_DOMAIN)")"
+    __row PUBLIC_BASE_URL "PUBLIC_BASE_URL" "$(preview value "$(fval PUBLIC_BASE_URL)")"
+    echo '  ── 管理员账号（首次登录）───────'
+    __row SEED_ADMIN_EMAIL "SEED_ADMIN_EMAIL" "$(preview value "$(fval SEED_ADMIN_EMAIL)")"
+    __row SEED_ADMIN_USERNAME "SEED_ADMIN_USERNAME" "$(preview value "$(fval SEED_ADMIN_USERNAME)")"
+    __row SEED_ADMIN_PASSWORD "SEED_ADMIN_PASSWORD" "$(preview secret "$(fval SEED_ADMIN_PASSWORD)")"
+    echo '  ── 服务密钥（已自动生成）───────'
+    __row POSTGRES_PASSWORD "POSTGRES_PASSWORD" "$(preview secret "$(fval POSTGRES_PASSWORD)")"
+    __row JWT_SECRET "JWT_SECRET" "$(preview secret "$(fval JWT_SECRET)")"
+    __row ONLYOFFICE_JWT_SECRET "ONLYOFFICE_JWT_SECRET" "$(preview secret "$(fval ONLYOFFICE_JWT_SECRET)")"
+    echo '  ── 邮件（可选，用到再填）───────'
+    __row SMTP_PASS "SMTP_PASS（授权码）" "$(preview value "$(fval SMTP_PASS)")（需真实值，不自动生成）"
+    echo ''
+    echo '  [r] 重新生成全部随机密钥      [回车] 完成保存'
     act=''; ask '选择编号修改：' act
     [[ -z "$act" ]] && { tls_valid && ensure_admin_pw && break; echo "  ↳ $tls_invalid_msg"; continue; }
     if [[ "$act" == "r" ]]; then regen_all; continue; fi
