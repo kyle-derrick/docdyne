@@ -470,7 +470,7 @@ body {
 /* 默认空间徽章紧凑化（v2.4）：不撑高下拉行/选择框。 */
 .space-option .badge-default, .team-card-head .badge-default { font-size: 10px; padding: 0 5px; line-height: 16px; }
 /* 空间徽标：名称首字符 + 名称 hash 固定配色（0..7 八色，暗色基底微透明白字）。 */
-.space-avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; flex: 0 0 auto; font-weight: 700; color: #fff; user-select: none; }
+.space-avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; line-height: 1; flex: 0 0 auto; font-weight: 700; color: #fff; user-select: none; }
 .space-avatar-0 { background: #4f6bed; }
 .space-avatar-1 { background: #0f9960; }
 .space-avatar-2 { background: #d97706; }

@@ -88,6 +88,10 @@ const (
 	// KeyCollabEnabled 富文本实时协作（ProseMirror 协作房间）总开关：
 	// 关闭时 /api/v1/collab/:fileId/ws 返回 404 且不创建房间。
 	KeyCollabEnabled = "collab.enabled"
+	// KeyContentAllowSameOrigin 网页包沙箱 CSP 放行 localStorage：
+	// false（默认）= sandbox allow-scripts（严格隔离）；true = 追加
+	// allow-same-origin（localStorage/sessionStorage/IndexedDB 可用）。
+	KeyContentAllowSameOrigin = "content.allow_same_origin"
 )
 
 // SMTP 运行时配置键（system_settings 存储，邮件发送处优先读库回退 env）。
@@ -1173,6 +1177,7 @@ var Definitions = []Definition{
 	{Key: KeySpaceMaxPerUser, Type: TypeInt, Default: int64(20), Min: intPtr(1), Max: intPtr(1000), Effect: EffectImmediate, Description: "每用户空间数上限（owner 维度计数，含默认空间）：超出后创建空间返回 413"},
 	{Key: KeyWebDAVEnabled, Type: TypeBool, Default: false, Effect: EffectImmediate, Description: "启用 WebDAV 文件访问"},
 	{Key: KeyCollabEnabled, Type: TypeBool, Default: true, Effect: EffectImmediate, Description: "启用富文本实时协作（/api/v1/collab/{fileId}/ws 协作房间；关闭时端点返回 404 且不创建房间）"},
+		{Key: KeyContentAllowSameOrigin, Type: TypeBool, Default: false, Effect: EffectImmediate, Description: "网页包沙箱允许 localStorage（追加 allow-same-origin 到 CSP；自托管场景安全风险较低，按需开启）"},
 }
 
 // DefinitionByKey 返回键定义；未知键返回 ErrUnknownKey。

@@ -786,7 +786,7 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// 不携带主站 refresh cookie——其 Path 为 /api/v1/auth/refresh），按 IP
 	// 独立轻限流；手动解包入口挂认证组。未注入时不注册（默认 404）。
 	if h.webpkg != nil {
-		r.GET("/content/:pid/*filepath", publicLimiter(NewRateLimiter(h.webpkgRateLimitPerMin)), h.webpkgContent)
+		r.GET("/content/:pid/*filepath", h.contentCSP(), publicLimiter(NewRateLimiter(h.webpkgRateLimitPerMin)), h.webpkgContent)
 		api.POST("/files/:id/webpkg/extract", h.extractWebpkg)
 	}
 	// 路径型访问（v1.1）：登录 resolve API 换取短期 grant 后经 /raw/* 取
@@ -796,10 +796,11 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	api.GET("/resolve/:nsType/:nsScope/*path", auth.RequireScope("files:read"), h.resolvePath)
 	api.POST("/files/:id/unpack", auth.RequireScope("files:write"), h.unpackZip)
 	rawLimiter := publicLimiter(NewRateLimiter(rawRateLimitPerMin))
-	r.GET("/raw/auth/:grant/:nsType/:nsScope/*path", rawLimiter, h.serveRawAuth)
-	r.HEAD("/raw/auth/:grant/:nsType/:nsScope/*path", rawLimiter, h.serveRawAuth)
-	r.GET("/raw/share/:token/:grant/*path", rawLimiter, h.serveRawShare)
-	r.HEAD("/raw/share/:token/:grant/*path", rawLimiter, h.serveRawShare)
+	contentCSP := h.contentCSP() // 动态 CSP（content.allow_same_origin 热读取）
+	r.GET("/raw/auth/:grant/:nsType/:nsScope/*path", contentCSP, rawLimiter, h.serveRawAuth)
+	r.HEAD("/raw/auth/:grant/:nsType/:nsScope/*path", contentCSP, rawLimiter, h.serveRawAuth)
+	r.GET("/raw/share/:token/:grant/*path", contentCSP, rawLimiter, h.serveRawShare)
+	r.HEAD("/raw/share/:token/:grant/*path", contentCSP, rawLimiter, h.serveRawShare)
 	// 管理端（admin 组）：RequireAccessToken 之后叠加 RequireRole(admin)。
 	admin := api.Group("/admin", auth.RequireRole(auth.RoleAdmin, h.roles))
 	admin.GET("/settings", h.listAdminSettings)

@@ -58,16 +58,12 @@
 		}
 	}
 
-	# 路径兼容：内容 origin 的安全策略和 Cookie 隔离由此代理保证。
-	# CONTENT_CSP 可覆盖沙箱策略（默认 sandbox allow-scripts，禁止
-	# localStorage；需要 localStorage 的网页包设 CONTENT_CSP=
-	# "sandbox allow-scripts allow-same-origin" 放行——自托管场景安全
-	# 风险较低，按需开启）。
+	# 路径兼容：内容 origin 的 Cookie 隔离由此代理保证。
+	# CSP 沙箱头由 backend 动态设置（content.allow_same_origin 平台设置
+	# 热读取，管理页 Toggle 即时生效）——Caddy 不再静态下发。
 	handle /content/* {
 		header {
 			-Cookie
-			Content-Security-Policy "{$CONTENT_CSP:sandbox allow-scripts}"
-			X-Content-Type-Options nosniff
 		}
 		reverse_proxy {$CONTENT_UPSTREAM:backend:8080} {
 			header_up -Cookie
@@ -75,14 +71,10 @@
 	}
 
 	# 受控原始内容（/raw/*：路径型访问与目录分享子资源，HMAC grant 鉴权，
-	# 无 Cookie 依赖）：与 /content/* 同区处理——剥 Cookie、sandbox CSP
-	# （后端 /raw 端点自带同款 CSP 与 nosniff，此处模板保证反代路径一致）、
-	# no-referrer（URL 内含短期 grant，不得外泄）。
+	# 无 Cookie 依赖）：CSP 由 backend 动态设置（同 /content/*）。
 	handle /raw/* {
 		header {
 			-Cookie
-			Content-Security-Policy "{$CONTENT_CSP:sandbox allow-scripts}"
-			X-Content-Type-Options nosniff
 			Referrer-Policy no-referrer
 		}
 		reverse_proxy {$CONTENT_UPSTREAM:backend:8080} {
@@ -172,8 +164,6 @@
 	encode gzip
 	header {
 		-Cookie
-		Content-Security-Policy "{$CONTENT_CSP:sandbox allow-scripts}"
-		X-Content-Type-Options nosniff
 	}
 	reverse_proxy /content/* {$CONTENT_UPSTREAM:backend:8080} {
 		header_up -Cookie
