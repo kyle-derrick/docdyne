@@ -266,26 +266,35 @@ seed_fields_valid() { # 管理员三项全检 → 0 合规 / 1 不合规（msg �
   if ! pw_policy_ok "$pw"; then seed_invalid_msg="SEED_ADMIN_PASSWORD 须 ≥12 位且含大写、小写与数字"; return 1; fi
   return 0
 }
-ensure_admin_pw() { # 管理员三项全检：不合规交互重设；非交互密码自动重生成
+ensure_admin_pw() { # 管理员三项全检：交互时回车=自动修复保存，b=回菜单手动改
   while ! seed_fields_valid; do
-    echo "  ↳ $seed_invalid_msg"
+    echo "  ↳ 以下配置不合规，无法保存：$seed_invalid_msg"
     if interactive; then
-      # 定位到具体字段进编辑
-      case "$seed_invalid_msg" in
-        *EMAIL*)   edit_field SEED_ADMIN_EMAIL ;;
-        *USERNAME*) edit_field SEED_ADMIN_USERNAME ;;
-        *PASSWORD*) edit_field SEED_ADMIN_PASSWORD ;;
-        *) edit_field SEED_ADMIN_EMAIL; edit_field SEED_ADMIN_USERNAME; edit_field SEED_ADMIN_PASSWORD ;;
-      esac
-    else
-      # 非交互：密码自动重生成；用户名/邮箱给默认值
+      local resp=''
+      read -r -p '  回车 = 自动修复并保存 / b = 返回菜单手动修改：' resp || true
+      if [[ "$resp" == "b" ]]; then return 1; fi  # 返回菜单，用户自己改
+      # 自动修复
       if ! email_ok "$(fval SEED_ADMIN_EMAIL)"; then
         printf -v F_SEED_ADMIN_EMAIL '%s' 'admin@docdyne.local'
-        echo "  ↳ 邮箱已重置为 admin@docdyne.local（--auto 模式）"
+        echo "  ↳ 邮箱已重置为 admin@docdyne.local"
       fi
       if ! username_ok "$(fval SEED_ADMIN_USERNAME)"; then
         printf -v F_SEED_ADMIN_USERNAME '%s' 'admin'
-        echo "  ↳ 用户名已重置为 admin（--auto 模式）"
+        echo "  ↳ 用户名已重置为 admin"
+      fi
+      if ! pw_policy_ok "$(fval SEED_ADMIN_PASSWORD)"; then
+        printf -v F_SEED_ADMIN_PASSWORD '%s' "$(gen_for SEED_ADMIN_PASSWORD)"; fresh+=(SEED_ADMIN_PASSWORD)
+        echo "  ↳ 密码已随机重新生成（保存后见输出）"
+      fi
+    else
+      # 非交互（--auto/--stdin）：全部自动修复
+      if ! email_ok "$(fval SEED_ADMIN_EMAIL)"; then
+        printf -v F_SEED_ADMIN_EMAIL '%s' 'admin@docdyne.local'
+        echo "  ↳ 邮箱已重置为 admin@docdyne.local"
+      fi
+      if ! username_ok "$(fval SEED_ADMIN_USERNAME)"; then
+        printf -v F_SEED_ADMIN_USERNAME '%s' 'admin'
+        echo "  ↳ 用户名已重置为 admin"
       fi
       if ! pw_policy_ok "$(fval SEED_ADMIN_PASSWORD)"; then
         printf -v F_SEED_ADMIN_PASSWORD '%s' "$(gen_for SEED_ADMIN_PASSWORD)"; fresh+=(SEED_ADMIN_PASSWORD)
@@ -293,6 +302,7 @@ ensure_admin_pw() { # 管理员三项全检：不合规交互重设；非交互�
       fi
     fi
   done
+  return 0
 }
 tls_valid() {
   tls_invalid_msg=''
@@ -333,7 +343,11 @@ if interactive; then
     echo ''
     echo '  [r] 重新生成全部随机密钥      [回车] 完成保存'
     act=''; ask '选择编号修改：' act
-    [[ -z "$act" ]] && { tls_valid && ensure_admin_pw && break; echo "  ↳ $tls_invalid_msg"; continue; }
+    [[ -z "$act" ]] && {
+      tls_valid || { echo "  ↳ $tls_invalid_msg"; continue; }
+      ensure_admin_pw || continue  # 用户选 b 返回菜单 / 自动修复后仍未过
+      break
+    }
     if [[ "$act" == "r" ]]; then regen_all; continue; fi
     if [[ "$act" =~ ^[0-9]+$ ]] && [[ "$act" -ge 1 && "$act" -le "${#keys[@]}" ]]; then
       k="${keys[act - 1]}"
