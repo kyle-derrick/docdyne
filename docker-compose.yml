@@ -360,7 +360,8 @@ services:
       context: deploy/minio
       args:
         MINIO_RELEASE: ${MINIO_RELEASE:-RELEASE.2024-09-13T20-26-02Z}
-    image: ${MINIO_IMAGE:-docdyne/minio:RELEASE.2024-09-13T20-26-02Z}
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${BUILD_HTTP_PROXY:-}
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docdyne}
