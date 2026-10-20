@@ -360,8 +360,8 @@ services:
       context: deploy/minio
       args:
         MINIO_RELEASE: ${MINIO_RELEASE:-RELEASE.2024-09-13T20-26-02Z}
-        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
-        HTTPS_PROXY: ${BUILD_HTTP_PROXY:-}
+    # 代理：shell 导出 HTTP_PROXY/HTTPS_PROXY 或 .env 同名变量，BuildKit
+    # 自动透传到构建容器（预定义 ARG）。构建容器内 127.0.0.1 ≠ 宿主机。
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docdyne}
