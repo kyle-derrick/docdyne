@@ -23,17 +23,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 AUTO=0
+NOTUI=0
 TEMPLATE=''
 FORCE_DOMAIN=''
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --auto) AUTO=1 ;;
+    --no-tui) NOTUI=1 ;;
     --domain) FORCE_DOMAIN="${2:?--domain 需要域名}"; shift ;;
     --template) TEMPLATE="${2:?--template 需要路径}"; shift ;;
-    *) echo "未知参数：$1（支持 --auto / --domain <域名> / --template <path>）" >&2; exit 1 ;;
+    *) echo "未知参数：$1（支持 --auto / --no-tui / --domain <域名> / --template <path>）" >&2; exit 1 ;;
   esac
   shift
 done
+
+# whiptail/newt 在 POSIX(C) locale 下无法渲染非 ASCII（中文全乱码）：
+# 当前 locale 非 UTF-8 且系统有 C.UTF-8（glibc ≥2.35 恒有）时统一切换。
+# 极端环境仍乱码或无 whiptail 时可用 --no-tui 退到编号列表模式。
+if [[ "${LC_ALL:-${LANG:-C}}" != *UTF-8* && "${LC_ALL:-${LANG:-C}}" != *utf8* ]]; then
+  if command -v locale >/dev/null 2>&1 && locale -a 2>/dev/null | grep -qiE '^C\.(UTF-8|utf8)$'; then
+    export LC_ALL=C.UTF-8 LANG=C.UTF-8
+  fi
+fi
 
 gen_password() { LC_ALL=C tr -dc 'A-HJ-NP-Za-km-z2-9' </dev/urandom | head -c 20 || true; }
 gen_secret32() { openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'; }
@@ -54,7 +65,7 @@ elif [[ -n "$TEMPLATE" ]]; then
   BASE="$TEMPLATE"
 elif [[ $AUTO -eq 1 ]]; then
   BASE="$(printf '%s' "${SCENARIOS[0]}" | cut -d'|' -f2)"
-elif command -v whiptail >/dev/null 2>&1 && [[ -t 0 && -t 2 ]]; then
+elif [[ $NOTUI -eq 0 ]] && command -v whiptail >/dev/null 2>&1 && [[ -t 0 && -t 2 ]]; then
   radiolist=()
   for i in "${!SCENARIOS[@]}"; do
     s="${SCENARIOS[i]}"; key="${s%%|*}"; rest="${s#*|}"; desc="${rest#*|}"
@@ -147,7 +158,7 @@ fi
 # HTTPS 首屏选择（whiptail 输入框循环 / 终端 read 循环；http 直接通过）
 choose_tls() {
   local m d
-  if command -v whiptail >/dev/null 2>&1; then
+  if [[ $NOTUI -eq 0 ]] && command -v whiptail >/dev/null 2>&1; then
     m=$(whiptail --title 'HTTPS 访问模式（必选）' --radiolist \
 '选择站点对外访问方式（↑↓ 移动，空格勾选，回车确认）：
  自动签发：公网域名 + Let'"'"'s Encrypt 自动证书（需 DNS 指向本机）
@@ -247,7 +258,7 @@ edit_field() { # $1=key
   for f in "${VALUE_FIELDS[@]}"; do [[ "$f" == "$k" ]] && kind=value; done
   for f in "${MANUAL_FIELDS[@]}"; do [[ "$f" == "$k" ]] && kind=manual; done
   cur="$(fval "$k")"
-  if command -v whiptail >/dev/null 2>&1; then
+  if [[ $NOTUI -eq 0 ]] && command -v whiptail >/dev/null 2>&1; then
     nv=$(whiptail --title "编辑 $k" --inputbox \
       "输入新值（留空 = $([[ $kind == secret ]] && echo 随机重新生成 || echo 保持当前值))" 10 74 "$cur" 3>&1 1>&2 2>&3) || return 0
   else
@@ -272,7 +283,7 @@ tls_valid() { # DONE 前校验
 
 # ---------- 交互主循环 ----------
 if [[ $AUTO -eq 0 && -t 0 && -t 2 ]]; then
-  if command -v whiptail >/dev/null 2>&1; then
+  if [[ $NOTUI -eq 0 ]] && command -v whiptail >/dev/null 2>&1; then
     while :; do
       menu_args=()
       while IFS=$'\t' read -r id label; do menu_args+=("$id" "$label" ''); done < <(build_menu)

@@ -111,6 +111,7 @@ make deploy-full
 make deploy-auto
 # 无人值守 + HTTPS（脚本/CI）：
 bash scripts/deploy.sh --auto --domain docdyne.example.com --profile full
+# 中文乱码（POSIX locale 服务器）会自动切 C.UTF-8；仍异常可用 --no-tui 走编号列表。
 # 也可直接执行脚本：
 bash scripts/deploy.sh --profile full        # Linux/macOS
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile full   # Windows
