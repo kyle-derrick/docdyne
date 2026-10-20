@@ -1694,6 +1694,12 @@ svg.lucide {
      文件列表也等高，不收缩（v2.5 修复）。 */
   height: 100%;
   display: flex;
+  /* 视觉容器：背景+边框+圆角让中区有可见边界（否则 100% 高度
+     但视觉上不可见）。 */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .files-tree-main .file-browser {
