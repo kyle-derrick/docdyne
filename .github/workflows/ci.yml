@@ -61,6 +61,64 @@ jobs:
           # CI 默认 2GB/4GB 堆会 OOM（exit 134），本地构建同样需要 ≥4GB。
           NODE_OPTIONS: --max-old-space-size=6144
 
+  # 部署链路验证：shell 语法 / compose 校验 / 镜像 tag 核验 / 配置器干跑。
+  # 拦截「CI 全绿但部署即炸」的坑（powershell 硬编码、clamav tag 不存在、
+  # seed 密码策略、脚本语法等——2026-10 服务器部署连踩六坑后补上）。
+  deploy:
+    name: Deploy Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Shell syntax check
+        run: |
+          fail=0
+          for f in scripts/*.sh; do
+            bash -n "$f" || { echo "::error::$f 语法错误"; fail=1; }
+          done
+          [ $fail -eq 0 ] && echo "全部 shell 脚本语法正确"
+
+      - name: Compose validation
+        run: docker compose config --quiet
+
+      - name: External image tag verification
+        run: bash scripts/verify-image-tags.sh
+
+      - name: Configure dry-run (--auto)
+        run: |
+          # 全新自动配置（单机模板 → 密钥全随机 → local 存储 → HTTP）
+          # 域名不用 example.com（配置器视为模板占位符会拒）
+          bash scripts/configure.sh --auto --domain ci-deploy-test.docdyne.dev
+          # 校验产物
+          test -f .env
+          source .env 2>/dev/null || true
+          # 逐项断言
+          assert() { eval "$2" || { echo "::error::$1"; exit 1; }; }
+          assert "JWT_SECRET ≥32 字节" '[[ ${#JWT_SECRET} -ge 32 ]]'
+          assert "POSTGRES_PASSWORD 非空" '[[ -n "$POSTGRES_PASSWORD" ]]'
+          assert "DATABASE_URL 含密码" '[[ "$DATABASE_URL" == *"$POSTGRES_PASSWORD"* ]]'
+          assert "SEED_ADMIN_PASSWORD ≥12+大小写+数字" \
+            '[[ ${#SEED_ADMIN_PASSWORD} -ge 12 && "$SEED_ADMIN_PASSWORD" =~ [A-Z] && "$SEED_ADMIN_PASSWORD" =~ [a-z] && "$SEED_ADMIN_PASSWORD" =~ [0-9] ]]'
+          assert "SEED_ADMIN_EMAIL 非空" '[[ -n "$SEED_ADMIN_EMAIL" ]]'
+          assert "ONLYOFFICE_JWT_SECRET ≥32" '[[ ${#ONLYOFFICE_JWT_SECRET} -ge 32 ]]'
+          assert "STORAGE_DRIVER=local（--auto 全新默认）" '[[ "$STORAGE_DRIVER" == "local" ]]'
+          assert "APP_DOMAIN=ci-deploy-test.docdyne.dev" '[[ "$APP_DOMAIN" == "ci-deploy-test.docdyne.dev" ]]'
+          assert "CADDY_TLS_INIT_MODE=auto" '[[ "$CADDY_TLS_INIT_MODE" == "auto" ]]'
+          echo "配置器干跑通过：.env 已生成且全部断言通过"
+          rm -f .env
+
+      - name: Configure dry-run (--auto, 弱密码既有 .env)
+        run: |
+          # 模拟「旧版脚本时期写入的弱密码」→ configure 应自动重生成合规密码
+          bash scripts/configure.sh --auto --domain ci.docdyne.dev
+          sed -i 's/^SEED_ADMIN_PASSWORD=.*/SEED_ADMIN_PASSWORD=weakpass/' .env
+          bash scripts/configure.sh --auto
+          source .env 2>/dev/null || true
+          [[ ${#SEED_ADMIN_PASSWORD} -ge 12 ]] || { echo "::error::弱密码未被自动重生成"; exit 1; }
+          echo "弱密码自动重生成通过"
+          rm -f .env
+
   # E2E（Playwright）：依赖 backend/frontend 两个 job 通过后再跑。
   # PostgreSQL 用 GitHub Actions service container（postgres:16-alpine，
   # pg_isready 健康检查）；后端由 e2e/setup-backend.mjs 负责 go build + 迁移
@@ -71,7 +129,7 @@ jobs:
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [backend, frontend, deploy]
     services:
       postgres:
         image: postgres:16-alpine
