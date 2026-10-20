@@ -361,11 +361,11 @@ services:
   minio:
     # MinIO 2025 起从 Docker Hub 下架历史 tag，官方源迁至 quay.io
     #（docker.io/minio/minio 拉取报 pull access denied）。
-    # MinIO 官方镜像仅发布在 quay.io（Docker Hub 已下架）——国内网络对
-    # quay 直连常 401/reset。MINIO_IMAGE 可整体覆盖（含 tag），国内在 .env
-    # 设 MINIO_IMAGE=quay.m.daocloud.io/minio/minio:RELEASE.2024-09-13T20-26-02Z
-    #（DaoCloud 镜像站，2026-10 实测令牌握手/manifest 全通）。
-    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2024-09-13T20-26-02Z}
+    # MinIO 官方镜像仅发布在 quay.io（Docker Hub 已下架）——国内直连常
+    # 401/reset，默认走 DaoCloud 镜像站（2026-10 实测令牌握手/manifest 全通；
+    # 海外部署同样可达）。要直连 quay 或换其他镜像站，.env 设
+    # MINIO_IMAGE=quay.io/minio/minio:RELEASE.2024-09-13T20-26-02Z 整体覆盖。
+    image: ${MINIO_IMAGE:-quay.m.daocloud.io/minio/minio:RELEASE.2024-09-13T20-26-02Z}
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docdyne}
