@@ -725,6 +725,11 @@ th.th-sort-cell.active {
 /* 名称单元格整格可点（文件打开 / 目录进入 / 网页目录预览）。 */
 td.name-cell {
   cursor: pointer;
+  /* 收藏星标与文件名/图标垂直对齐（此前有高低差）。 */
+}
+td.name-cell .star-btn,
+td.name-cell .name-btn {
+  vertical-align: middle;
 }
 
 .th-sort-arrow {
