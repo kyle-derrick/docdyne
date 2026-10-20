@@ -201,9 +201,14 @@ func (s *Service) SeedInitial(mode Mode, domain string) error {
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	// 无行（迁移未播种的极端情形）等同出厂态；有行则须为出厂态才播种。
-	if err == nil && (st.Mode != ModeHTTP || strings.TrimSpace(st.Domain) != "" || st.UpdatedBy != nil || !st.UpdatedAt.IsZero()) {
-		return nil // 管理页已有偏好（或已播种过）：不动
+	// 管理页主动设置过（UpdatedBy/UpdatedAt 非零值）：环境变量不覆盖。
+	if err == nil && (st.UpdatedBy != nil || !st.UpdatedAt.IsZero()) {
+		return nil
+	}
+	// 出厂态（或从未播种）→ 写入；已播种但模式/域名与当前 env 不一致
+	//（如首次部署 auto 后改 internal）→ 同步更新。管理页偏好始终优先。
+	if err == nil && st.Mode == mode && strings.TrimSpace(st.Domain) == strings.TrimSpace(domain) {
+		return nil // 已一致，无需操作
 	}
 	return s.repo.UpsertState(State{ID: 1, Mode: mode, Domain: domain})
 }
