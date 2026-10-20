@@ -9,7 +9,7 @@
 // 面板根挂 settings-surface、分区/行走共享 SettingsSection/SettingsField
 // 原语（与 AI 设置页同一视觉系统：统一分区标题、行布局与 44px 定宽开关）。
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Input, InputNumber, Radio, Select, Switch, Upload } from 'antd'
+import { Alert, Button, Input, InputNumber, Radio, Select, Switch, Tabs, Upload } from 'antd'
 import { ApiError, adminGetSettings, adminGetSmtpSettings, adminGetTls, adminPutSetting, adminPutSmtpSettings, adminPutTls, adminTestSmtp, adminUploadTlsCert } from '../../api'
 import type { AdminSettingsResult, SettingItem, SettingValue, SmtpSettingsView, TlsCert, TlsMode, TlsStatus } from '../../api'
 import { formatQuota, formatTime } from '../FileBrowser'
@@ -878,19 +878,24 @@ export function SystemSettingKeysCard({
   )
 }
 
+/** 「搜索结果」页签 key（不与分组 id 冲突：组 id 为语义短词）。 */
+const SETTINGS_SEARCH_TAB = '__search__'
+
 /**
- * 系统设置面板（v3 表单化重构，仅 admin）：system_settings 系统类内置键的
- * 分组表单入口——按 SYSTEM_SETTING_GROUPS 渲染折叠卡片，每项中文名 + 一句
+ * 系统设置面板（v3 表单化重构，仅 admin；v3.2 Tabs 化）：system_settings
+ * 系统类内置键的分组表单入口——按 SYSTEM_SETTING_GROUPS 渲染顶部 Tabs
+ * （每组一个页签，样式同 AI 设置页 ai-admin-tabs），每项中文名 + 一句
  * 说明 + 按类型控件化（bool→Switch / int→InputNumber（min/max 按后端定义）
  * 或配额数值+单位选择器 / string 枚举→Select / 普通 string→Input），组内
  * 「保存本组」批量 PUT 已修改键（逐键循环，不改后端）、「重置」回退草稿；
- * 顶部搜索按 key / 中文名 / 说明过滤（过滤时分组自动展开），每项保留
- * effect 徽章（立即生效 / 需重启）。行渲染与保存逻辑经 SettingItemRow /
- * saveSettingItems 与 SystemSettingKeysCard（迁入专属管理页的键组）共享。
- * ai.* / agent.* / security.* / webdav.* / space.* / backup.* / audit.*
- * 不在此展示（分属「AI 设置」「AI 创作舱」「安全与访问」与平台管理
- *「空间」「备份」「审计日志」页，见 HIDDEN_SETTING_PREFIXES），面板顶部
- * 以 notice 指引对应位置。
+ * 顶部搜索按 key / 中文名 / 说明过滤（跨全部页签匹配，过滤时自动切到
+ * 「搜索结果」页签按组汇总展示全部匹配项，清除后回到原分组页签），
+ * 每项保留 effect 徽章（立即生效 / 需重启）。行渲染与保存逻辑经
+ * SettingItemRow / saveSettingItems 与 SystemSettingKeysCard（迁入专属
+ * 管理页的键组）共享。ai.* / agent.* / security.* / webdav.* / space.* /
+ * backup.* / audit.* 不在此展示（分属「AI 设置」「AI 创作舱」「安全与
+ * 访问」与平台管理「空间」「备份」「审计日志」页，见
+ * HIDDEN_SETTING_PREFIXES），面板顶部以 notice 指引对应位置。
  */
 export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: string) => void; onNotice: (msg: string) => void }) {
   const locale = useLocale()
@@ -903,9 +908,9 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
   // 正在保存的分组 id（null = 无保存进行中）与分组级错误文案。
   const [savingGroup, setSavingGroup] = useState<string | null>(null)
   const [groupErrors, setGroupErrors] = useState<Record<string, string>>({})
-  // 搜索框过滤键 + 分组折叠状态（组 id → 折叠；过滤时自动展开）。
+  // 搜索框过滤键 + 当前激活页签（默认第一个分组；过滤时自动切「搜索结果」）。
   const [settingsQuery, setSettingsQuery] = useState('')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [activeTab, setActiveTab] = useState(SYSTEM_SETTING_GROUPS[0]?.id ?? '')
 
   /** 载入响应并重置草稿（保存成功后的刷新也走这里，拿回归一化值）。 */
   const applyResult = (r: AdminSettingsResult) => {
@@ -934,6 +939,15 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** 搜索态与页签联动：输入过滤词时切到「搜索结果」页签，清除后回到第一
+   * 分组（此前折叠卡片的「过滤时自动展开」等价行为）。 */
+  useEffect(() => {
+    setActiveTab((prev) => {
+      if (settingsQuery.trim() !== '') return SETTINGS_SEARCH_TAB
+      return prev === SETTINGS_SEARCH_TAB ? (SYSTEM_SETTING_GROUPS[0]?.id ?? '') : prev
+    })
+  }, [settingsQuery])
 
   const settings = result?.settings ?? []
 
@@ -991,9 +1005,85 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
     })
   }
 
+  /** 组表单（页签内容复用）：组内逐项控件化行 + 「重置」/「保存本组」+
+   * 分组级错误文案；groupId 兼容搜索结果页签（按匹配到的组分别保存）。 */
+  const renderGroupForm = (groupId: string, items: SettingItem[], title: string) => {
+    const dirty = groupDirty(items)
+    const saving = savingGroup === groupId
+    return (
+      <form
+        onSubmit={(e) => { e.preventDefault(); void saveGroup(groupId, items, title) }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+      >
+        {items.map((item) => (
+          <SettingItemRow
+            key={item.key}
+            item={item}
+            draft={drafts[item.key]}
+            setDraft={(v) => setDrafts((prev) => ({ ...prev, [item.key]: v }))}
+            zh={zh}
+          />
+        ))}
+        <div className="modal-actions" style={{ marginTop: 4 }}>
+          <Button disabled={savingGroup !== null || !dirty} onClick={() => resetGroup(items)}>
+            {zh ? '重置' : 'Reset'}
+          </Button>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={saving}
+            disabled={!dirty || (savingGroup !== null && !saving)}
+          >
+            {saving ? (zh ? '保存中…' : 'Saving…') : (zh ? '保存本组' : 'Save group')}
+          </Button>
+        </div>
+        {groupErrors[groupId] && <div className="error-text" style={{ marginTop: 4 }}>{groupErrors[groupId]}</div>}
+      </form>
+    )
+  }
+
+  /** 分组页签内容：组内项数 + 未保存徽标 + 组表单。 */
+  const renderGroupTab = (groupId: string, items: SettingItem[], title: string) => {
+    const dirty = groupDirty(items)
+    const saving = savingGroup === groupId
+    return (
+      <div className="ai-tab-section">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="setting-meta muted">{zh ? `（${items.length} 项）` : `(${items.length})`}</span>
+          {dirty && !saving && <span className="badge">{zh ? '有未保存修改' : 'Unsaved changes'}</span>}
+        </div>
+        {renderGroupForm(groupId, items, title)}
+      </div>
+    )
+  }
+
+  /** 「搜索结果」页签内容：全部匹配项按原分组汇总（每组保留各自「保存本组」，
+   * 与分组页签同一套草稿/保存状态）。 */
+  const renderSearchTab = () => (
+    <div className="ai-tab-section">
+      {settingGroups.map(({ group, items }) => (
+        <SettingsSection key={group.id} title={zh ? group.title.zh : group.title.en}>
+          {renderGroupForm(group.id, items, zh ? group.title.zh : group.title.en)}
+        </SettingsSection>
+      ))}
+    </div>
+  )
+
+  const searching = settingsQuery.trim() !== ''
+  const groupTabs = settingGroups.map(({ group, items }) => ({
+    key: group.id,
+    label: zh ? group.title.zh : group.title.en,
+    children: renderGroupTab(group.id, items, zh ? group.title.zh : group.title.en),
+  }))
+  const tabItems = searching
+    ? [{ key: SETTINGS_SEARCH_TAB, label: zh ? '搜索结果' : 'Search results', children: renderSearchTab() }, ...groupTabs]
+    : groupTabs
+  // 激活页签容错：激活 key 不在当前页签集合（如过滤后组被清空）时回退首项。
+  const tabsActiveKey = tabItems.some((tab) => tab.key === activeTab) ? activeTab : (tabItems[0]?.key ?? '')
+
   if (forbidden) {
     return (
-      <div className="panel setting-group settings-surface">
+      <div className="panel setting-group settings-surface ai-settings-surface">
         <h3>{zh ? '系统设置' : 'System settings'}</h3>
         <div className="empty">{zh ? '仅系统管理员可访问' : 'Administrators only'}</div>
       </div>
@@ -1001,84 +1091,35 @@ export function SystemSettingsPanel({ onError, onNotice }: { onError: (msg: stri
   }
 
   return (
-    <>
-      <div className="panel setting-group settings-surface" style={{ padding: '12px 16px' }}>
-        <form className="team-create-row" style={{ marginBottom: 0 }} onSubmit={(e) => e.preventDefault()}>
-          <label className="field" style={{ flex: 1 }}>
-            <span>{zh ? '过滤设置项（按中文名 / key / 说明匹配；过滤时分组自动展开）' : 'Filter settings (by name / key / description; groups auto-expand while filtering)'}</span>
-            <Input
-              allowClear
-              autoCapitalize="none"
-              spellCheck={false}
-              value={settingsQuery}
-              onChange={(e) => setSettingsQuery(e.target.value)}
-              placeholder={zh ? '如：上传、配额 或 upload' : 'e.g. upload, quota or "upload"'}
-            />
-          </label>
-          {settingsQuery && (
-            <Button style={{ alignSelf: 'flex-end' }} onClick={() => setSettingsQuery('')}>{zh ? '清除' : 'Clear'}</Button>
-          )}
-        </form>
-      </div>
+    <div className="panel setting-group settings-surface ai-settings-surface">
+      <form className="team-create-row" style={{ marginBottom: 12 }} onSubmit={(e) => e.preventDefault()}>
+        <label className="field" style={{ flex: 1 }}>
+          <span>{zh ? '过滤设置项（跨全部页签按中文名 / key / 说明匹配，结果汇总到「搜索结果」页签）' : 'Filter settings across tabs (by name / key / description; matches collected in the "Search results" tab)'}</span>
+          <Input
+            allowClear
+            autoCapitalize="none"
+            spellCheck={false}
+            value={settingsQuery}
+            onChange={(e) => setSettingsQuery(e.target.value)}
+            placeholder={zh ? '如：上传、配额 或 upload' : 'e.g. upload, quota or "upload"'}
+          />
+        </label>
+        {settingsQuery && (
+          <Button style={{ alignSelf: 'flex-end' }} onClick={() => setSettingsQuery('')}>{zh ? '清除' : 'Clear'}</Button>
+        )}
+      </form>
 
       {loading && <div className="hint">{zh ? '加载中…' : 'Loading…'}</div>}
       {!loading && settingGroups.length === 0 && <div className="empty">{zh ? '没有匹配的设置项' : 'No matching settings'}</div>}
-
-      {settingGroups.map(({ group, items }) => {
-        const searching = settingsQuery.trim() !== ''
-        const isCollapsed = !searching && collapsed[group.id]
-        const title = zh ? group.title.zh : group.title.en
-        const dirty = groupDirty(items)
-        const saving = savingGroup === group.id
-        return (
-          <div key={group.id} className="panel setting-group settings-surface">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Button
-                type="text"
-                size="small"
-                title={isCollapsed ? (zh ? '展开分组' : 'Expand group') : (zh ? '折叠分组' : 'Collapse group')}
-                onClick={() => setCollapsed((prev) => ({ ...prev, [group.id]: !isCollapsed }))}
-              >
-                {isCollapsed ? '▸' : '▾'}
-              </Button>
-              {title}
-              <span className="setting-meta muted">{zh ? `（${items.length} 项）` : `(${items.length})`}</span>
-              {dirty && !saving && <span className="badge">{zh ? '有未保存修改' : 'Unsaved changes'}</span>}
-            </h3>
-            {!isCollapsed && (
-              <form
-                onSubmit={(e) => { e.preventDefault(); void saveGroup(group.id, items, title) }}
-                style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
-              >
-                {items.map((item) => (
-                  <SettingItemRow
-                    key={item.key}
-                    item={item}
-                    draft={drafts[item.key]}
-                    setDraft={(v) => setDrafts((prev) => ({ ...prev, [item.key]: v }))}
-                    zh={zh}
-                  />
-                ))}
-                <div className="modal-actions" style={{ marginTop: 4 }}>
-                  <Button disabled={savingGroup !== null || !dirty} onClick={() => resetGroup(items)}>
-                    {zh ? '重置' : 'Reset'}
-                  </Button>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    loading={saving}
-                    disabled={!dirty || (savingGroup !== null && !saving)}
-                  >
-                    {saving ? (zh ? '保存中…' : 'Saving…') : (zh ? '保存本组' : 'Save group')}
-                  </Button>
-                </div>
-                {groupErrors[group.id] && <div className="error-text" style={{ marginTop: 4 }}>{groupErrors[group.id]}</div>}
-              </form>
-            )}
-          </div>
-        )
-      })}
-    </>
+      {!loading && tabItems.length > 0 && (
+        <Tabs
+          className="ai-admin-tabs"
+          activeKey={tabsActiveKey}
+          onChange={setActiveTab}
+          items={tabItems}
+        />
+      )}
+    </div>
   )
 }
 

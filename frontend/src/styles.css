@@ -990,7 +990,8 @@ svg.lucide {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  transition: border-color 0.15s ease;
+  /* 过渡统一走 553 行卡片组（border/bg/shadow 0.18s）：此处再写简写
+     transition 会整条覆盖组规则，只剩 border-color 一项（背景突变）。 */
 }
 
 .file-card:hover {
@@ -1548,7 +1549,6 @@ svg.lucide {
   cursor: pointer;
   font: inherit;
   color: var(--text);
-  transition: border-color 0.15s ease;
 }
 
 .team-card:hover {
@@ -1591,7 +1591,6 @@ svg.lucide {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px 16px;
-  transition: border-color 0.15s ease;
 }
 
 .team-card-manage:hover {
@@ -3305,7 +3304,9 @@ div.mxTooltip {
   cursor: pointer;
   padding: 0;
   position: relative;
-  transition: transform 0.1s ease;
+  /* 合并声明（transition 为简写，若只写 transform 会整体覆盖 571 行
+     全站行 hover 组的背景/文字/边框过渡——悬浮缩放与变色需同帧进行）。 */
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .theme-swatch:hover {
@@ -4275,7 +4276,7 @@ kbd {
   user-select: none;
   white-space: nowrap;
   overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .rich-text-filecard:hover {
@@ -5742,7 +5743,7 @@ kbd {
   cursor: col-resize;
   border-radius: 3px;
   background: color-mix(in srgb, var(--border) 70%, transparent);
-  transition: background 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 .md-split-divider:hover,
@@ -5950,7 +5951,7 @@ kbd {
   font-size: 13px;
   line-height: 1.5;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background-color 0.15s;
 }
 .ai-suggestion-card:hover { border-color: var(--primary); background: var(--surface-2); }
 .ai-turn { display: flex; gap: 8px; }
@@ -6996,7 +6997,7 @@ kbd {
   font-size: 11px;
   line-height: 18px;
   cursor: pointer;
-  transition: color .15s, background .15s;
+  transition: color .15s, background-color .15s;
 }
 .ai-mode-seg button:hover { color: var(--primary); }
 .ai-mode-seg button.on {
@@ -7064,7 +7065,7 @@ kbd {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background-color 0.15s, color 0.15s;
 }
 .ai-tool-icon:hover { background: var(--surface-2); color: var(--text); }
 .ai-tool-icon.on {
@@ -7436,7 +7437,7 @@ kbd {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s, opacity 0.12s;
+  transition: background-color 0.15s, color 0.15s, opacity 0.15s;
 }
 .chat-send-btn {
   background: var(--primary);
@@ -7519,9 +7520,10 @@ kbd {
 .ai-trace-spin {
   width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--primary);
   border-radius: 50%; animation: ai-trace-rot .8s linear infinite; margin-left: auto;
+  will-change: transform;
 }
 /* v7.11：Loader2 图标旋转（外层标题处，替代边框圈）。 */
-svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; animation: ai-trace-rot .9s linear infinite; margin-left: 0; flex-shrink: 0; }
+svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; animation: ai-trace-rot .9s linear infinite; margin-left: 0; flex-shrink: 0; will-change: transform; }
 @keyframes ai-trace-rot { to { transform: rotate(360deg); } }
 .ai-trace-list { border-top: 1px solid var(--border); padding: 2px 0; }
 .ai-trace-row {
@@ -7724,3 +7726,87 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 
 /* v7.14f：Office AI 面板（已在 DS 窗口内，浮动切换无意义且致显示丢失）。 */
 .office-ai-root .ai-edit-chat-head-ops button[aria-pressed] { display: none !important; }
+
+/* ==================== 动画流畅性与无障碍审计（v7.16） ====================
+   全站 transition/animation 盘点后的收敛补丁：
+   1) 补齐 hover 突变——以下控件/行此前无 transition，hover 的背景/边框/
+      文字色瞬变（统一 0.15s 口径，与 538 行「全站过渡」节同风格分组维护；
+      antd 自带按钮/菜单不经此组）。 */
+.section-sidebar a,
+.user-menu-panel a,
+.user-menu-panel button,
+.member-info-btn,
+.member-row-clickable,
+.rich-text-outline-item,
+.sdiff-row[role='button'],
+.docdyne-modal-close-group .modal-fullscreen-btn,
+.user-ops-in button,
+.ai-source-link,
+.ai-md-code-btn,
+.ai-md-code-folded,
+.ai-workdir-default,
+.ai-attach-item,
+.ai-attach-upload,
+.aiax-conv-new,
+.aiax-conv-item,
+.aiax-conv-more,
+.ai-trace-head,
+.ai-trace-row,
+.ai-jump-bottom,
+.share-fab {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+/* 2) 3D 变换闪烁预防：translateY 淡入类容器在部分 GPU 上首帧白闪，
+   backface-visibility 收敛到自身合成层渲染（作用于有位移动画的小容器，
+   不挂 .content 等主布局容器，避免无谓 stacking context）。 */
+.soft-fade,
+.ai-trace-list,
+.ai-trace-stage,
+.ai-trace-body { backface-visibility: hidden; }
+
+/* 3) 无障碍收敛：prefers-reduced-motion 下归零其余动画——前文 .content /
+   .soft-fade / .files-loading-row / 全站过渡组已各自覆盖，此处补齐循环
+   动画（光标闪烁/加载点/旋转/呼吸点）、过程块展开动画与缩放类悬浮效果
+   （保持终态可见，不位移）。 */
+@media (prefers-reduced-motion: reduce) {
+  .ai-caret::after,
+  .aic-thinking-dots i,
+  .ai-trace-spin,
+  svg.ai-trace-spin,
+  .ai-trace-dot.running,
+  .ai-trace-list,
+  .ai-trace-stage,
+  .ai-trace-body {
+    animation: none;
+  }
+  .theme-swatch:hover,
+  .viewer-aiw-ball:hover,
+  .viewer-aiw-ball.snapped:hover {
+    transform: none;
+  }
+  .section-sidebar a,
+  .user-menu-panel a,
+  .user-menu-panel button,
+  .member-info-btn,
+  .member-row-clickable,
+  .rich-text-outline-item,
+  .sdiff-row[role='button'],
+  .docdyne-modal-close-group .modal-fullscreen-btn,
+  .user-ops-in button,
+  .ai-source-link,
+  .ai-md-code-btn,
+  .ai-md-code-folded,
+  .ai-workdir-default,
+  .ai-attach-item,
+  .ai-attach-upload,
+  .aiax-conv-new,
+  .aiax-conv-item,
+  .aiax-conv-more,
+  .ai-trace-head,
+  .ai-trace-row,
+  .ai-jump-bottom,
+  .share-fab {
+    transition: none;
+  }
+}
