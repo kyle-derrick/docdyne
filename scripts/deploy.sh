@@ -116,17 +116,28 @@ show_summary() {
 }
 if [[ $AUTO -eq 0 && -t 0 ]]; then
   show_summary
-  read -r -p '回车 = 开始部署 / c（或 e）= 修改配置（编号选改）/ v = 编辑器打开 .env / q = 退出：' act || true
-  case "$act" in
-    c|e) run bash "$CONFIGURE" ;; # 编号列表选改（不再默认丢进 vim）
-    v) "${EDITOR:-vi}" .env ;;
-    q) echo '已退出（未做任何变更）。'; exit 0 ;;
-  esac
-  echo ''
-  echo '──── 配置已按你的修改刷新，最终确认 ────'
-  show_summary
-  read -r -p '回车 = 开始部署 / q = 退出：' act || true
-  [[ "$act" == "q" ]] && { echo '已退出。'; exit 0; }
+  modified=0
+  while :; do
+    read -r -p '回车 = 开始部署 / c（或 e）= 修改配置（编号选改）/ v = 编辑器打开 .env / q = 退出：' act || true
+    case "$act" in
+      '') break ;; # 开始部署
+      c|e) run bash "$CONFIGURE"; modified=1; break ;; # 编号列表选改
+      v) "${EDITOR:-vi}" .env; modified=1; break ;;
+      q) echo '已退出（未做任何变更）。'; exit 0 ;;
+      *) echo '  输入无效（回车 / c / v / q）——若想改密码等配置请按 c 进配置列表，不要在此直接输入值'; continue ;;
+    esac
+  done
+  if [[ $modified -eq 1 ]]; then
+    echo ''
+    echo '──── 配置已按你的修改刷新，最终确认 ────'
+    show_summary
+    while :; do
+      read -r -p '回车 = 开始部署 / q = 退出：' act || true
+      [[ -z "$act" ]] && break
+      [[ "$act" == "q" ]] && { echo '已退出。'; exit 0; }
+      echo '  输入无效（回车部署 / q 退出）'
+    done
+  fi
 fi
 
 # ---------- 构建 + 起栈 ----------
