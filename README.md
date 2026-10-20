@@ -103,7 +103,7 @@ docker push <registry>/docdyne/caddy:1.0.0
 # 随后展示全部配置项编号列表（密钥已自动生成、值字段带默认值）：
 # 输入编号改你要改的，其余不用管；r 重新生成密钥，回车完成并继续部署。
 # 已有 .env（且 HTTPS 已配置）时直接复用（绝不轮换既有密钥/不重问），
-# 部署前展示非敏感摘要（回车部署 / e 编辑 .env / c 重新配置 / q 退出）。
+# 部署前展示非敏感摘要（回车部署 / c 或 e 进配置列表选改 / v 编辑器 / q 退出）。
 # 部署后仍可随时在「管理 → TLS」热切换（自动/自签/自定义证书），互不冲突。
 make deploy-minimal
 make deploy-full
@@ -123,6 +123,36 @@ make update    # git pull --ff-only（工作区须干净）→ 探测当前运�
                #（onlyoffice 在跑 = full，否则 minimal）→ 重建镜像并起栈；
                # 增量迁移幂等重跑、数据卷不动，.env 有效则零问答。
 ```
+
+#### 部署常见问题（FAQ）
+
+**中文乱码（`vi`/`nano`/`less` 打开 `.env` 等文件是乱码）**
+
+文件本身是合法 UTF-8，乱码来自服务器 shell 的 POSIX(C) locale——`cat` 正常、
+编辑器按 locale 解码才花。一条命令永久切换（Ubuntu/Debian 自带 C.UTF-8）：
+
+```bash
+echo 'export LANG=C.UTF-8' >> ~/.bashrc && source ~/.bashrc
+```
+
+**seed 容器退出 1：`password must be at least 12 characters`**
+
+`.env` 的 `SEED_ADMIN_PASSWORD` 须 ≥12 位且含大写、小写与数字（配置器与
+部署脚本已前置校验此策略；手工改 `.env` 后直接重跑 `make deploy-full`
+即可，seed 按邮箱幂等更新）：
+
+```bash
+NEWPW="Docdyne-$(openssl rand -hex 6)"   # 必然满足策略
+sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$NEWPW|" .env
+make deploy-full
+```
+
+**OnlyOffice 镜像构建失败：`Method https has died unexpectedly! / signal 4`**
+
+部分 CPU 上 Ubuntu 基座 apt 的 https 传输方法崩溃。`deploy/onlyoffice/Dockerfile`
+已改为 http 阿里云源 + 第三方源挪开处理；若你仍遇到，确认用的是最新
+Dockerfile 后重跑构建（基座大层有缓存，只会重跑 apt 步骤）。
+
 
 脚本要求在已有 `.env` 中设置随机的 `JWT_SECRET`、`POSTGRES_PASSWORD`、`SEED_ADMIN_PASSWORD`，不会把真实密钥写入仓库。访问地址默认是 `http://localhost/`；默认账号由 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_USERNAME` 和 `SEED_ADMIN_PASSWORD` 决定，首次登录后请立即改密。
 
