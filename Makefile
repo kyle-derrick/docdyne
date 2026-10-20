@@ -1,4 +1,4 @@
-.PHONY: run test fmt seed migrate e2e build-frontend sync-frontend validate-compose deploy deploy-minimal deploy-full deploy-auto up-minimal up-full down backup backup-verify backup-windows backup-windows-verify init-env
+.PHONY: run test fmt seed migrate e2e build-frontend sync-frontend validate-compose deploy deploy-minimal deploy-full deploy-auto update up-minimal up-full down backup backup-verify backup-windows backup-windows-verify init-env
 
 # 部署/env 脚本跨平台分发：Windows（开发机）走 ps1，Linux/macOS（服务器）
 # 走 sh——两版同构（见 scripts/deploy.ps1 与 scripts/deploy.sh）。
@@ -86,6 +86,18 @@ deploy-auto:
 else
 deploy-auto:
 	bash scripts/deploy.sh --profile minimal --auto
+endif
+
+# 一键更新已部署环境：git pull --ff-only（工作区须干净）→ 探测当前运行
+# profile（onlyoffice 在跑 = full，否则 minimal）→ 重建部署（迁移幂等重跑，
+# 数据卷不动）。Windows 开发机更新走 deploy-minimal/deploy-full 自选。
+ifeq ($(OS),Windows_NT)
+update:
+	git pull --ff-only
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile minimal
+else
+update:
+	bash scripts/update.sh
 endif
 
 # 极简部署（caddy + backend + postgres，caddy 唯一宿主端口 80/443）。

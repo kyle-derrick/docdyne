@@ -116,6 +116,14 @@ bash scripts/deploy.sh --profile full        # Linux/macOS
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Profile full   # Windows
 ```
 
+#### 更新已部署环境
+
+```bash
+make update    # git pull --ff-only（工作区须干净）→ 探测当前运行形态
+               #（onlyoffice 在跑 = full，否则 minimal）→ 重建镜像并起栈；
+               # 增量迁移幂等重跑、数据卷不动，.env 有效则零问答。
+```
+
 脚本要求在已有 `.env` 中设置随机的 `JWT_SECRET`、`POSTGRES_PASSWORD`、`SEED_ADMIN_PASSWORD`，不会把真实密钥写入仓库。访问地址默认是 `http://localhost/`；默认账号由 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_USERNAME` 和 `SEED_ADMIN_PASSWORD` 决定，首次登录后请立即改密。
 
 `minimal` 仅启动 caddy、backend、PostgreSQL；`full` 额外启动 Redis 和 OnlyOffice。ClamAV、Meilisearch、MinIO 分别使用 `antivirus`、`search`、`storage` profile 叠加。AI 能力默认关闭，关闭时不依赖任何外部服务；启用 RAG 向量检索需叠加 `--profile ai-vector` 启动 Qdrant，并在 AI 设置中开启向量检索、勾选 embedding 模型（Qdrant 只提供存储服务，不会自动启用 AI）；启用联网搜索可叠加 `--profile ai-search` 启动 SearXNG，或仅配置 Tavily Key（无需额外服务）。
