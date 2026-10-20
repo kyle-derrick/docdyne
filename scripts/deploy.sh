@@ -116,23 +116,33 @@ show_summary() {
 }
 if [[ $AUTO -eq 0 && -t 0 ]]; then
   show_summary
-  read -r -p '回车 = 开始部署 / e = 先编辑 .env / c = 重新配置（TUI）/ q = 退出：' act || true
+  read -r -p '回车 = 开始部署 / c（或 e）= 修改配置（编号选改）/ v = 编辑器打开 .env / q = 退出：' act || true
   case "$act" in
-    e) "${EDITOR:-vi}" .env ;;
-    c) run bash "$CONFIGURE" ;;
+    c|e) run bash "$CONFIGURE" ;; # 编号列表选改（不再默认丢进 vim）
+    v) "${EDITOR:-vi}" .env ;;
     q) echo '已退出（未做任何变更）。'; exit 0 ;;
   esac
+  show_summary # 改完刷新摘要再确认一轮
+  read -r -p '回车 = 开始部署 / q = 退出：' act || true
+  [[ "$act" == "q" ]] && { echo '已退出。'; exit 0; }
 fi
 
 # ---------- 构建 + 起栈 ----------
+# 依 .env 驱动开关联动可选 profile——服务缺位会让 backend 启动即失败
+#（s3 无 minio / meili 无 meilisearch / SCAN_ENABLED 无 clamav）：
+env_val() { grep -E "^$1=" .env | head -1 | cut -d= -f2- || true; }
+PROFILE_ARGS=(--profile "$PROFILE")
+if [[ "$(env_val SEARCH_DRIVER)" == "meili" ]]; then PROFILE_ARGS+=(--profile search); fi
+if [[ "$(env_val STORAGE_DRIVER)" == "s3" ]]; then PROFILE_ARGS+=(--profile storage); fi
+if [[ "$(env_val SCAN_ENABLED)" == "true" ]]; then PROFILE_ARGS+=(--profile antivirus); fi
 run docker compose config --quiet
 run docker compose build backend caddy migrate seed
 if [[ "$PROFILE" == 'full' ]]; then
   export ONLYOFFICE_UPSTREAM='onlyoffice:80' # caddy 反代上游（服务未起时主机名不解析）
-  run docker compose --profile full up -d
+  run docker compose "${PROFILE_ARGS[@]}" up -d
   unset ONLYOFFICE_UPSTREAM
 else
-  run docker compose --profile minimal up -d
+  run docker compose "${PROFILE_ARGS[@]}" up -d
 fi
 
 echo ''
