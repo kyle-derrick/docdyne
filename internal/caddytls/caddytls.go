@@ -201,14 +201,15 @@ func (s *Service) SeedInitial(mode Mode, domain string) error {
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	// 管理页主动设置过（UpdatedBy/UpdatedAt 非零值）：环境变量不覆盖。
-	if err == nil && (st.UpdatedBy != nil || !st.UpdatedAt.IsZero()) {
-		return nil
+	// 仅凭 UpdatedBy 判定是否管理页主动设置（Apply 恒带操作者 UUID）。
+	// 迁移播种的出厂行虽带 DEFAULT now() 的 updated_at，但 UpdatedBy 为
+	// NULL——不能作为「管理页已设置」的依据（否则 SeedInitial 永远跳过）。
+	if err == nil && st.UpdatedBy != nil {
+		return nil // 管理页设置过：env 不覆盖
 	}
-	// 出厂态（或从未播种）→ 写入；已播种但模式/域名与当前 env 不一致
-	//（如首次部署 auto 后改 internal）→ 同步更新。管理页偏好始终优先。
+	// 已与目标一致则 no-op；否则写入/更新（含首次播种与 env 变更同步）。
 	if err == nil && st.Mode == mode && strings.TrimSpace(st.Domain) == strings.TrimSpace(domain) {
-		return nil // 已一致，无需操作
+		return nil
 	}
 	return s.repo.UpsertState(State{ID: 1, Mode: mode, Domain: domain})
 }
