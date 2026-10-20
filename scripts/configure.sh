@@ -243,20 +243,54 @@ edit_field() { # $1=key（secret 类输入不回显：read -s，屏幕无明文�
 }
 
 tls_invalid_msg=''
-# 管理员密码策略（cmd/seed 同款：≥12 位且含大写、小写与数字）——不合规
-# 会在部署期 seed 容器退出 1 拦住 backend/caddy，前置到配置器拦截。
+# 管理员三项校验（cmd/seed 同款规则，internal/auth/validate.go）——
+# 不合规会在部署期 seed 容器退出 1 拦住 backend/caddy，前置到配置器拦截。
 pw_policy_ok() {
   local p="$1"
   [[ ${#p} -ge 12 ]] && [[ "$p" =~ [A-Z] ]] && [[ "$p" =~ [a-z] ]] && [[ "$p" =~ [0-9] ]]
 }
-ensure_admin_pw() { # 不合规时：交互提示重设；仍不合规/非交互则随机生成兜底
-  while ! pw_policy_ok "$(fval SEED_ADMIN_PASSWORD)"; do
-    echo "  ↳ SEED_ADMIN_PASSWORD 不满足策略（≥12 位且含大写、小写与数字）"
+username_ok() { # 3-32 字符，仅字母/数字/_/-
+  local u="$1"
+  [[ ${#u} -ge 3 && ${#u} -le 32 ]] && [[ "$u" =~ ^[a-zA-Z0-9_-]+$ ]]
+}
+email_ok() { # 含且仅含一个 @，不在首尾
+  local e="$1"
+  [[ "$e" == *@* && "$e" != @* && "$e" != *@ && "$(grep -o '@' <<<"$e" | wc -l)" == 1 ]]
+}
+seed_fields_valid() { # 管理员三项全检 → 0 合规 / 1 不合规（msg 写入 seed_invalid_msg）
+  seed_invalid_msg=''
+  local em un pw
+  em="$(fval SEED_ADMIN_EMAIL)"; un="$(fval SEED_ADMIN_USERNAME)"; pw="$(fval SEED_ADMIN_PASSWORD)"
+  if ! email_ok "$em"; then seed_invalid_msg="SEED_ADMIN_EMAIL 格式无效（须含且仅含一个 @，不在首尾）：$em"; return 1; fi
+  if ! username_ok "$un"; then seed_invalid_msg="SEED_ADMIN_USERNAME 须 3-32 字符且仅含字母/数字/_/-（不支持点号等）：$un"; return 1; fi
+  if ! pw_policy_ok "$pw"; then seed_invalid_msg="SEED_ADMIN_PASSWORD 须 ≥12 位且含大写、小写与数字"; return 1; fi
+  return 0
+}
+ensure_admin_pw() { # 管理员三项全检：不合规交互重设；非交互密码自动重生成
+  while ! seed_fields_valid; do
+    echo "  ↳ $seed_invalid_msg"
     if interactive; then
-      edit_field SEED_ADMIN_PASSWORD
+      # 定位到具体字段进编辑
+      case "$seed_invalid_msg" in
+        *EMAIL*)   edit_field SEED_ADMIN_EMAIL ;;
+        *USERNAME*) edit_field SEED_ADMIN_USERNAME ;;
+        *PASSWORD*) edit_field SEED_ADMIN_PASSWORD ;;
+        *) edit_field SEED_ADMIN_EMAIL; edit_field SEED_ADMIN_USERNAME; edit_field SEED_ADMIN_PASSWORD ;;
+      esac
     else
-      printf -v F_SEED_ADMIN_PASSWORD '%s' "$(gen_for SEED_ADMIN_PASSWORD)"; fresh+=(SEED_ADMIN_PASSWORD)
-      echo "  ↳ 已随机重新生成（保存后见输出；需自定义请在交互模式修改）"
+      # 非交互：密码自动重生成；用户名/邮箱给默认值
+      if ! email_ok "$(fval SEED_ADMIN_EMAIL)"; then
+        printf -v F_SEED_ADMIN_EMAIL '%s' 'admin@docdyne.local'
+        echo "  ↳ 邮箱已重置为 admin@docdyne.local（--auto 模式）"
+      fi
+      if ! username_ok "$(fval SEED_ADMIN_USERNAME)"; then
+        printf -v F_SEED_ADMIN_USERNAME '%s' 'admin'
+        echo "  ↳ 用户名已重置为 admin（--auto 模式）"
+      fi
+      if ! pw_policy_ok "$(fval SEED_ADMIN_PASSWORD)"; then
+        printf -v F_SEED_ADMIN_PASSWORD '%s' "$(gen_for SEED_ADMIN_PASSWORD)"; fresh+=(SEED_ADMIN_PASSWORD)
+        echo "  ↳ 密码已随机重新生成"
+      fi
     fi
   done
 }

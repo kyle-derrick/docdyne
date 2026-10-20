@@ -67,23 +67,43 @@ elif [[ -n "$(secret_placeholder_keys)" ]]; then
   [[ -n "$left" ]] && { echo "自动补齐后仍有密钥占位残留：$left——请手动检查 .env。" >&2; exit 1; }
 fi
 
-# ---------- 管理员密码策略兜底（存量 .env 复用路径的最后一道闸） ----------
-# configure.sh 已在输入侧校验（同款策略：≥12 位且含大写/小写/数字 ==
-# auth.ValidatePasswordStrength）；此处拦截“旧版脚本时期写入/手工编辑”
-# 的弱密码——否则会一路裸奔到 seed 容器才 fatal（compose 阻断 backend）。
+# ---------- 管理员账号三项兜底（存量 .env 复用路径的最后一道闸） ----------
+# configure.sh 已在输入侧校验（同款规则：email 格式 / username 3-32 字母数字
+# _- / password ≥12+大小写+数字 == auth.ValidateEmail/Username/PasswordStrength）；
+# 此处拦截旧版/手工编辑的不合规值——否则会一路裸奔到 seed 容器才 fatal。
+env_val() { grep -E "^$1=" .env | head -1 | cut -d= -f2- || true; }
 seed_pw_ok() {
-  local p; p="$(grep -E '^SEED_ADMIN_PASSWORD=' .env | head -1 | cut -d= -f2-)"
+  local p; p="$(env_val SEED_ADMIN_PASSWORD)"
   [[ ${#p} -ge 12 && "$p" =~ [A-Z] && "$p" =~ [a-z] && "$p" =~ [0-9] ]]
 }
-if ! seed_pw_ok; then
+seed_user_ok() {
+  local u; u="$(env_val SEED_ADMIN_USERNAME)"
+  [[ ${#u} -ge 3 && ${#u} -le 32 && "$u" =~ ^[a-zA-Z0-9_-]+$ ]]
+}
+seed_email_ok() {
+  local e; e="$(env_val SEED_ADMIN_EMAIL)"
+  [[ "$e" == *@* && "$e" != @* && "$e" != *@ && "$(grep -o '@' <<<"$e" | wc -l)" == 1 ]]
+}
+seed_gate() { # 三项全检 → 0 通过 / 1 不通过（具体原因打印到 stdout）
+  local errs=()
+  seed_email_ok || errs+=('SEED_ADMIN_EMAIL 格式无效（须含且仅含一个 @）')
+  seed_user_ok  || errs+=('SEED_ADMIN_USERNAME 须 3-32 字符且仅含字母/数字/_/-（不支持点号）')
+  seed_pw_ok    || errs+=('SEED_ADMIN_PASSWORD 须 ≥12 位且含大写、小写与数字')
+  if [[ ${#errs[@]} -gt 0 ]]; then
+    printf '  ✗ %s\n' "${errs[@]}"
+    return 1
+  fi
+  return 0
+}
+if ! seed_gate; then
   fixpw=1
   if [[ $AUTO -eq 1 || ! -t 0 ]]; then
-    fixpw=2 # 无人值守/非交互（管道/CI）：自动换合规随机密码，与 configure --auto 同语义
+    fixpw=2
   else
     echo ''
-    echo '错误：.env 的 SEED_ADMIN_PASSWORD 不满足策略（≥12 位且含大写、小写与数字），'
+    echo '错误：.env 的管理员账号配置不满足 seed 校验（见上方 ✗ 条目），'
     echo 'seed 容器会因此失败并阻断 backend/caddy 启动。'
-    read -r -p '回车 = 进配置器重新设置（列表选改）/ a = 自动换合规随机密码 / q = 退出：' ans || true
+    read -r -p '回车 = 进配置器重新设置（列表选改）/ a = 自动修复（密码随机+用户名/邮箱重置）/ q = 退出：' ans || true
     case "$ans" in
       q) echo '已退出。'; exit 1 ;;
       a) fixpw=2 ;;
@@ -91,11 +111,14 @@ if ! seed_pw_ok; then
     esac
   fi
   if [[ $fixpw -eq 2 ]]; then
-    NEWPW="Docdyne-$(openssl rand -hex 6)"
-    sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$NEWPW|" .env
-    echo "★ 已自动更换管理员密码：$NEWPW（请立即记录，登录用）"
+    seed_email_ok || sed -i 's|^SEED_ADMIN_EMAIL=.*|SEED_ADMIN_EMAIL=admin@docdyne.local|' .env
+    seed_user_ok  || sed -i 's|^SEED_ADMIN_USERNAME=.*|SEED_ADMIN_USERNAME=admin|' .env
+    seed_pw_ok    || { NEWPW="Docdyne-$(openssl rand -hex 6)"
+                       sed -i "s|^SEED_ADMIN_PASSWORD=.*|SEED_ADMIN_PASSWORD=$NEWPW|" .env
+                       echo "★ 已自动更换管理员密码：$NEWPW（请立即记录，登录用）"; }
+    echo '★ 用户名/邮箱如已重置为 admin@docdyne.local / admin（请记牢）'
   fi
-  seed_pw_ok || { echo '密码仍不合规——请手动修改 .env 后重试。' >&2; exit 1; }
+  seed_gate || { echo '管理员账号仍不合规——请手动修改 .env 后重试。' >&2; exit 1; }
 fi
 
 # ---------- 部署前摘要（交互式；密钥不回显） ----------
@@ -143,7 +166,6 @@ fi
 # ---------- 构建 + 起栈 ----------
 # 依 .env 驱动开关联动可选 profile——服务缺位会让 backend 启动即失败
 #（s3 无 minio / meili 无 meilisearch / SCAN_ENABLED 无 clamav）：
-env_val() { grep -E "^$1=" .env | head -1 | cut -d= -f2- || true; }
 PROFILE_ARGS=(--profile "$PROFILE")
 if [[ "$(env_val SEARCH_DRIVER)" == "meili" ]]; then PROFILE_ARGS+=(--profile search); fi
 if [[ "$(env_val STORAGE_DRIVER)" == "s3" ]]; then PROFILE_ARGS+=(--profile storage); fi
