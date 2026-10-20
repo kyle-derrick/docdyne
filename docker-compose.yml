@@ -353,11 +353,8 @@ services:
 
   # MinIO S3 兼容对象存储（storage profile，可与 full 叠加）。
   # local 是默认存储驱动，不会自动启用此服务；启用 S3 时配置 STORAGE_DRIVER=s3。
-  # 2026-10：MinIO 社区版镜像从 quay.io 转私有（配合 AIStor 商业化），
-  # 改为从 GitHub 源码自建（deploy/minio/Dockerfile，基础镜像 Docker Hub，
-  # 无 quay 依赖）。也可 .env 设 MINIO_IMAGE 覆盖为自有镜像。
-  #  说明：曾用 chrislusf/seaweedfs:3.80，真实联动验证中其 S3 网关 DELETE
-  #  间歇性 500（含存在的 key），导致上传 complete 失败，故切换 MinIO。
+  # 从 GitHub 源码构建（deploy/minio/Dockerfile，基础镜像走 Docker Hub）。
+  # MINIO_IMAGE 可覆盖为自有镜像；MINIO_RELEASE 可指定构建版本。
   minio:
     build:
       context: deploy/minio
@@ -431,15 +428,7 @@ services:
       #       - json
       - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
     profiles: ["ai-search"]
-  #
-  # 如需其他 S3 兼容对象存储（STORAGE_DRIVER=s3），可参考以下示例自行启用
-  #（本仓库默认 MinIO，见上方 storage profile；SeaweedFS 等亦可，需自建 bucket）：
-  # seaweedfs (S3 网关):
-  #   image: chrislusf/seaweedfs:3.80
-  #   command: server -s3 -dir=/data -master.volumeSizeLimitMB=1024
-  #   volumes: [seaweedfs_data:/data]
-  #   # 对应 .env：STORAGE_DRIVER=s3、S3_ENDPOINT=http://seaweedfs:8333、
-  #   # S3_BUCKET=docdyne（需提前创建）、S3_PATH_STYLE=true
+
 volumes:
   postgres_data:
   backend_storage:
