@@ -401,13 +401,21 @@ func TestSeedInitial(t *testing.T) {
 	if st.Mode != ModeAuto || st.Domain != "docdyne.example.com" {
 		t.Fatalf("seeded state = %+v", st)
 	}
-	// 2) 已播种后再 seed（如重启/重复部署）→ no-op 不覆盖。
-	if err := s.SeedInitial(ModeInternal, "other.example.com"); err != nil {
-		t.Fatalf("re-seed should noop: %v", err)
+	// 2) 同模式重 seed（如重启/重复部署）→ no-op。
+	if err := s.SeedInitial(ModeAuto, "docdyne.example.com"); err != nil {
+		t.Fatalf("same re-seed should noop: %v", err)
 	}
 	st, _ = repo.GetState()
 	if st.Mode != ModeAuto || st.Domain != "docdyne.example.com" {
-		t.Fatalf("re-seed overwrote: %+v", st)
+		t.Fatalf("same re-seed changed state: %+v", st)
+	}
+	// 2b) env 变更后重 seed（auto→internal）→ 应同步更新（非管理页设置）。
+	if err := s.SeedInitial(ModeInternal, "192.168.1.10"); err != nil {
+		t.Fatalf("env change re-seed: %v", err)
+	}
+	st, _ = repo.GetState()
+	if st.Mode != ModeInternal || st.Domain != "192.168.1.10" {
+		t.Fatalf("env change not applied: %+v", st)
 	}
 
 	// 3) 管理页用户偏好（UpdatedAt/UpdatedBy 已写）→ 绝不覆盖。
