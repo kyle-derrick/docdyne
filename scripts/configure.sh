@@ -362,6 +362,13 @@ fi
 
 # ---------- 落盘（管理员密码策略兜底：覆盖 --auto 与既有 .env 弱密码） ----------
 ensure_admin_pw
+# MEILI_API_KEY 与 MEILI_MASTER_KEY 必须同值（一个是后端发的，一个是
+# MeiliSearch 校验的）；自动生成残留占位时联动写同一个随机值。
+if grep -qE '^MEILI_API_KEY=.*CHANGE_ME' <<<"$TEXT" || grep -qE '^MEILI_MASTER_KEY=.*CHANGE_ME' <<<"$TEXT"; then
+  _mk="$(gen_password)"
+  set_kv MEILI_MASTER_KEY "$_mk"
+  set_kv MEILI_API_KEY "$_mk"
+fi
 set_kv CADDY_TLS_INIT_MODE "$(fval TLS_MODE)"
 # 存储模式：local=零依赖；s3=从源码构建 minio（deploy/minio/Dockerfile）
 set_kv STORAGE_DRIVER "$(fval STORAGE_DRIVER)"
