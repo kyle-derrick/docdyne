@@ -300,7 +300,9 @@ services:
   # 注意：不加 depends_on，保持按需启用；clamd 首次启动需下载病毒库，耗时
   # 数分钟（CLAMAV_REQUIRED=true 期间上传会 fail closed 拒绝）。
   clamav:
-    image: clamav/clamav:1.4.1
+    # 1.4.1 裸 tag 在 Docker Hub 不存在（实际 tag 形如 <ver>-debian）；
+    # 2026-10 服务器部署实测 not found，固定到 1.4 线最新 1.4.6-debian。
+    image: clamav/clamav:1.4.6-debian
     profiles: ["antivirus"]
     expose:
       - "3310"

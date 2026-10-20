@@ -122,7 +122,9 @@ if [[ $AUTO -eq 0 && -t 0 ]]; then
     v) "${EDITOR:-vi}" .env ;;
     q) echo '已退出（未做任何变更）。'; exit 0 ;;
   esac
-  show_summary # 改完刷新摘要再确认一轮
+  echo ''
+  echo '──── 配置已按你的修改刷新，最终确认 ────'
+  show_summary
   read -r -p '回车 = 开始部署 / q = 退出：' act || true
   [[ "$act" == "q" ]] && { echo '已退出。'; exit 0; }
 fi
