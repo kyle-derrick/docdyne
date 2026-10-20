@@ -1185,6 +1185,15 @@ export default function AISettingsPanel({
   return (
     <div className="ai-admin-panel ai-settings-surface">
       {readOnly && <div className="hint" style={{ marginBottom: 12 }}>当前账号无管理员权限。以下为 AI 服务状态与可用模型；全局 Provider、RAG 与限流配置仅管理员可编辑。</div>}
+      {/* AI 总开关（ai.enabled）：顶部常显（不藏在 Tab 里）——关闭 = 全站
+          隐藏 AI 入口 + 网关 404；开启后用户可在个人设置自配 Provider。 */}
+      <div className="ai-master-toggle" style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+        <label className="ai-rag-toggle">
+          <Switch checked={aiEnabled} disabled={readOnly} onChange={(v) => { setAIEnabled(v); void save(undefined, v) }} />
+          <span style={{ fontWeight: 600 }}>{zh ? '启用 AI' : 'Enable AI'}</span>
+        </label>
+        <span className="hint">{zh ? '全站 AI 功能总开关——开启后用户可在「设置 → AI 个人配置」自备 Provider 使用；关闭则全站隐藏 AI 入口（配置保留）' : 'Master switch for all AI features; users configure their own providers in personal settings'}</span>
+      </div>
       <Tabs
         className="ai-admin-tabs"
         activeKey={activeTab}
@@ -1280,14 +1289,6 @@ export default function AISettingsPanel({
           label: zh ? '默认项与限流' : 'Defaults & limits',
           children: (
             <div className="ai-tab-section">
-        {/* 总开关（ai.enabled）：关闭 = 全站隐藏 AI 入口 + 网关 404。 */}
-        <div className="ai-master-toggle">
-          <label className="ai-rag-toggle">
-            <Switch checked={aiEnabled} disabled={readOnly} onChange={(v) => { setAIEnabled(v); void save(undefined, v) }} />
-            <span>{zh ? '启用 AI' : 'Enable AI'}</span>
-          </label>
-          <span className="hint">{zh ? '关闭后全站隐藏 AI 入口，网关端点返回 404（Provider 配置保留）' : 'When off, all AI entries are hidden and gateway endpoints return 404 (providers are kept)'}</span>
-        </div>
         <div className="ai-defaults-form">
           <label className="field">
             <span>{t(locale, 'adminAIDefault')}</span>
