@@ -90,6 +90,7 @@ is_genless() { [[ "$1" =~ (DOMAIN|URL|HOST|ADDR|PORT|EMAIL|USERNAME|(^|_)USER$|N
 ALWAYS_SECRETS=(POSTGRES_PASSWORD JWT_SECRET SEED_ADMIN_PASSWORD ONLYOFFICE_JWT_SECRET)
 VALUE_FIELDS=(CONTENT_DOMAIN PUBLIC_BASE_URL SEED_ADMIN_EMAIL SEED_ADMIN_USERNAME)
 MANUAL_FIELDS=(SMTP_PASS)
+F_STORAGE_DRIVER='' # local | s3（单机推荐 local：无外部依赖；s3 需 minio）
 
 F_POSTGRES_PASSWORD=''; F_JWT_SECRET=''; F_SEED_ADMIN_PASSWORD=''; F_ONLYOFFICE_JWT_SECRET=''
 F_CONTENT_DOMAIN=''; F_PUBLIC_BASE_URL=''
@@ -171,6 +172,23 @@ choose_tls() { # 编号三选一（默认自动签发）→ 域名输入循环�
   done
 }
 
+# 存储驱动装载（.env 已有值时保持，否则默认 local——单机零依赖）
+_sd="$(get_val STORAGE_DRIVER)"
+case "$_sd" in s3) F_STORAGE_DRIVER='s3' ;; *) F_STORAGE_DRIVER='local' ;; esac
+
+choose_storage() {
+  echo ''
+  echo '==== 存储模式 ===='
+  echo '  [1] 本地磁盘 —— 文件存 backend 数据卷，零外部依赖【回车默认·单机推荐】'
+  echo '  [2] S3/MinIO —— 对象存储（启动独立 minio 容器；国内需可达 quay.io'
+  echo '      或其镜像站拉取 minio 镜像，Docker 未配代理时可能失败）'
+  pick='1'; ask '选择 [1-2]：' pick
+  case "$pick" in
+    2) F_STORAGE_DRIVER='s3' ;;
+    *) F_STORAGE_DRIVER='local' ;;
+  esac
+}
+
 # 交互首问 HTTPS（.env 已带有效 auto/internal 配置时跳过，不打扰复用）
 if interactive; then
   if [[ "$F_TLS_MODE" == "http" || -z "$F_APP_DOMAIN" ]] || ! tls_domain_ok "$F_TLS_MODE" "$F_APP_DOMAIN" 2>/dev/null; then
@@ -180,6 +198,11 @@ fi
 # --auto：无有效域名来源（--domain / 既有 .env）时按 HTTP
 if [[ $AUTO -eq 1 && "$F_TLS_MODE" != "http" ]] && ! tls_domain_ok "$F_TLS_MODE" "$F_APP_DOMAIN" 2>/dev/null; then
   F_TLS_MODE='http'; F_APP_DOMAIN=''
+fi
+# --auto 全新部署（无既有 .env）默认 local——minio 镜像在 quay.io，国内
+# Docker 未配代理时拉不到；选了 s3 的既有 .env 不动（用户有意为之）。
+if [[ $AUTO -eq 1 && "$BASE" != ".env" && "$F_STORAGE_DRIVER" == "s3" ]]; then
+  F_STORAGE_DRIVER='local'
 fi
 
 preview() {
@@ -263,6 +286,7 @@ if interactive; then
     __row TLS "HTTPS 模式" "$(tls_mode_label "$(fval TLS_MODE)" "$(fval APP_DOMAIN)")"
     __row CONTENT_DOMAIN "CONTENT_DOMAIN" "$(preview value "$(fval CONTENT_DOMAIN)")"
     __row PUBLIC_BASE_URL "PUBLIC_BASE_URL" "$(preview value "$(fval PUBLIC_BASE_URL)")"
+    __row STORAGE "存储模式" "$(fval STORAGE_DRIVER)"
     echo '  ── 管理员账号（首次登录）───────'
     __row SEED_ADMIN_EMAIL "SEED_ADMIN_EMAIL" "$(preview value "$(fval SEED_ADMIN_EMAIL)")"
     __row SEED_ADMIN_USERNAME "SEED_ADMIN_USERNAME" "$(preview value "$(fval SEED_ADMIN_USERNAME)")"
@@ -280,7 +304,9 @@ if interactive; then
     if [[ "$act" == "r" ]]; then regen_all; continue; fi
     if [[ "$act" =~ ^[0-9]+$ ]] && [[ "$act" -ge 1 && "$act" -le "${#keys[@]}" ]]; then
       k="${keys[act - 1]}"
-      if [[ "$k" == "TLS" ]]; then choose_tls; else edit_field "$k"; fi
+      if [[ "$k" == "TLS" ]]; then choose_tls
+      elif [[ "$k" == "STORAGE" ]]; then choose_storage
+      else edit_field "$k"; fi
     else
       echo '输入无效（编号 / r / 回车）'
     fi
@@ -290,6 +316,12 @@ fi
 # ---------- 落盘（管理员密码策略兜底：覆盖 --auto 与既有 .env 弱密码） ----------
 ensure_admin_pw
 set_kv CADDY_TLS_INIT_MODE "$(fval TLS_MODE)"
+# 存储模式：local=零依赖；s3=写入 MINIO_IMAGE 镜像站（quay 国内不可达时
+# 的默认出路；Docker daemon 已配代理或海外部署可 .env 改回 quay.io 直连）
+set_kv STORAGE_DRIVER "$(fval STORAGE_DRIVER)"
+if [[ "$(fval STORAGE_DRIVER)" == "s3" ]]; then
+  set_kv MINIO_IMAGE "quay.m.daocloud.io/minio/minio:RELEASE.2024-09-13T20-26-02Z"
+fi
 set_kv APP_DOMAIN "$(fval APP_DOMAIN)"
 set_kv POSTGRES_PASSWORD "$(fval POSTGRES_PASSWORD)"
 set_kv DATABASE_URL "postgres://docdyne:$(fval POSTGRES_PASSWORD)@postgres:5432/docdyne?sslmode=disable"
