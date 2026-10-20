@@ -6,6 +6,8 @@ ARG MINIO_RELEASE=RELEASE.2024-09-13T20-26-02Z
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG ALPINE_MIRROR
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 RUN if [ -n "$ALPINE_MIRROR" ]; then sed -i "s/dl-cdn.alpinelinux.org/$ALPINE_MIRROR/g" /etc/apk/repositories; fi \
     && apk add --no-cache curl
 WORKDIR /src

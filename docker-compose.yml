@@ -361,8 +361,8 @@ services:
       args:
         MINIO_RELEASE: ${MINIO_RELEASE:-RELEASE.2024-09-13T20-26-02Z}
         ALPINE_MIRROR: ${ALPINE_MIRROR:-}
-    # 代理：shell 导出 HTTP_PROXY/HTTPS_PROXY，BuildKit 自动透传（预定义
-    # ARG）。ALPINE_MIRROR 可选加速（如 mirrors.aliyun.com），不设用官方源。
+        GOPROXY: ${GOPROXY:-}
+    # CN 加速（可选）：ALPINE_MIRROR=mirrors.aliyun.com、GOPROXY=https://goproxy.cn,direct
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-docdyne}
