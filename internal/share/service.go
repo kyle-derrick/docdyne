@@ -503,12 +503,12 @@ func (s *Service) CreatePublic(owner, fileID uuid.UUID, permission string, expir
 	if permission != PermissionView && permission != PermissionDownload {
 		return Share{}, "", ErrInvalidPermission
 	}
-	if expiresIn < 0 {
+	if expiresIn < -1 {
 		return Share{}, "", ErrInvalidExpiry
 	}
 	// 未指定有效期（-1，请求未带 expires_in 字段）时采用热读取默认
 	//（share.default_expiry_hours）；显式 0 = 永久（不设过期）。
-	if expiresIn < 0 {
+	if expiresIn < -1 {
 		expiresIn = s.defaultExpiry()
 	}
 	if maxDownloads != nil && *maxDownloads < 0 {
@@ -581,7 +581,7 @@ func (s *Service) CreateBundle(owner uuid.UUID, fileIDs []uuid.UUID, permission 
 	if permission != PermissionView && permission != PermissionDownload {
 		return Share{}, "", ErrInvalidPermission
 	}
-	if expiresIn < 0 {
+	if expiresIn < -1 {
 		return Share{}, "", ErrInvalidExpiry
 	}
 	if expiresIn == 0 {
@@ -746,7 +746,7 @@ func (s *Service) CreatePrivateWithOptions(owner, fileID uuid.UUID, permission s
 		// 设计 6.6.2：密码保护面向公开链接；私有分享已有显式授权，不叠加密码。
 		return Share{}, ErrInvalidPassword
 	}
-	if expiresIn < 0 {
+	if expiresIn < -1 {
 		return Share{}, ErrInvalidExpiry
 	}
 	// 同 Create：未指定有效期（0）时采用热读取默认，回退 0（永久）。
