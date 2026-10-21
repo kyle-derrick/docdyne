@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import path from 'path'
 
 // 开发服务器将 /api 代理到本地 Go 后端，避免跨域；refresh cookie 也保持同源。
 //
@@ -17,6 +18,16 @@ export default defineConfig({
   // "process is not defined"（官方 FAQ），此处固定为 false 走 React 构建。
   define: {
     'process.env.IS_PREACT': JSON.stringify('false'),
+  },
+  // xmind-viewer（XMind 官方开源渲染器）的 Node.js 依赖替换为浏览器 shim：
+  // canvas（文本测量 → 浏览器原生 Canvas）、svgdom/jsdom（仅在
+  // global.window === undefined 的 Node 分支使用，浏览器跳过）。
+  resolve: {
+    alias: {
+      canvas: path.resolve(__dirname, 'src/shims/canvas.ts'),
+      svgdom: path.resolve(__dirname, 'src/shims/svgdom.ts'),
+      jsdom: path.resolve(__dirname, 'src/shims/jsdom.ts'),
+    },
   },
   build: {
     rollupOptions: {
