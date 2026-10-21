@@ -562,3 +562,30 @@ func TestAIMCPServicesRoundTrip(t *testing.T) {
 		t.Fatalf("损坏 JSON 应回退空数组: %v %+v", err, l)
 	}
 }
+
+// TestEffectiveEnabledExplicitTrueNoProviders 显式 true + 无 Provider →
+// 应返回 true（用户可开启 AI 但不配平台 Provider，用户自备个人池使用）。
+// 2026-10-21 用户实测：开启 AI 开关后响应 enabled=false、全站 AI 不生效。
+func TestEffectiveEnabledExplicitTrueNoProviders(t *testing.T) {
+	on := true
+	off := false
+	cases := []struct {
+		enabled   *bool
+		providers []AIProvider
+		want      bool
+	}{
+		{&on, nil, true},    // 显式 true + 无 Provider → true（本次 bug）
+		{&on, []AIProvider{{ID: "p", Enabled: true}}, true},  // 显式 true + 有 Provider → true
+		{&off, nil, false},  // 显式 false → false
+		{&off, []AIProvider{{ID: "p", Enabled: true}}, false}, // 显式 false + 有 Provider → false（显式优先）
+		{nil, nil, false},   // 未设置 + 无 Provider → false（自动）
+		{nil, []AIProvider{{ID: "p", Enabled: true}}, true},  // 未设置 + 有启用 Provider → true（自动）
+		{nil, []AIProvider{{ID: "p", Enabled: false}}, false}, // 未设置 + 无启用 Provider → false（自动）
+	}
+	for i, c := range cases {
+		cfg := AIConfig{Enabled: c.enabled, Providers: c.providers}
+		if got := cfg.EffectiveEnabled(); got != c.want {
+			t.Fatalf("case %d: EffectiveEnabled() = %v, want %v (enabled=%v providers=%d)", i, got, c.want, c.enabled, len(c.providers))
+		}
+	}
+}
