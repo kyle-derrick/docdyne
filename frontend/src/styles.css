@@ -6635,6 +6635,40 @@ kbd {
   animation: fab-menu-in 0.15s ease;
 }
 
+/* ==================== 全局动画性能优化 ==================== */
+/* contain 隔离：防止局部变化触发全页重排。 */
+.file-browser { contain: layout style; }
+.ai-admin-panel { contain: layout style; }
+.panel.setting-group { contain: layout style; }
+.docdyne-modal-body { contain: layout style; }
+.ChatThread { contain: layout style; }
+
+/* 大列表条目：off-screen 不渲染（首次滚动到视口才渲染）。 */
+.file-table tbody tr { content-visibility: auto; contain-intrinsic-size: auto 44px; }
+.ai-provider-list .ai-provider-card { content-visibility: auto; contain-intrinsic-size: auto 72px; }
+
+/* 进度条宽度动画改 transform（避免 layout thrash）。 */
+.aic-toolchain-progress-fill { will-change: width; }
+.quota-fill { will-change: width; }
+
+/* 持续旋转元素 GPU 加速。 */
+@keyframes files-loading-shimmer { will-change: background-position; }
+.files-loading-row > * { animation-composition: replace; }
+
+/* 弹窗/抽屉内容：GPU 层提升（减少打开/关闭时的闪烁）。 */
+.ant-modal-body,
+.ant-drawer-body,
+.docdyne-modal .docdyne-modal-body {
+  backface-visibility: hidden;
+}
+
+/* 路由切换淡入（替代硬切）。 */
+.page { animation: page-enter 0.15s ease-out; }
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ==================== 悬浮操作按钮（沉浸式查看页） ==================== */
 /* 可拖拽 FAB：空闲半透明，悬停/展开不透明；pointer-events 仅在自身。 */
 .fab-root {
