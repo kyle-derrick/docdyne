@@ -506,9 +506,9 @@ func (s *Service) CreatePublic(owner, fileID uuid.UUID, permission string, expir
 	if expiresIn < 0 {
 		return Share{}, "", ErrInvalidExpiry
 	}
-	// 未指定有效期（0）时采用热读取默认（share.default_expiry_hours），
-	// 未注入/读失败回退 0（永久）。
-	if expiresIn == 0 {
+	// 未指定有效期（-1，请求未带 expires_in 字段）时采用热读取默认
+	//（share.default_expiry_hours）；显式 0 = 永久（不设过期）。
+	if expiresIn < 0 {
 		expiresIn = s.defaultExpiry()
 	}
 	if maxDownloads != nil && *maxDownloads < 0 {

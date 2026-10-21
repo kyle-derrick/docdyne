@@ -77,9 +77,9 @@ func (h *Handler) createShare(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": share.ErrInvalidVisibility.Error()})
 		return
 	}
-	var expiresIn time.Duration
+	var expiresIn time.Duration = -1 // -1 = 未指定（服务层回退默认）
 	if req.ExpiresIn != nil {
-		expiresIn = time.Duration(*req.ExpiresIn) * time.Second
+		expiresIn = time.Duration(*req.ExpiresIn) * time.Second // 0 = 永久
 	}
 	opts := share.ShareOptions{Password: req.Password, WatermarkEnabled: req.WatermarkEnabled, WatermarkText: req.WatermarkText, Title: req.Title}
 	// 多文件打包分享（file_ids，仅公开）：一个目录式链接承载全部选中项。

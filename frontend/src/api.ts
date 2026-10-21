@@ -1336,7 +1336,8 @@ export function getShareMeta(id: string): ShareMeta | null {
 
 export async function createShare(opts: CreateShareOptions): Promise<CreatedShare> {
   const body: Record<string, unknown> = { file_id: opts.fileId, permission: opts.permission, visibility: opts.visibility }
-  if (opts.expiresInHours && opts.expiresInHours > 0) body.expires_in = opts.expiresInHours * 3600 // 后端单位为秒
+  // 显式携带 expires_in（含 0=永久）：不携带会被后端回退到默认有效期。
+  body.expires_in = (opts.expiresInHours ?? 0) * 3600
   if (opts.maxDownloads && opts.maxDownloads > 0) body.max_downloads = opts.maxDownloads
   if (opts.visibility === 'private') {
     if (opts.userIds?.length) body.user_ids = opts.userIds
