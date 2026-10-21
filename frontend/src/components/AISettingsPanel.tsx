@@ -18,7 +18,7 @@
 import { useEffect, useState } from 'react'
 import { App as AntdApp, Button, Checkbox, Dropdown, Input, InputNumber, Radio, Select, Switch, Table, Tabs, Tag, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
-import { Copy, Download, GripVertical, Image, MessageSquare, Network, Pencil, Plus, Sparkles, Trash2, Upload, Zap } from 'lucide-react'
+import { Activity, Copy, Download, GripVertical, Image, MessageSquare, Network, Pencil, Plus, Sparkles, Trash2, Upload, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
   AIMCPAdminView,
@@ -392,6 +392,7 @@ export default function AISettingsPanel({
   const [mcpSaving, setMcpSaving] = useState(false)
   // MCP 连通性测试：行级（按已保存 url，不带密钥）与编辑弹窗（表单草稿）。
   const [mcpTests, setMcpTests] = useState<Record<string, MCPTestState>>({})
+  const [mcpCheckAll, setMcpCheckAll] = useState(false)
   const [mcpModalTest, setMcpModalTest] = useState<MCPTestState | null>(null)
   // MCP mcpServers JSON 导入（粘贴内容草稿）与导出中状态。
   const [mcpImport, setMcpImport] = useState<{ content: string } | null>(null)
@@ -1008,6 +1009,33 @@ export default function AISettingsPanel({
   }
 
   /** 行级测试：以已保存的 url 测试（不带 auth_header——密钥不回显）。 */
+  /** 健康检查：并发测试全部启用的 MCP 服务，汇总结果。 */
+  const checkAllMCP = async () => {
+    if (mcpCheckAll) return
+    setMcpCheckAll(true)
+    const enabled = mcpServices.filter((s) => s.enabled)
+    if (enabled.length === 0) {
+      onNotice(zh ? '没有启用中的 MCP 服务' : 'No enabled MCP services')
+      setMcpCheckAll(false)
+      return
+    }
+    // 标记全部为 testing 状态。
+    setMcpTests((prev) => {
+      const next = { ...prev }
+      for (const s of enabled) next[s.id] = { running: true, message: t(locale, 'adminAITesting') }
+      return next
+    })
+    // 并发探测。
+    await Promise.allSettled(enabled.map((s) =>
+      testAIMCP(s.url).then((r) => {
+        setMcpTests((prev) => ({ ...prev, [s.id]: mcpTestState(r, zh) }))
+      }).catch((err) => {
+        setMcpTests((prev) => ({ ...prev, [s.id]: { running: false, ok: false, message: err instanceof Error ? err.message : t(locale, 'adminAITestFailed') } }))
+      })
+    ))
+    setMcpCheckAll(false)
+  }
+
   const runMCPTest = async (s: AIMCPAdminView) => {
     setMcpTests((prev) => ({ ...prev, [s.id]: { running: true, message: t(locale, 'adminAITesting') } }))
     try {
@@ -2015,20 +2043,28 @@ export default function AISettingsPanel({
                 desc={zh
                   ? 'AI 对话开启「MCP 工具」后，模型可调用此处配置的外部 MCP 服务器工具（Streamable HTTP 端点，如 http://host/mcp）；密钥仅保存不回显。'
                   : 'Once "MCP tools" is enabled in AI chat, the model can call external MCP server tools configured here (Streamable HTTP endpoints, e.g. http://host/mcp); secrets are stored but never echoed back.'}
-                extra={!readOnly && (
+                extra={(
                   <span style={{ display: 'inline-flex', gap: 4 }}>
-                    <Button size="small" loading={mcpExporting} onClick={() => void exportMCP()}>
-                      <Download size={13} strokeWidth={2} aria-hidden="true" />
-                      <span>{zh ? '导出' : 'Export'}</span>
+                    <Button size="small" loading={mcpCheckAll} onClick={() => void checkAllMCP()}>
+                      <Activity size={13} strokeWidth={2} aria-hidden="true" />
+                      <span>{zh ? '健康检查' : 'Health check'}</span>
                     </Button>
-                    <Button size="small" onClick={() => setMcpImport({ content: '' })}>
-                      <Upload size={13} strokeWidth={2} aria-hidden="true" />
-                      <span>{zh ? '导入' : 'Import'}</span>
-                    </Button>
-                    <Button size="small" type="primary" disabled={mcpServices.length >= 8} onClick={() => setMcpEditing({ id: '', name: '', description: '', url: '', auth_header: '', headersDraft: [], timeoutSec: 0, disabledTools: [], enabled: true, isNew: true })}>
-                      <Plus size={13} strokeWidth={2} aria-hidden="true" />
-                      <span>{t(locale, 'adminAINew')}</span>
-                    </Button>
+                    {!readOnly && (
+                      <>
+                        <Button size="small" loading={mcpExporting} onClick={() => void exportMCP()}>
+                          <Download size={13} strokeWidth={2} aria-hidden="true" />
+                          <span>{zh ? '导出' : 'Export'}</span>
+                        </Button>
+                        <Button size="small" onClick={() => setMcpImport({ content: '' })}>
+                          <Upload size={13} strokeWidth={2} aria-hidden="true" />
+                          <span>{zh ? '导入' : 'Import'}</span>
+                        </Button>
+                        <Button size="small" type="primary" disabled={mcpServices.length >= 8} onClick={() => setMcpEditing({ id: '', name: '', description: '', url: '', auth_header: '', headersDraft: [], timeoutSec: 0, disabledTools: [], enabled: true, isNew: true })}>
+                          <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                          <span>{t(locale, 'adminAINew')}</span>
+                        </Button>
+                      </>
+                    )}
                   </span>
                 )}
               >
