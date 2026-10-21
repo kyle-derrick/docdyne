@@ -203,7 +203,7 @@ func TestRenderWatermark(t *testing.T) {
 	if got := RenderWatermark("{ip}/{name}", "b.txt", "2001:db8::1", "", now); got != "2001:db8:*/b.txt" {
 		t.Fatalf("ipv6 {ip} render = %q", got)
 	}
-	if got := RenderWatermark("", "c.txt", "1.2.3.4", "", now); got != "1.2.* 2026-09-14 c.txt" {
+	if got := RenderWatermark("", "c.txt", "1.2.3.4", "", now); got != "2026-09-14 c.txt" {
 		t.Fatalf("empty template fallback = %q", got)
 	}
 	if got := RenderWatermark("{unknown} {name}", "d.txt", "1.2.3.4", "", now); got != "{unknown} d.txt" {
