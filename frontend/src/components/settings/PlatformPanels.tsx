@@ -464,6 +464,7 @@ const SYSTEM_SETTING_GROUPS: Array<{ id: string; prefixes: string[]; title: { zh
   { id: 'retention', prefixes: ['retention'], title: { zh: '保留与清理', en: 'Retention & cleanup' } },
   { id: 'batch', prefixes: ['batch', 'folder'], title: { zh: '批量与目录', en: 'Batch & folders' } },
   { id: 'collab', prefixes: ['collab'], title: { zh: '实时协作', en: 'Collaboration' } },
+  { id: 'content', prefixes: ['content'], title: { zh: '内容安全', en: 'Content security' } },
 ]
 
 /** int 键取值范围（镜像后端 settings.Definitions 的 Min/Max——SettingView
@@ -591,6 +592,7 @@ export const SETTING_KEY_META: Record<string, { zh: string; en: string; dzh: str
   // ---- webdav / collab ----
   'webdav.enabled': { zh: '启用 WebDAV 访问', en: 'WebDAV enabled', dzh: '开启后可经 /webdav 以个人令牌挂载文件', den: 'Mount files via /webdav with personal tokens' },
   'collab.enabled': { zh: '启用富文本实时协作', en: 'Rich-text collaboration', dzh: '协作 WebSocket 房间（关闭时端点 404）', den: 'Collab WebSocket rooms (endpoint 404s when off)' },
+  'content.allow_same_origin': { zh: '网页包沙箱允许 localStorage', en: 'Allow localStorage in sandbox', dzh: '追加 allow-same-origin 到 CSP（开启后使用 localStorage 的网页包可正常运行）', den: 'Append allow-same-origin to CSP (enables localStorage in web packages)' },
 }
 
 /** 按键取当前语言的名称；未收录回退空串（行内仅显示原 key，不硬造）。

@@ -282,6 +282,27 @@ export default function SecurityPanel({ onError, onNotice }: { onError: (m: stri
               </div>
             </div>
           </SettingsSection>
+
+          {/* 内容安全：网页包沙箱 CSP（content.allow_same_origin）。 */}
+          <SettingsSection title={zh ? '内容安全' : 'Content security'}>
+            <SettingsField
+              label={zh ? '网页包沙箱允许 localStorage' : 'Allow localStorage in sandbox'}
+              badge={<code className="setting-key-code" title="content.allow_same_origin">content.allow_same_origin</code>}
+              hint={zh
+                ? '开启后 CSP 追加 allow-same-origin——使用 localStorage/sessionStorage 的网页包可正常运行；关闭则严格沙箱隔离（默认）。自托管场景安全风险较低，按需开启。'
+                : 'Appends allow-same-origin to the sandbox CSP so web packages using localStorage work; off = strict isolation (default). Low risk for self-hosted deployments.'}
+            >
+              <span className="setting-bool" title={zh ? '切换后立即保存并生效' : 'Saves and takes effect immediately'}>
+                <Switch
+                  size="small"
+                  checked={Boolean(items?.['content.allow_same_origin']?.value)}
+                  loading={savingKey === 'content.allow_same_origin'}
+                  onChange={(v) => void save('content.allow_same_origin', v)}
+                />
+                <span>{savingKey === 'content.allow_same_origin' ? (zh ? '保存中…' : 'Saving…') : Boolean(items?.['content.allow_same_origin']?.value) ? (zh ? '开启' : 'On') : (zh ? '关闭' : 'Off')}</span>
+              </span>
+            </SettingsField>
+          </SettingsSection>
         </div>
       </div>
 
