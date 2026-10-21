@@ -26,6 +26,7 @@ const MANAGED: Record<string, { kind: 'int' | 'string' | 'bool'; def: number | s
   'security.rate_limit_per_minute': { kind: 'int', def: 120, min: 0, max: 100000 },
   'security.scan_quarantine_policy': { kind: 'string', def: 'quarantine' },
   'webdav.enabled': { kind: 'bool', def: false },
+  'content.allow_same_origin': { kind: 'bool', def: false },
 }
 
 /** 生效方式徽章文案（与系统设置面板同口径，值取 /admin/settings 的 effect）。 */

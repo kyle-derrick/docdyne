@@ -533,7 +533,7 @@ const QUOTA_BYTE_KEYS = new Set([
  * 属平台管理「空间」页、backup.* 属「备份」页、audit.*（保留期）属
  *「审计日志」页——同一键保持单一编辑入口，避免双入口漂移；过滤在渲染
  * 层做（读取后 filter，仍一次拉全量）。 */
-const HIDDEN_SETTING_PREFIXES = new Set(['ai', 'agent', 'security', 'webdav', 'space', 'backup', 'audit'])
+const HIDDEN_SETTING_PREFIXES = new Set(['ai', 'agent', 'security', 'webdav', 'space', 'backup', 'audit', 'content'])
 
 /** 全部内置设置键的双语名称与简短说明（v2.7 反馈 14：此前仅部分键有
  * 中文名、其余裸显 key，且不随界面语言切换）。清单与后端 settings
@@ -621,8 +621,7 @@ function renderSettingControl(
   if (item.type === 'bool') {
     return (
       <span className="setting-bool" title={zh ? '切换后须经「保存本组」提交' : 'Toggle takes effect via "Save group"'}>
-        <Switch
-          size="small"
+        <Switch size="small"
           checked={Boolean(draft)}
           onChange={(v) => setDraft(v)}
         />

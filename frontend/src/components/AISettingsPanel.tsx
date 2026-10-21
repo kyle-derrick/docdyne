@@ -1189,7 +1189,7 @@ export default function AISettingsPanel({
           隐藏 AI 入口 + 网关 404；开启后用户可在个人设置自配 Provider。 */}
       <div className="ai-master-toggle" style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
         <label className="ai-rag-toggle">
-          <Switch checked={aiEnabled} disabled={readOnly} onChange={(v) => { setAIEnabled(v); void save(undefined, v) }} />
+          <Switch size="small" checked={aiEnabled} disabled={readOnly} onChange={(v) => { setAIEnabled(v); void save(undefined, v) }} />
           <span style={{ fontWeight: 600 }}>{zh ? '启用 AI' : 'Enable AI'}</span>
         </label>
         <span className="hint">{zh ? '全站 AI 功能总开关——开启后用户可在「设置 → AI 个人配置」自备 Provider 使用；关闭则全站隐藏 AI 入口（配置保留）' : 'Master switch for all AI features; users configure their own providers in personal settings'}</span>
@@ -1409,7 +1409,7 @@ export default function AISettingsPanel({
                 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#888' }} />
               </Tooltip>
             </span>
-            <Switch checked={rag.vector_enabled} disabled={readOnly} onChange={(vector_enabled) => setRag({ ...rag, vector_enabled })} />
+            <Switch size="small" checked={rag.vector_enabled} disabled={readOnly} onChange={(vector_enabled) => setRag({ ...rag, vector_enabled })} />
           </label>
           <label className="field">
             <span>
@@ -1518,7 +1518,7 @@ export default function AISettingsPanel({
         <div className="ai-defaults-form">
           <label className="field">
             <span>{zh ? '启用' : 'Enable'}</span>
-            <Switch checked={ocr.enabled} disabled={readOnly} onChange={(enabled) => setOcr({ ...ocr, enabled })} />
+            <Switch size="small" checked={ocr.enabled} disabled={readOnly} onChange={(enabled) => setOcr({ ...ocr, enabled })} />
           </label>
           <label className="field">
             <span>
@@ -2263,7 +2263,7 @@ export default function AISettingsPanel({
               <InputNumber min={0} max={1000000} value={editing.dailyQuota} onChange={(v) => setEditing({ ...editing, dailyQuota: Number(v ?? 0) })} />
             </label>
             <label className="check-item">
-              <Switch checked={editing.enabled} onChange={(v) => setEditing({ ...editing, enabled: v })} />
+              <Switch size="small" checked={editing.enabled} onChange={(v) => setEditing({ ...editing, enabled: v })} />
               <span>{t(locale, 'adminAIEnabled')}</span>
             </label>
           </div>
@@ -2330,7 +2330,7 @@ export default function AISettingsPanel({
             </label>
             <label className="field">
               <span>{zh ? '启用（停用后用户侧不可见）' : 'Enabled (hidden from users when off)'}</span>
-              <Switch checked={skillEditing.enabled} onChange={(v) => setSkillEditing({ ...skillEditing, enabled: v })} />
+              <Switch size="small" checked={skillEditing.enabled} onChange={(v) => setSkillEditing({ ...skillEditing, enabled: v })} />
             </label>
           </div>
           <div className="modal-actions">
@@ -2367,7 +2367,7 @@ export default function AISettingsPanel({
             </label>
             <label className="field">
               <span>{zh ? '启用（停用后用户侧不可见）' : 'Enabled (hidden from users when off)'}</span>
-              <Switch checked={chatSkillEditing.enabled} onChange={(v) => setChatSkillEditing({ ...chatSkillEditing, enabled: v })} />
+              <Switch size="small" checked={chatSkillEditing.enabled} onChange={(v) => setChatSkillEditing({ ...chatSkillEditing, enabled: v })} />
             </label>
             <label className="field">
               <span>{zh ? '内容（Markdown 指令，≤4000；选用后整段注入该轮 system 提示）' : 'Content (Markdown instructions, ≤4000; injected whole into that turn system prompt)'}</span>
@@ -2638,7 +2638,7 @@ export default function AISettingsPanel({
               <span className="hint">{zh ? '先「测试连接」拉取工具列表后勾选要禁用的工具。' : 'Run "Test connection" first to list tools, then pick the ones to disable.'}</span>
             </label>
             <label className="check-item">
-              <Switch checked={mcpEditing.enabled} onChange={(v) => setMcpEditing({ ...mcpEditing, enabled: v })} />
+              <Switch size="small" checked={mcpEditing.enabled} onChange={(v) => setMcpEditing({ ...mcpEditing, enabled: v })} />
               <span>{t(locale, 'adminAIEnabled')}</span>
             </label>
             {/* 草稿测试结果（测试按表单当前 url/密钥/认证头/超时，未保存修改可直接验证）。 */}

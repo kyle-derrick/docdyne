@@ -6571,12 +6571,11 @@ kbd {
 .ai-defaults-form .field .ant-select,
 .ai-defaults-form .field .ant-input,
 .ai-defaults-form .field .ant-input-number { width: 100%; max-width: 360px; }
-/* Switch 定宽（默认 44px）：此前被网格列拉满宽，视觉像滑杆（用户反馈）。
- * .ai-settings-surface 为 AI 两页根容器；.settings-surface 为通用别名
- *（其余设置面板套用同风格时使用）。全域定宽，覆盖弹窗。 */
+/* Switch 尺寸：防网格拉伸（flex-shrink:0 + 不占满列宽）。
+ * 用户反馈 44px 仍偏宽——不强制 width，由 antd size 属性控制实际尺寸。 */
 .ai-settings-surface .ant-switch,
-.settings-surface .ant-switch { width: 44px; flex: 0 0 auto; align-self: flex-start; }
-.ai-defaults-form .field .ant-switch { width: 44px; flex: 0 0 auto; align-self: flex-start; }
+.settings-surface .ant-switch { flex: 0 0 auto; align-self: flex-start; min-width: 28px; }
+.ai-defaults-form .field .ant-switch { flex: 0 0 auto; align-self: flex-start; min-width: 28px; }
 
 /* 管理端 AI 设置 Tabs 化（v7.16：11 个堆叠 Card → 顶部 Tabs 分区）。 */
 .ai-admin-tabs > .ant-tabs-nav { margin-bottom: 12px; }
