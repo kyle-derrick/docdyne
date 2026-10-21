@@ -8,7 +8,10 @@ COPY package*.json ./
 # workspace 包清单须与根清单同批就位，npm ci 才能建立 @docdyne/chat 链接
 # （K2 拆包后遗留：镜像内构建此前从未跑过，CI 全量 checkout 不触发）。
 COPY packages/chat/package.json packages/chat/
-RUN npm config set registry "$NPM_REGISTRY" && npm ci
+# --ignore-scripts：跳过 canvas 等 xmind-viewer 的 Node.js 原生模块编译
+# （浏览器端经 Vite alias 用 shim 替代，Docker Alpine 无 Python/C++ 工具链）。
+# esbuild/swc 等用 optionalDependencies 分发二进制，不依赖 post-install 脚本。
+RUN npm config set registry "$NPM_REGISTRY" && npm ci --ignore-scripts
 COPY . .
 # tsc 类型检查 + vite 打包（antd6/monaco 等类型树）内存峰值高，默认堆会 OOM
 # （exit 134）；与 CI workflows 一致固定 6GB 堆。
