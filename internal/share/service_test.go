@@ -222,10 +222,10 @@ func TestCreateUsesDefaultExpiryProvider(t *testing.T) {
 		t.Fatalf("provider zero: expires_at = %v, want nil (永久)", sh.ExpiresAt)
 	}
 
-	// 私有分享同语义。
+	// 私有分享同语义（-1 = 未指定 → 用默认）。
 	hours = 24
 	svc.SetDefaultExpiryProvider(func() int { return hours })
-	priv, err := svc.CreatePrivate(owner, ff.addFile(owner, "p.txt", "file", files.BlobStatusAvailable), PermissionView, 0, nil, nil, nil)
+	priv, err := svc.CreatePrivate(owner, ff.addFile(owner, "p.txt", "file", files.BlobStatusAvailable), PermissionView, -1, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
