@@ -6597,6 +6597,97 @@ kbd {
 /* 来源徽标（平台 / 个人覆盖 / 内置）。 */
 .ai-source-badge { margin-inline-start: 6px; }
 
+/* XMind 沉浸式：浮动提示（替代原工具栏内 notice/error）。 */
+.xmind-floating-note {
+  position: fixed;
+  bottom: 80px; left: 50%; transform: translateX(-50%);
+  z-index: 1101;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  pointer-events: none;
+  animation: fab-menu-in 0.15s ease;
+}
+
+/* ==================== 悬浮操作按钮（沉浸式查看页） ==================== */
+/* 可拖拽 FAB：空闲半透明，悬停/展开不透明；pointer-events 仅在自身。 */
+.fab-root {
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  user-select: none;
+  touch-action: none;
+}
+.fab-btn {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary, #4f6bed);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  opacity: 0.65;
+  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  pointer-events: auto;
+}
+.fab-btn:hover, .fab-expanded .fab-btn {
+  opacity: 1;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.fab-btn:active { transform: scale(0.95); }
+.fab-btn-danger { background: var(--danger, #dc2626); }
+.fab-dragging .fab-btn {
+  opacity: 1;
+  cursor: grabbing;
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+}
+.fab-grip { transition: transform 0.2s ease; }
+.fab-grip-active { transform: rotate(90deg); }
+
+/* 展开菜单 */
+.fab-menu {
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  min-width: 140px;
+  pointer-events: auto;
+  animation: fab-menu-in 0.15s ease;
+}
+@keyframes fab-menu-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.fab-menu-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: var(--text, #1f2937);
+  cursor: pointer; font-size: 13px;
+  transition: background-color 0.15s ease;
+  text-align: left; width: 100%;
+}
+.fab-menu-item:hover { background: var(--surface-2, #f3f4f6); }
+.fab-menu-item-danger { color: var(--danger, #dc2626); }
+.fab-menu-item-danger:hover { background: rgba(220,38,38,0.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fab-btn { transition: none; }
+  .fab-menu { animation: none; }
+  .fab-grip { transition: none; }
+}
+
 /* 聊天输入框上方的对话技能 chip（可移除）。 */
 .ai-skill-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); font-size: 12px; }
 .ai-skill-chip button { border: 0; background: none; cursor: pointer; color: var(--muted, #888); padding: 0; display: inline-flex; }

@@ -9,10 +9,11 @@
 // - 顶部「转为 Markdown」：POST convert-markdown 生成 .md 落同目录，
 //   成功后新窗口打开 /markdown/:newId 编辑。
 import { useEffect, useState } from 'react'
-import { Button } from 'antd'
 import { convertMarkdown, fetchFileArrayBuffer } from '../api'
 import { useLocale } from '../i18n'
 import MarkmapDiagram from './MarkmapDiagram'
+import FloatingActionBar from './FloatingActionBar'
+import { FileText } from 'lucide-react'
 
 interface XMindViewerProps {
   fileId: string
@@ -160,13 +161,20 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
 
   return (
     <div className="xmind-viewer" title={title}>
+      {/* 沉浸式：无固定工具栏，操作收进可拖拽悬浮按钮 */}
       {convertible && (
-        <div className="xmind-toolbar">
-          <Button size="small" disabled={converting} loading={converting} onClick={() => void handleConvert()}>
-            {converting ? (zh ? '转换中…' : 'Converting…') : (zh ? '转为 Markdown' : 'Convert to Markdown')}
-          </Button>
-          {convertNotice && <span className="muted xmind-toolbar-note">{convertNotice}</span>}
-          {convertError && <span className="error-text">{convertError}</span>}
+        <FloatingActionBar
+          actions={[{
+            key: 'convert',
+            label: converting ? (zh ? '转换中…' : 'Converting…') : (zh ? '转为 Markdown' : 'Convert to Markdown'),
+            icon: FileText,
+            onClick: () => void handleConvert(),
+          }]}
+        />
+      )}
+      {(convertNotice || convertError) && (
+        <div className="xmind-floating-note">
+          {convertError ? <span className="error-text">{convertError}</span> : <span className="muted">{convertNotice}</span>}
         </div>
       )}
       {error ? (
