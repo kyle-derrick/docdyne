@@ -185,13 +185,22 @@ func TestCreateUsesDefaultExpiryProvider(t *testing.T) {
 	hours := 48
 	svc.SetDefaultExpiryProvider(func() int { return hours })
 
-	// expiresIn==0：采用默认 48h。
-	sh, _, err = svc.Create(owner, fileID, PermissionView, 0, nil)
+	// expiresIn==-1（未指定）：采用默认 48h。
+	sh, _, err = svc.Create(owner, fileID, PermissionView, -1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sh.ExpiresAt == nil || !sh.ExpiresAt.Equal(sh.CreatedAt.Add(48*time.Hour)) {
 		t.Fatalf("default expiry: expires_at = %v, want created_at + 48h", sh.ExpiresAt)
+	}
+
+	// expiresIn==0（显式永久）：即使注入了默认 provider 也不覆盖。
+	sh, _, err = svc.Create(owner, fileID, PermissionView, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sh.ExpiresAt != nil {
+		t.Fatalf("explicit 0 should be permanent even with default provider: expires_at = %v", sh.ExpiresAt)
 	}
 
 	// 显式有效期优先于默认值。
