@@ -574,12 +574,12 @@ func TestEffectiveEnabledExplicitTrueNoProviders(t *testing.T) {
 		providers []AIProvider
 		want      bool
 	}{
-		{&on, nil, true},    // 显式 true + 无 Provider → true（本次 bug）
-		{&on, []AIProvider{{ID: "p", Enabled: true}}, true},  // 显式 true + 有 Provider → true
-		{&off, nil, false},  // 显式 false → false
+		{&on, nil, true}, // 显式 true + 无 Provider → true（本次 bug）
+		{&on, []AIProvider{{ID: "p", Enabled: true}}, true}, // 显式 true + 有 Provider → true
+		{&off, nil, false}, // 显式 false → false
 		{&off, []AIProvider{{ID: "p", Enabled: true}}, false}, // 显式 false + 有 Provider → false（显式优先）
-		{nil, nil, false},   // 未设置 + 无 Provider → false（自动）
-		{nil, []AIProvider{{ID: "p", Enabled: true}}, true},  // 未设置 + 有启用 Provider → true（自动）
+		{nil, nil, false}, // 未设置 + 无 Provider → false（自动）
+		{nil, []AIProvider{{ID: "p", Enabled: true}}, true},   // 未设置 + 有启用 Provider → true（自动）
 		{nil, []AIProvider{{ID: "p", Enabled: false}}, false}, // 未设置 + 无启用 Provider → false（自动）
 	}
 	for i, c := range cases {
