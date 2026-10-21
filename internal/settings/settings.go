@@ -736,9 +736,12 @@ func (c AIConfig) ResolveEmbeddingTarget() (AIProvider, string, bool) {
 // EffectiveEnabled 返回总开关的生效语义：显式 false → false；否则存在
 // 启用中的 Provider → true。
 func (c AIConfig) EffectiveEnabled() bool {
-	if c.Enabled != nil && !*c.Enabled {
-		return false
+	// 显式设置（true/false）直接生效——用户可以「开启 AI 但不配 Provider」
+	// （用户在个人设置自备 Provider 使用）。
+	if c.Enabled != nil {
+		return *c.Enabled
 	}
+	// 未设置（nil = 自动）：存在启用中的 Provider 即启用。
 	for _, p := range c.Providers {
 		if p.Enabled {
 			return true
