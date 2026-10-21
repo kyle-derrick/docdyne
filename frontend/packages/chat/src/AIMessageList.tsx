@@ -67,7 +67,8 @@ function ToolDetail({ entry, zh }: { entry: AIToolCallEntry; zh: boolean }) {
 }
 
 /** 工具调用链（ThoughtChain 封装）：running 旋转 → success/error 终态；
- *  有参数/结果摘要的条目可展开。dd_write_file 附「已保存（自动留版本）」。 */
+ *  有参数/结果摘要的条目可展开。dd_write_file 附「已保存（自动留版本）」。
+ *  顶部带步骤进度（Step X/N），条目带序号。 */
 export function AIToolChain({ toolCalls, zh }: { toolCalls: AIToolCallEntry[] | undefined; zh: boolean }) {
   const items = useMemo(() => (toolCalls ?? []).map((tc, i) => {
     const hasDetail = !!(tc.input || tc.output || tc.errorText)
@@ -76,6 +77,7 @@ export function AIToolChain({ toolCalls, zh }: { toolCalls: AIToolCallEntry[] | 
       : ''
     const title = (
       <span className="aic-tool-title">
+        <span className="aic-tool-step">{i + 1}</span>
         {ddToolLabel(tc, zh)}
         {isWriteTool(tc) && <span className="aic-tool-saved">{zh ? ' · 已保存（自动留版本）' : ' · saved (auto versioned)'}</span>}
         {dur && <span className="aic-tool-dur"> · {dur}</span>}
@@ -91,7 +93,26 @@ export function AIToolChain({ toolCalls, zh }: { toolCalls: AIToolCallEntry[] | 
     }
   }), [toolCalls, zh])
   if (items.length === 0) return null
-  return <ThoughtChain className="aic-toolchain" items={items} />
+
+  // 步骤进度统计。
+  const done = (toolCalls ?? []).filter((tc) => tc.status === 'success' || tc.status === 'error').length
+  const total = (toolCalls ?? []).length
+  const running = (toolCalls ?? []).some((tc) => tc.status === 'running')
+  const progressLabel = running
+    ? (zh ? `执行中 ${done}/${total}` : `Running ${done}/${total}`)
+    : (zh ? `已完成 ${total} 步` : `${total} steps done`)
+
+  return (
+    <div className="aic-toolchain">
+      <div className="aic-toolchain-progress">
+        <span className="aic-toolchain-progress-label">{progressLabel}</span>
+        <span className="aic-toolchain-progress-bar">
+          <span className="aic-toolchain-progress-fill" style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }} />
+        </span>
+      </div>
+      <ThoughtChain items={items} />
+    </div>
+  )
 }
 
 /** 网络来源折叠列表（编号 + 标题超链接；联网开关生效时展示）。 */

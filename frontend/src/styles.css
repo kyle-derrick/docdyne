@@ -6596,6 +6596,31 @@ kbd {
 /* 来源徽标（平台 / 个人覆盖 / 内置）。 */
 .ai-source-badge { margin-inline-start: 6px; }
 
+/* 工具链步骤进度条（AIToolChain 增强）。 */
+.aic-toolchain-progress { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.aic-toolchain-progress-label { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.aic-toolchain-progress-bar {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: var(--surface-2, rgba(128,128,128,0.15));
+  overflow: hidden;
+}
+.aic-toolchain-progress-fill {
+  display: block; height: 100%;
+  border-radius: 2px;
+  background: var(--primary, #4f6bed);
+  transition: width 0.3s ease;
+}
+.aic-tool-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  font-size: 10px; font-weight: 600;
+  background: var(--surface-2, rgba(128,128,128,0.15));
+  color: var(--muted);
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
 /* XMind 沉浸式：浮动提示（替代原工具栏内 notice/error）。 */
 .xmind-floating-note {
   position: fixed;
