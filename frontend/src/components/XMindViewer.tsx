@@ -26,8 +26,8 @@ const MAX_XMIND_BYTES = 10 * 1024 * 1024
 /** 降级路径：解析 content.json → Markdown 大纲 → markmap 渲染。 */
 function xmindToMarkdown(buffer: ArrayBuffer): string {
   const zipData = new Uint8Array(buffer)
-  const files = decompressSync(zipData)
-  const contentData: Uint8Array | undefined = files['content.json']
+  const files = decompressSync(zipData) as unknown as Record<string, Uint8Array>
+  const contentData = files['content.json']
   if (!contentData) throw new Error('旧版 .xmind（content.xml）暂不支持，请下载后使用 XMind 客户端查看')
   const json = strFromU8(contentData)
   const sheets = JSON.parse(json) as Array<{ title?: string; rootTopic?: { title?: string; notes?: { plain?: { content?: string } | null; content?: string } | null; children?: { attached?: unknown[] } | null } }>
