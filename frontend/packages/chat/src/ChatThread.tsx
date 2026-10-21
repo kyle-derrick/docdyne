@@ -9,7 +9,7 @@
 // 消息流离底时显示「回到底部」悬浮按钮。
 import { Button, Tooltip } from 'antd'
 import { ArrowDown, Copy, FileText, Paperclip, Play, RotateCcw, Save, ShieldAlert, Trash2 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { memo, useEffect, useState, type ReactNode } from 'react'
 import { AIChatThinking, AIWebSourcesView } from './AIMessageList'
 import type { AIToolCallEntry, AIWebSource } from './turns'
 import { ddToolLabel } from './turns'
@@ -134,7 +134,7 @@ function synthStages(msg: ChatMessage, zh: boolean): TraceStage[] | undefined {
   return out.length > 0 ? out : undefined
 }
 
-export default function ChatThread({
+function ChatThreadInner({
   zh, messages, emptyHint, emptySlot, generatingLabel,
   onCopy, onDeleteExchange, onSaveConversation, onRegenerate, onContinue, onExecutePlan,
   actionSlot, onConfirmTool,
@@ -326,3 +326,8 @@ export default function ChatThread({
     </div>
   )
 }
+
+// React.memo：父组件无关状态变化（模型下拉/开关/工具栏等）不触发
+// 消息流重渲染——仅 messages 等 props 引用变化时才重新渲染。
+const ChatThread = memo(ChatThreadInner)
+export default ChatThread

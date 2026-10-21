@@ -15,7 +15,7 @@
 // 点击改弹窗内嵌 iframe；office 文档弹窗内嵌 OnlyOffice 只读视图（与
 // 独立查看页一致，FileViewerDispatch 统一分发）；树点击文件经
 // fileOpenSignal 受控信号触发本组件弹窗（见 FolderTreeNav）。
-import { FormEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, ReactNode, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CloseOutlined } from '@ant-design/icons'
 import { createPortal } from 'react-dom'
 import { App as AntdApp, Button, Dropdown, Input, Menu, Modal as AntdModal, Popover, Select, Tooltip } from 'antd'
@@ -927,9 +927,13 @@ export default function FileBrowser({
   const currentFolderId = crumbs[crumbs.length - 1].folderId
   // 窄屏搜索 Popover 开合（<1280px 目录搜索收窄为图标按钮，见 toolbar）。
   const [searchPopOpen, setSearchPopOpen] = useState(false)
-  const visibleItems = directoryQuery.trim()
-    ? items.filter((item) => item.name.toLocaleLowerCase().includes(directoryQuery.trim().toLocaleLowerCase()))
-    : items
+  // useDeferredValue：搜索打字保持输入流畅，过滤计算延迟到下一帧。
+  // useMemo：过滤结果记忆化，无关重渲染（选中/菜单/拖拽）不重算。
+  const deferredQuery = useDeferredValue(directoryQuery)
+  const visibleItems = useMemo(() => {
+    const q = deferredQuery.trim().toLocaleLowerCase()
+    return q ? items.filter((item) => item.name.toLocaleLowerCase().includes(q)) : items
+  }, [items, deferredQuery])
 
   const currentOpts = (): FileQueryOptions => ({
     tagId: tagFilter || null,

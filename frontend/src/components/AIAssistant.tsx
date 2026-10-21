@@ -19,7 +19,7 @@
 //   对话技能（chat_skill 随每轮注入）、长期记忆（手动 + 自动提取开关）、
 //   dd_* 平台文件工具（use_files + work_root 工作目录）、MCP/联网/思考开关
 //   ——详见各段注释。
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import { App as AntdApp, Drawer, Button, Dropdown, Input, Popconfirm, Popover, Select, Switch, Tag, Tooltip, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
@@ -721,7 +721,7 @@ export function aiFilesTooltip(zh: boolean): string {
 /** 联网/思考/MCP/我的文件/文件操作小开关组（对话 UI 共用；compact=短标签，用于窄面板）。
  *  开关排列：联网搜索（外部网络）→ 我的文件（RAG，平台内文档检索）相邻成组，
  *  图标与文案明显区分；思考按模型能力显隐；MCP 按平台配置显隐。 */
-export function AIChatToggleBar({
+export const AIChatToggleBar = memo(function AIChatToggleBar({
   zh,
   web,
   think,
@@ -805,7 +805,7 @@ export function AIChatToggleBar({
       })}
     </span>
   )
-}
+})
 
 // ---------- 联网搜索来源（SSE meta.sources 宽松读取） ----------
 

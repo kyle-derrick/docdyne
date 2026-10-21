@@ -7,11 +7,12 @@
 //   发送/思考开关评估照常生效）；
 // - 选中回调 onSelect(id)：宿主负责 setModelKey + 显式记忆
 //   （localStorage docdyne.ai.model，由 AI_MODEL_STORAGE_KEY 统一）。
+import { memo } from 'react'
 import { Select } from 'antd'
 import { AI_MODEL_STORAGE_KEY, defaultAIModelKey } from './AIAssistant'
 import type { AIModelOption } from './AIAssistant'
 
-export default function AIModelSelect({
+function AIModelSelectInner({
   models,
   modelKey,
   modelExplicit,
@@ -64,3 +65,7 @@ export default function AIModelSelect({
     />
   )
 }
+
+// React.memo：SSE 流式输出时父组件每 token 重渲染，模型选择器无需跟刷。
+const AIModelSelect = memo(AIModelSelectInner)
+export default AIModelSelect
