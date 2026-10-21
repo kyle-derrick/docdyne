@@ -51,7 +51,9 @@ function AIModelSelectInner({
         }
         onSelect(v)
       }}
-      options={models.map((m) => ({
+      options={models.length === 0
+        ? [{ value: '__none__', label: <span className="ai-model-option-name muted">{zh ? '暂无可用模型——请配置提供商' : 'No models — configure a provider'}</span> }]
+        : models.map((m) => ({
         value: m.id,
         label: (
           <span className="ai-model-option">
