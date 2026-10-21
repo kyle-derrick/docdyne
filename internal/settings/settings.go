@@ -1155,7 +1155,7 @@ var Definitions = []Definition{
 	{Key: KeyUploadMaxFileSize, Type: TypeInt, Default: int64(1 << 30), Min: intPtr(1), Max: intPtr(1 << 40), Effect: EffectImmediate, Description: "单文件上传大小上限（字节）"},
 	{Key: KeyUploadDefaultQuota, Type: TypeInt, Default: int64(10 << 30), Min: intPtr(1), Max: intPtr(1 << 50), Effect: EffectImmediate, Description: "新用户开户默认存储配额（字节，默认 10GiB）；仅对新创建用户生效，存量用户经管理端单独调整"},
 	{Key: KeyShareDefaultExpiryHours, Type: TypeInt, Default: int64(168), Min: intPtr(1), Max: intPtr(8760), Effect: EffectImmediate, Description: "公开分享默认有效期（小时）"},
-	{Key: KeyShareDefaultWatermark, Type: TypeBool, Default: true, Effect: EffectImmediate, Description: "新分享默认启用水印（创建请求未显式指定 watermark_enabled 时采用）"},
+	{Key: KeyShareDefaultWatermark, Type: TypeBool, Default: false, Effect: EffectImmediate, Description: "新分享默认启用水印（防截屏外传；默认关闭——按需在创建分享时开启）"},
 	{Key: KeyShareWatermarkText, Type: TypeString, Default: "{date} {name}", Effect: EffectImmediate, Description: "水印默认模板，支持 {email}/{date}/{name} 占位符（公开访问无登录身份，{email} 渲染为脱敏 IP 前缀）"},
 	{Key: KeyRetentionTrashDays, Type: TypeInt, Default: int64(30), Min: intPtr(1), Max: intPtr(3650), Effect: EffectImmediate, Description: "回收站保留天数：软删除超过该天数后由后台清理任务彻底删除"},
 	{Key: KeyRetentionAccessEventsDays, Type: TypeInt, Default: int64(90), Min: intPtr(1), Max: intPtr(3650), Effect: EffectImmediate, Description: "文件访问事件保留天数：超过该天数后由后台清理任务删除"},

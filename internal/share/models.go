@@ -29,9 +29,9 @@ const (
 )
 
 // DefaultWatermarkTemplate 为水印默认模板（settings share.watermark_text
-// 未设置时的回退值）；公开访问无登录身份，{user}/{email}/{ip} 占位符渲染为
-// 脱敏 IP 前缀（见 RenderWatermark）。
-const DefaultWatermarkTemplate = "{user} {date} {name}"
+// 未设置时的回退值）。{user} 对匿名访客渲染为脱敏 IP 前缀（见
+// RenderWatermark）——默认模板不含 {user}（公开分享场景无意义）。
+const DefaultWatermarkTemplate = "{date} {name}"
 
 // MaxWatermarkTextLen 为自定义水印模板长度上限（rune 数）。
 const MaxWatermarkTextLen = 256
