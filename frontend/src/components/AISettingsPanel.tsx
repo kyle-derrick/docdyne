@@ -183,6 +183,17 @@ const MCP_OFFICIAL_TEMPLATES = [
   { id: 'context7', name: 'Context7（最新代码文档检索）', url: 'https://mcp.context7.com/mcp' },
   { id: 'deepwiki', name: 'DeepWiki（GitHub 仓库解读）', url: 'https://mcp.deepwiki.com/mcp' },
   { id: 'mcp-get', name: 'MCP-Get（MCP 服务目录搜索）', url: 'https://mcp-get.com/mcp' },
+  { id: 'serena', name: 'Serena（语义代码检索/编辑）', url: 'https://serena-mcp.onrender.com/mcp' },
+  { id: 'filestash', name: 'Filestash（远程文件管理）', url: 'https://mcp.filestash.dev/mcp' },
+  { id: 'exa', name: 'Exa（AI 搜索引擎）', url: 'https://mcp.exa.ai/mcp' },
+  { id: 'tavily', name: 'Tavily（联网搜索）', url: 'https://mcp.tavily.com/mcp' },
+  { id: 'firecrawl', name: 'Firecrawl（网页抓取/转 Markdown）', url: 'https://mcp.firecrawl.dev/v1/mcp' },
+  { id: 'browserbase', name: 'Browserbase（云端浏览器自动化）', url: 'https://mcp.browserbase.com/mcp' },
+  { id: 'github', name: 'GitHub（仓库/Issue/PR 操作）', url: 'https://api.githubcopilot.com/mcp' },
+  { id: 'gitlab', name: 'GitLab（项目管理）', url: 'https://gitlab.com/api/v4/projects/1/mcp' },
+  { id: 'notion', name: 'Notion（笔记/知识库）', url: 'https://mcp.notion.com/mcp' },
+  { id: 'slack', name: 'Slack（消息/频道）', url: 'https://mcp.slack.com/mcp' },
+  { id: 'mem0', name: 'Mem0（AI 长期记忆）', url: 'https://mcp.mem0.ai/mcp' },
 ]
 
 /** 编辑中的对话技能表单态（Cherry Studio 式 Skills，Markdown 整段注入）。 */
@@ -366,6 +377,8 @@ export default function AISettingsPanel({
   // 对话技能（Cherry Studio 式 Skills；独立端点整块读替，≤50 条）。
   const [chatSkills, setChatSkills] = useState<AIChatSkillDef[]>([])
   const [chatSkillEditing, setChatSkillEditing] = useState<ChatSkillForm | null>(null)
+  const [skillImportOpen, setSkillImportOpen] = useState(false)
+  const [skillImportText, setSkillImportText] = useState('')
   // Agent 技能包（I 批次）：列表 + 编辑弹窗 + 使用统计（ai.chat 审计按包聚合）+ 导入弹窗。
   const [agentPackages, setAgentPackages] = useState<AIAgentPackageDef[]>([])
   const [pkgEditing, setPkgEditing] = useState<PackageForm | null>(null)
@@ -1825,10 +1838,27 @@ export default function AISettingsPanel({
                   ? 'Cherry Studio 式 Skills：用户在对话中选用后，Markdown 内容整段注入该轮 system 提示；平台+个人按 id 增量合并（个人覆盖平台）。内置技能（翻译/润色/总结/头脑风暴）编译期固化，只读。'
                   : 'Cherry Studio-style skills: once picked in a chat, the Markdown content is injected whole into that turn system prompt; platform and personal skills merge by id (personal overrides platform). Built-in skills (translate/polish/summarize/brainstorm) are compiled in and read-only.'}
                 extra={!readOnly && (
-                  <Button size="small" type="primary" disabled={chatSkills.length >= 50} onClick={() => setChatSkillEditing({ id: '', name: '', icon: '', description: '', content: '', enabled: true, isNew: true })}>
-                    <Plus size={13} strokeWidth={2} aria-hidden="true" />
-                    <span>{t(locale, 'adminAINew')}</span>
-                  </Button>
+                  <>
+                    <Button size="small" onClick={() => {
+                      const data = JSON.stringify({ skills: chatSkills, exported_at: new Date().toISOString() }, null, 2)
+                      const blob = new Blob([data], { type: 'application/json' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = 'docdyne-chat-skills.json'
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}>
+                      {zh ? '导出' : 'Export'}
+                    </Button>
+                    <Button size="small" onClick={() => setSkillImportOpen(true)}>
+                      {zh ? '导入' : 'Import'}
+                    </Button>
+                    <Button size="small" type="primary" disabled={chatSkills.length >= 50} onClick={() => setChatSkillEditing({ id: '', name: '', icon: '', description: '', content: '', enabled: true, isNew: true })}>
+                      <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                      <span>{t(locale, 'adminAINew')}</span>
+                    </Button>
+                  </>
                 )}
               >
         <div className="ai-provider-list">
@@ -2529,6 +2559,42 @@ export default function AISettingsPanel({
           <div className="modal-actions">
             <Button type="primary" loading={mcpImporting} onClick={() => void applyMCPImport()}>{zh ? '导入' : 'Import'}</Button>
             <Button onClick={() => setMcpImport(null)}>{t(locale, 'cancel')}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 对话技能导入弹窗（粘贴 JSON，upsert by id）。 */}
+      {skillImportOpen && (
+        <Modal title={zh ? '导入对话技能' : 'Import chat skills'} onClose={() => { setSkillImportOpen(false); setSkillImportText('') }}>
+          <Input.TextArea
+            rows={10}
+            placeholder={zh ? '粘贴导出的 JSON（{"skills":[...]} 或裸数组）' : 'Paste exported JSON ({"skills":[...]} or bare array)'}
+            value={skillImportText}
+            onChange={(e) => setSkillImportText(e.target.value)}
+          />
+          <div className="modal-actions">
+            <Button type="primary" disabled={!skillImportText.trim()} onClick={() => {
+              try {
+                const parsed = JSON.parse(skillImportText)
+                const incoming: AIChatSkillDef[] = Array.isArray(parsed) ? parsed : (parsed.skills ?? [])
+                const byID = new Map(chatSkills.map((s) => [s.id, s]))
+                for (const s of incoming) {
+                  if (s.id && s.name && s.content) byID.set(s.id, { ...s, enabled: s.enabled ?? true })
+                }
+                const merged = Array.from(byID.values()).slice(0, 50)
+                void adminPutAIChatSkills(merged).then((saved) => {
+                  setChatSkills(saved)
+                  setSkillImportOpen(false)
+                  setSkillImportText('')
+                  onNotice(zh ? `已导入 ${incoming.length} 条技能` : `Imported ${incoming.length} skills`)
+                }).catch((err) => onError(err instanceof Error ? err.message : '导入失败'))
+              } catch {
+                onError(zh ? 'JSON 格式无效' : 'Invalid JSON')
+              }
+            }}>
+              {zh ? '导入' : 'Import'}
+            </Button>
+            <Button onClick={() => { setSkillImportOpen(false); setSkillImportText('') }}>{t(locale, 'cancel')}</Button>
           </div>
         </Modal>
       )}
