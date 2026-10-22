@@ -16,7 +16,6 @@
 // 独立查看页一致，FileViewerDispatch 统一分发）；树点击文件经
 // fileOpenSignal 受控信号触发本组件弹窗（见 FolderTreeNav）。
 import { FormEvent, ReactNode, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CloseOutlined } from '@ant-design/icons'
 import { createPortal } from 'react-dom'
 import { App as AntdApp, Button, Dropdown, Input, Menu, Modal as AntdModal, Popover, Select, Tooltip } from 'antd'
 import type { DragEvent as ReactDragEvent } from 'react'
@@ -347,21 +346,13 @@ export function Modal({
         body: 'docdyne-modal-body',
         close: 'docdyne-modal-close',
       }}
-      /* preClose：自定义 closeIcon 组（preClose 内容 + 原生关闭 X）——antd
-       * closeIcon 为整体渲染，组内按钮各自 stopPropagation 防误触关闭。 */
-      closeIcon={preClose ? (
-        <span className="docdyne-modal-close-group">{preClose}<CloseOutlined aria-hidden="true" /></span>
-      ) : undefined}
       onCancel={handleClose}
       title={
-        headExtra ? (
-          <div className="docdyne-modal-title-row">
-            <span className="docdyne-modal-title-text">{title}</span>
-            <span className="docdyne-modal-head-extra">{headExtra}</span>
-          </div>
-        ) : (
-          title
-        )
+        <div className="docdyne-modal-title-row">
+          <span className="docdyne-modal-title-text">{title}</span>
+          {headExtra && <span className="docdyne-modal-head-extra">{headExtra}</span>}
+          {preClose && <span className="docdyne-modal-pre-close">{preClose}</span>}
+        </div>
       }
       className={className ? `docdyne-modal ${className}` : 'docdyne-modal'}
     >
