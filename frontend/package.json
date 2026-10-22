@@ -57,8 +57,8 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "tiptap-markdown": "^0.8.10",
-    "xmind-viewer": "^1.1.2"
+    "simple-mind-map": "^0.14.0-fix.3",
+    "tiptap-markdown": "^0.8.10"
   },
   "devDependencies": {
     "@playwright/test": "1.48.2",
