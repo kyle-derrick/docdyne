@@ -4974,10 +4974,18 @@ kbd {
 .docdyne-modal-title-row { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; }
 .docdyne-modal-title-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docdyne-modal-head-extra { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-right: 8px; }
-/* preClose（最大化等前置操作）：独立元素放标题行尾部，不嵌套在 antd
- * closeIcon 按钮内（嵌套 button 导致点击行为不可靠）。右侧留 32px
- * 给 antd 原生关闭按钮。 */
-.docdyne-modal-pre-close { display: inline-flex; align-items: center; flex-shrink: 0; margin-right: 32px; }
+/* preClose（最大化等前置操作）：独立元素放标题行尾部，紧贴关闭按钮左侧。
+ * 不嵌套在 antd closeIcon 内（嵌套 button 导致点击行为不可靠）。 */
+.docdyne-modal-pre-close { display: inline-flex; align-items: center; flex-shrink: 0; margin-right: 28px; }
+.docdyne-modal-pre-close .modal-fullscreen-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; cursor: pointer; border-radius: 6px;
+  color: var(--muted); transition: background-color 0.15s ease, color 0.15s ease;
+}
+.docdyne-modal-pre-close .modal-fullscreen-btn:hover {
+  background: var(--surface-2, rgba(128,128,128,0.12));
+  color: var(--text);
+}
 /* 标题行按钮组内的 AI 摘要（AISummaryInline 展开态为卡片流，收起态为单个
    按钮）：按钮行内保持横向对齐，展开卡片改为绝对定位浮层避免撑爆标题行。 */
 .docdyne-modal-head-extra .ai-summary-inline {

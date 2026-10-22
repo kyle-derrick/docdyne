@@ -1295,7 +1295,7 @@ export default function FileBrowser({
     setBatchShareHours('0')
     setBatchShareMax('')
     setBatchSharePassword('')
-    setBatchShareWatermark(true)
+    setBatchShareWatermark(false) // 与后端 share.default_watermark 默认（false）一致
     setBatchShareWatermarkText(SHARE_WATERMARK_DEFAULT)
     setBatchShareTitle(selectedIds.length > 1 ? suggestShareTitle(selectedIds) : '')
     setBatchShareError('')
