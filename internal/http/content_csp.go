@@ -8,6 +8,8 @@
 package http
 
 import (
+	"log"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/kyle-derrick/docdyne/internal/settings"
@@ -17,9 +19,16 @@ import (
 func (h *Handler) contentCSP() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		csp := "sandbox allow-scripts"
-		if h.settings != nil {
-			if allow, err := h.settings.GetBool(settings.KeyContentAllowSameOrigin); err == nil && allow {
+		if h.settings == nil {
+			log.Printf("[contentCSP] settings service is nil, using default CSP")
+		} else {
+			allow, err := h.settings.GetBool(settings.KeyContentAllowSameOrigin)
+			if err != nil {
+				log.Printf("[contentCSP] GetBool(%s) error: %v", settings.KeyContentAllowSameOrigin, err)
+			} else if allow {
 				csp = "sandbox allow-scripts allow-same-origin"
+			} else {
+				log.Printf("[contentCSP] GetBool(%s) = false (setting not enabled)", settings.KeyContentAllowSameOrigin)
 			}
 		}
 		c.Header("Content-Security-Policy", csp)
