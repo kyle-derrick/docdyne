@@ -3659,6 +3659,8 @@ export interface AIPersonalOverrides {
   temperature?: number
   /** 图片兜底识图模型（个人池 vision 模型）。 */
   ocr?: AIPersonalModelRef
+  /** 对话「我的文件」检索（RAG）默认开关（nil = 跟随平台）。 */
+  include_docs?: boolean
 }
 
 /** 个人 AI 配置掩码视图（GET/PUT 响应的 prefs 载荷）。 */

@@ -201,6 +201,7 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
   // 覆盖型偏好（null = 跟随平台；随主保存整块携带，全 null 时送 {}）。
   const [ovWebSearch, setOvWebSearch] = useState<boolean | null>(null)
   const [ovHistory, setOvHistory] = useState<string | null>(null)
+  const [ovIncludeDocs, setOvIncludeDocs] = useState<boolean | null>(null)
   // 默认人设三态：null = 跟随平台；''（空串）= 显式「不注入」；其余 = 人设 id。
   const [ovPersona, setOvPersona] = useState<string | null>(null)
   const [ovTemp, setOvTemp] = useState<number | null>(null)
@@ -237,6 +238,7 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     setOvPersona(v.overrides?.default_persona ?? null)
     setOvTemp(typeof v.overrides?.temperature === 'number' ? v.overrides.temperature : null)
     setOvOCR(v.overrides?.ocr ? { provider_id: v.overrides.ocr.provider_id, model_id: v.overrides.ocr.model_id } : null)
+    setOvIncludeDocs(typeof v.overrides?.include_docs === 'boolean' ? v.overrides.include_docs : null)
   }
 
   const load = async () => {
@@ -527,6 +529,7 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
       const ov: AIPersonalOverrides = {}
       if (ovWebSearch !== null) ov.web_search = ovWebSearch
       if (ovHistory !== null) ov.history_search = ovHistory
+      if (ovIncludeDocs !== null) ov.include_docs = ovIncludeDocs
       if (ovPersona !== null) ov.default_persona = ovPersona
       if (ovTemp !== null) ov.temperature = ovTemp
       if (ovOCR !== null) ov.ocr = { provider_id: ovOCR.provider_id, model_id: ovOCR.model_id }
@@ -697,16 +700,19 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* ① 偏好开关。 */}
         <SettingsSection title="偏好开关">
-          {/* prefer_personal：未显式选择模型时个人默认 > 平台默认。 */}
+          {/* prefer_personal：仅在配了个人 Provider 时显示（无 Provider 时
+              此开关无意义——列表已同时展示平台/个人模型，显式选择即可）。 */}
+          {providers.length > 0 && (
           <SettingsField
             label="优先使用我的模型"
-            hint="开启后，未显式选择模型的对话 / 摘要优先用下方「个人场景默认模型」（个人 &gt; 平台）；关闭或个人默认缺失时回落平台默认。显式选择的模型不受此开关影响（个人池始终先于平台池解析）。"
+            hint="开启后，未显式选择模型的对话 / 摘要优先用下方「个人场景默认模型」（个人 &gt; 平台）；显式选择的模型不受此开关影响。"
           >
             <span className="setting-bool">
               <Switch size="small" checked={preferPersonal} onChange={(v) => setPreferPersonal(v)} />
               <span>{preferPersonal ? '个人优先' : '平台默认'}</span>
             </span>
           </SettingsField>
+          )}
           {/* 自动记忆（prefs.memory_auto）：AI 自动从对话中提取长期偏好。
               记忆条目管理入口在 AI 助手 Drawer 的「记忆」按钮（两处开关实时
               共享同一 prefs 存储）；此处为集中设置入口。 */}
@@ -961,6 +967,19 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
             <Select
               value={ovWebSearch === null ? '__inherit' : ovWebSearch ? 'on' : 'off'}
               onChange={(v) => setOvWebSearch(v === 'on')}
+              options={[
+                { value: '__inherit', label: '跟随平台' },
+                { value: 'on', label: '开启' },
+                { value: 'off', label: '关闭' },
+              ]}
+            />
+          </SettingsField>
+
+          {/* 「我的文件」检索（RAG）默认开关。 */}
+          <SettingsField label="文件检索默认（RAG）" hint="对话中「我的文件」按钮的缺省状态——开启后对话自动检索你的文档。RAG 引擎参数（向量库/Embedding 模型）为平台级配置。">
+            <Select
+              value={ovIncludeDocs === null ? '__inherit' : ovIncludeDocs ? 'on' : 'off'}
+              onChange={(v) => setOvIncludeDocs(v === 'on')}
               options={[
                 { value: '__inherit', label: '跟随平台' },
                 { value: 'on', label: '开启' },

@@ -155,6 +155,9 @@ type AIPersonalOverrides struct {
 	// OCR 图片兜底识图模型（指向个人池的 vision 能力 chat 模型；非 vision
 	// 模型对话带图时优先用此模型识图，失败回退平台 ai.ocr 配置）。
 	OCR *AIPersonalModelRef `json:"ocr,omitempty"`
+	// IncludeDocs 对话「我的文件」检索（RAG）默认开关（nil = 跟随平台；
+	// RAG 基础设施如 Qdrant/embedding 模型仍为平台级配置）。
+	IncludeDocs *bool `json:"include_docs,omitempty"`
 }
 
 // AIPersonalPrefs 为用户个人 AI 配置全集（user_ai_prefs.prefs 的 JSON 结构）。
