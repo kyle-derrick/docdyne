@@ -9,7 +9,7 @@ import { convertMarkdown, fetchFileArrayBuffer } from '../api'
 import { useLocale } from '../i18n'
 import FloatingActionBar from './FloatingActionBar'
 import { FileText } from 'lucide-react'
-import { decompressSync, strFromU8 } from 'fflate'
+import { unzipSync, strFromU8 } from 'fflate'
 import MindMap from 'simple-mind-map'
 import 'simple-mind-map/dist/simpleMindMap.esm.css'
 
@@ -58,7 +58,9 @@ function topicToNode(t: XTopic): SMNode | null {
 /** XMind sheets → SimpleMindMap 根节点（首 sheet 的 rootTopic）。 */
 function xmindToSMData(buffer: ArrayBuffer): SMNode {
   const zipData = new Uint8Array(buffer)
-  const files = decompressSync(zipData) as unknown as Record<string, Uint8Array>
+  // unzipSync 正确解析 ZIP 容器结构（decompressSync 解 raw deflate 会报
+  // invalid length/literal——.xmind 是 ZIP 不是裸 deflate 流）。
+  const files = unzipSync(zipData)
   const contentData = files['content.json']
   if (!contentData) throw new Error('旧版 .xmind（content.xml）暂不支持，请下载后使用 XMind 客户端查看')
   const json = strFromU8(contentData)
