@@ -3188,7 +3188,12 @@ div.mxTooltip {
 }
 
 .xmind-error {
-  margin: 12px;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  margin: 0;
+  z-index: 5;
 }
 
 .viewer-loading-hint {

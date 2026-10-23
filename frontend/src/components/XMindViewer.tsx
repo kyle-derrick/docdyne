@@ -177,13 +177,12 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
           {convertError ? <span className="error-text">{convertError}</span> : <span className="muted">{convertNotice}</span>}
         </div>
       )}
-      {error ? (
-        <div className="banner error xmind-error">{error}</div>
-      ) : loading ? (
-        <div className="viewer-loading-hint">{zh ? '正在加载思维导图…' : 'Loading mind map…'}</div>
-      ) : (
-        <div ref={containerRef} className="xmind-viewer-host" style={{ width: '100%', height: '100%', overflow: 'hidden' }} />
-      )}
+      {/* 宿主常驻渲染（不能按 loading/error 条件卸载）——异步解析完成时
+          containerRef 必须已挂载，否则 new MindMap 永远拿不到容器，
+          画布空白（加载态/错误态改为覆盖层展示）。 */}
+      <div ref={containerRef} className="xmind-viewer-host" style={{ width: '100%', height: '100%', overflow: 'hidden' }} />
+      {error && <div className="banner error xmind-error">{error}</div>}
+      {loading && !error && <div className="viewer-loading-hint">{zh ? '正在加载思维导图…' : 'Loading mind map…'}</div>}
     </div>
   )
 }
