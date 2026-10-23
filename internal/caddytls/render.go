@@ -58,15 +58,22 @@ func Render(mode Mode, domain string) string {
 		reverse_proxy backend:8080
 	}
 
-	handle /api/* {
+	handle /webdav* {
 		reverse_proxy backend:8080
 	}
 
+	# flush_interval -1：SSE（/ai/chat 流式）立即下发。
+	handle /api/* {
+		reverse_proxy backend:8080 {
+			flush_interval -1
+		}
+	}
+
+	# CSP 沙箱头由 backend 动态设置（content.allow_same_origin 热读取）——
+	# Caddy 只负责 Cookie 剥离与 Referrer，不静态下发。
 	handle /content/* {
 		header {
 			-Cookie
-			Content-Security-Policy "sandbox allow-scripts"
-			X-Content-Type-Options nosniff
 		}
 		reverse_proxy {$CONTENT_UPSTREAM:backend:8080} {
 			header_up -Cookie
@@ -76,8 +83,6 @@ func Render(mode Mode, domain string) string {
 	handle /raw/* {
 		header {
 			-Cookie
-			Content-Security-Policy "sandbox allow-scripts"
-			X-Content-Type-Options nosniff
 			Referrer-Policy no-referrer
 		}
 		reverse_proxy {$CONTENT_UPSTREAM:backend:8080} {
@@ -91,6 +96,7 @@ func Render(mode Mode, domain string) string {
 
 	handle_path /onlyoffice/* {
 		reverse_proxy {$ONLYOFFICE_UPSTREAM:127.0.0.1:9} {
+			header_up X-Forwarded-Prefix /onlyoffice
 			header_up X-Forwarded-Path /onlyoffice
 		}
 	}
@@ -132,8 +138,6 @@ func Render(mode Mode, domain string) string {
 	encode gzip
 	header {
 		-Cookie
-		Content-Security-Policy "sandbox allow-scripts"
-		X-Content-Type-Options nosniff
 	}
 	reverse_proxy /content/* {$CONTENT_UPSTREAM:backend:8080} {
 		header_up -Cookie

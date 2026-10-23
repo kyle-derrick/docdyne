@@ -47,3 +47,31 @@ func TestContentCSPMiddleware(t *testing.T) {
 		t.Fatalf("关闭后 CSP = %q, want %q", csp, "sandbox allow-scripts")
 	}
 }
+
+// TestContentCSPValue 验证 handler 成功路径（webpkg/raw 各自完整基线 CSP）
+// 的追加语义：设置开启时在 sandbox 指令末尾补 allow-same-origin，基线 CSP
+// 的其余指令（default-src 等）保持不变；未配置/关闭时原样返回。
+func TestContentCSPValue(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil, nil, false, "", 0)
+
+	// settings 缺失：原样返回（中间件与 handler 的静默回落）。
+	if got := h.contentCSPValue(webpkgCSP); got != webpkgCSP {
+		t.Fatalf("nil settings CSP = %q, want %q", got, webpkgCSP)
+	}
+
+	fake := &fakeSettingsService{boolKeys: map[string]bool{"content.allow_same_origin": true}}
+	h.settings = fake
+	want := webpkgCSP + " allow-same-origin"
+	if got := h.contentCSPValue(webpkgCSP); got != want {
+		t.Fatalf("开启后 webpkg CSP = %q, want %q", got, want)
+	}
+	if got := h.contentCSPValue(rawCSP); got != "sandbox allow-scripts allow-same-origin" {
+		t.Fatalf("开启后 raw CSP = %q", got)
+	}
+
+	// 键未配置：回退内置默认 false（与 *settings.Store 行为一致）。
+	delete(fake.boolKeys, "content.allow_same_origin")
+	if got := h.contentCSPValue(rawCSP); got != rawCSP {
+		t.Fatalf("默认 CSP = %q, want %q", got, rawCSP)
+	}
+}

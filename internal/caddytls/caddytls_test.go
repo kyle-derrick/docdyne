@@ -168,9 +168,9 @@ func TestRenderModes(t *testing.T) {
 	for name, conf := range map[string]string{"http": httpConf, "auto": autoConf, "internal": internalConf, "custom": customConf} {
 		for _, anchor := range []string{
 			"admin {$CADDY_ADMIN:localhost:2019}",
-			"handle /api/*", "reverse_proxy backend:8080",
+			"handle /api/*", "flush_interval -1", "handle /webdav*",
 			"handle /content/*", "handle /raw/*", "handle_path /onlyoffice/*", "handle_path /drawio/*",
-			"X-Forwarded-Path /onlyoffice",
+			"X-Forwarded-Prefix /onlyoffice", "X-Forwarded-Path /onlyoffice",
 			"root * /srv/frontend",
 			"{$CONTENT_DOMAIN:content.localhost}",
 		} {
@@ -178,7 +178,13 @@ func TestRenderModes(t *testing.T) {
 				t.Fatalf("%s mode template missing anchor %q", name, anchor)
 			}
 		}
-		// /raw/* 段的安全头锚定（剥 Cookie + sandbox CSP + nosniff + no-referrer）。
+		// CSP 由 backend 动态下发（content.allow_same_origin 热读取）——模板
+		// 静态下发 CSP 会以 deferred header 覆盖 backend 值，开关即失效
+		//（1dbacd4 后 deploy/Caddyfile 已移除，模板曾漏同步）。
+		if strings.Contains(conf, "Content-Security-Policy") {
+			t.Fatalf("%s mode template must not set Content-Security-Policy (backend owns it):\n%s", name, conf)
+		}
+		// /raw/* 段的安全头锚定（剥 Cookie + no-referrer）。
 		rawIdx := strings.Index(conf, "handle /raw/*")
 		contentIdx := strings.Index(conf, "handle /content/*")
 		spaIdx := strings.Index(conf, "handle {\n")
@@ -186,7 +192,7 @@ func TestRenderModes(t *testing.T) {
 			t.Fatalf("%s mode: /raw/* handle must sit with /content/* and before SPA fallback:\n%s", name, conf)
 		}
 		rawBlock := conf[rawIdx:spaIdx]
-		for _, anchor := range []string{"-Cookie", `Content-Security-Policy "sandbox allow-scripts"`, "X-Content-Type-Options nosniff", "Referrer-Policy no-referrer", "{$CONTENT_UPSTREAM:backend:8080}"} {
+		for _, anchor := range []string{"-Cookie", "Referrer-Policy no-referrer", "{$CONTENT_UPSTREAM:backend:8080}"} {
 			if !strings.Contains(rawBlock, anchor) {
 				t.Fatalf("%s mode /raw/* block missing anchor %q", name, anchor)
 			}

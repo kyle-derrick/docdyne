@@ -39,7 +39,7 @@ func (h *Handler) webpkgContent(c *gin.Context) {
 		return
 	}
 	defer rc.Close()
-	c.Header("Content-Security-Policy", webpkgCSP)
+	c.Header("Content-Security-Policy", h.contentCSPValue(webpkgCSP))
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cache-Control", "private, max-age=300")
 	c.DataFromReader(http.StatusOK, -1, contentType, rc, nil)

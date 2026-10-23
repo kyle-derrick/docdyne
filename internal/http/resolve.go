@@ -347,7 +347,7 @@ func (h *Handler) serveRawBlob(c *gin.Context, name string, blob files.ObjectBlo
 		return
 	}
 	defer reader.Close()
-	c.Header("Content-Security-Policy", rawCSP)
+	c.Header("Content-Security-Policy", h.contentCSPValue(rawCSP))
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Referrer-Policy", "no-referrer")
 	c.Header("Cache-Control", "private, no-store")
