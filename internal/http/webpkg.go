@@ -19,7 +19,15 @@ import (
 //   - sandbox allow-scripts：文档进入唯一化 origin 的沙箱（不含
 //     allow-same-origin），直接导航也无法触碰主站源与 Cookie——
 //     该路径在 /api/v1 之外，天然不携带主站 refresh cookie。
-const webpkgCSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; sandbox allow-scripts"
+// CSP 只做资源白名单兜底（object-src/base-uri 硬禁），脚本/样式/图片/
+// 字体/连接等放行到与历史有效策略（sandbox-only）等同的兼容面——导出的
+// 网页包普遍含内联 script/外域资源（统计代码、CDN 字体、API 轮询），
+// 收紧 script-src 会直接让页面无法引导（曾经的真实回归：策略长期被
+// Caddy 静态头掩盖，Caddy 移除静态下发后首次真正生效即白屏）。
+// 隔离由 sandbox 指令 + iframe sandbox 属性 + 剥 Cookie 共同保证。
+// 注意：本常量必须以「sandbox allow-scripts」结尾——contentCSPValue 的
+// 追加语义是在策略末尾（即 sandbox 指令）补 allow-same-origin。
+const webpkgCSP = "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src * data:; connect-src *; media-src * data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; sandbox allow-scripts"
 
 // webpkgContent GET /content/:pid/*filepath：网页包子资源提供端点。
 // 无 Bearer、无 Cookie 依赖（独立按 IP 轻限流 WEBPKG_RATE_LIMIT_PER_MIN）；
@@ -101,6 +109,9 @@ func (h *Handler) tryWebpkgPreview(c *gin.Context, f files.File, blob files.Obje
 			return true
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"kind": "webpkg", "url": "/content/" + pid + "/index.html"})
+	// same_origin：平台设置 content.allow_same_origin 热读取——前端 iframe
+	// 的 sandbox 属性须据此同步加 allow-same-origin，否则 iframe 沙箱与 CSP
+	// 沙箱取交集，后端 CSP 单方面放行 localStorage 不生效。
+	c.JSON(http.StatusOK, gin.H{"kind": "webpkg", "url": "/content/" + pid + "/index.html", "same_origin": h.contentAllowSameOrigin()})
 	return true
 }

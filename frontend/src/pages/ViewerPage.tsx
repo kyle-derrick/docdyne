@@ -175,7 +175,12 @@ function GenericViewer({ fileId, name }: { fileId: string; name: string }) {
   if (content.kind === 'webpkg') {
     return (
       <main className="text-editor-page viewer-only raw-frame-page">
-        <iframe className="standalone-viewer-frame" sandbox="allow-scripts" src={content.url} title={name} />
+        <iframe
+          className="standalone-viewer-frame"
+          sandbox={content.same_origin ? 'allow-scripts allow-same-origin' : 'allow-scripts'}
+          src={content.url}
+          title={name}
+        />
       </main>
     )
   }

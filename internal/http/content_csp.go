@@ -45,3 +45,14 @@ func (h *Handler) contentCSPValue(base string) string {
 	}
 	return base
 }
+
+// contentAllowSameOrigin 报告 content.allow_same_origin 当前值（读取失败按
+// 关闭处理）。webpkg 预览 JSON 据此告知前端 iframe sandbox 属性同步加
+// allow-same-origin（两道沙箱取交集，后端 CSP 单方面放行不生效）。
+func (h *Handler) contentAllowSameOrigin() bool {
+	if h.settings == nil {
+		return false
+	}
+	allow, err := h.settings.GetBool(settings.KeyContentAllowSameOrigin)
+	return err == nil && allow
+}

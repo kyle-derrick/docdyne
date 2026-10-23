@@ -619,7 +619,7 @@ export default function SharePage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [text, setText] = useState<string | null>(null)
   const [textError, setTextError] = useState('')
-  const [webpkgUrl, setWebpkgUrl] = useState<string | null>(null)
+  const [webpkg, setWebpkg] = useState<{ url: string; same_origin: boolean } | null>(null)
   const [passwordBusy, setPasswordBusy] = useState(false)
   const [passwordError, setPasswordError] = useState('')
 
@@ -627,7 +627,7 @@ export default function SharePage() {
     setState({ status: 'loading' })
     setText(null)
     setTextError('')
-    setWebpkgUrl(null)
+    setWebpkg(null)
     getPublicShare(token)
       .then((info) => {
         if (!cancelled()) setState({ status: 'ok', info })
@@ -711,10 +711,10 @@ export default function SharePage() {
   useEffect(() => {
     if (!okState || !isZipCandidate) return
     let cancelled = false
-    setWebpkgUrl(null)
+    setWebpkg(null)
     fetchPublicWebpkgPreview(token)
-      .then((url) => {
-        if (!cancelled) setWebpkgUrl(url)
+      .then((pkg) => {
+        if (!cancelled) setWebpkg(pkg)
       })
       .catch(() => {
         // 无 ready 包：维持类型分支的默认展示（不支持预览/下载提示）
@@ -770,9 +770,17 @@ export default function SharePage() {
   let body: React.ReactNode
   if (info.version_status !== 'available') {
     body = <div className="empty">文件暂不可用，无法预览</div>
-  } else if (webpkgUrl) {
-    // 网页包：sandbox 不含 allow-same-origin（唯一化 origin 沙箱）。
-    body = <iframe className="share-direct-frame" sandbox="allow-scripts" src={webpkgUrl} title={info.name} />
+  } else if (webpkg) {
+    // 网页包：默认不含 allow-same-origin（唯一化 origin 沙箱）；平台设置
+    // content.allow_same_origin 开启时与后端 CSP 沙箱同步放行（localStorage）。
+    body = (
+      <iframe
+        className="share-direct-frame"
+        sandbox={webpkg.same_origin ? 'allow-scripts allow-same-origin' : 'allow-scripts'}
+        src={webpkg.url}
+        title={info.name}
+      />
+    )
   } else if (isOfficeFile(info.name)) {
     body = <PublicOfficeViewer token={token} name={info.name} />
   } else if (isDdocFile(lower)) {

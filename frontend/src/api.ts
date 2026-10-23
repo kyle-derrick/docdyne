@@ -954,13 +954,19 @@ export interface PreviewContent {
   /** image/pdf 的 blob URL（调用方负责 revoke）、text 的文本内容，或 webpkg 的内容入口 URL。 */
   url?: string
   text?: string
+  /** webpkg：平台设置 content.allow_same_origin 开启时为 true——iframe sandbox
+   *  属性须同步加 allow-same-origin（iframe 沙箱与 CSP 沙箱取交集，单边放行不生效）。 */
+  same_origin?: boolean
 }
 
-/** 识别网页包预览指引 JSON：{kind:"webpkg", url:"/content/<pid>/index.html"}。 */
-function webpkgFromBody(text: string): string | null {
+/** 识别网页包预览指引 JSON：{kind:"webpkg", url:"/content/<pid>/index.html",
+ *  same_origin?:boolean}，返回入口 URL 与 same_origin 标志。 */
+function webpkgFromBody(text: string): { url: string; same_origin: boolean } | null {
   try {
-    const obj = JSON.parse(text) as { kind?: unknown; url?: unknown }
-    if (obj.kind === 'webpkg' && typeof obj.url === 'string') return obj.url
+    const obj = JSON.parse(text) as { kind?: unknown; url?: unknown; same_origin?: unknown }
+    if (obj.kind === 'webpkg' && typeof obj.url === 'string') {
+      return { url: obj.url, same_origin: obj.same_origin === true }
+    }
   } catch {
     // 非对象 JSON（如普通 .json 文件的文本预览）：按文本处理
   }
@@ -979,8 +985,8 @@ async function previewFromResponse(res: Response): Promise<PreviewContent> {
   const mime = res.headers.get('Content-Type') ?? ''
   if (mime.startsWith('application/json')) {
     const text = await res.text()
-    const webpkgUrl = webpkgFromBody(text)
-    if (webpkgUrl) return { kind: 'webpkg', mime, url: webpkgUrl }
+    const webpkg = webpkgFromBody(text)
+    if (webpkg) return { kind: 'webpkg', mime, url: webpkg.url, same_origin: webpkg.same_origin }
     return { kind: 'text', mime, text }
   }
   const kind = previewKind(mime)
@@ -1046,14 +1052,15 @@ export async function fetchPublicPreviewText(token: string): Promise<string> {
 
 /**
  * 公开分享网页包预览：zip 文件存在 ready 解包结果时，/preview 返回
- * {kind:"webpkg", url:"/content/<pid>/index.html"}，此处取内容入口 URL；
+ * {kind:"webpkg", url:"/content/<pid>/index.html", same_origin:boolean}，
+ * 此处取内容入口 URL 与 same_origin 标志（iframe sandbox 属性联动）；
  * 无 ready 包（415 或普通内容）时抛 ApiError，由调用方回退普通预览。
  */
-export async function fetchPublicWebpkgPreview(token: string): Promise<string> {
+export async function fetchPublicWebpkgPreview(token: string): Promise<{ url: string; same_origin: boolean }> {
   const res = await fetch(`/api/v1/public/shares/${encodeURIComponent(token)}/preview`)
-  const data = (await res.json().catch(() => null)) as { kind?: string; url?: string } | null
+  const data = (await res.json().catch(() => null)) as { kind?: string; url?: string; same_origin?: boolean } | null
   if (res.ok && data?.kind === 'webpkg' && typeof data.url === 'string') {
-    return data.url
+    return { url: data.url, same_origin: data.same_origin === true }
   }
   throw new ApiError(res.status || 415, '网页包预览不可用')
 }

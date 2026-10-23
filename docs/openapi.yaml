@@ -8925,13 +8925,18 @@ components:
       description: >-
         网页包预览指引（/files/{id}/preview 与 /public/shares/{token}/preview
         对 zip+ready 包的 200 JSON 响应）；前端以 sandbox="allow-scripts" 的
-        iframe 加载 url（无 allow-same-origin，内容端点带严格 CSP/nosniff）。
-      required: [kind, url]
+        iframe 加载 url（内容端点带 CSP/nosniff；平台设置
+        content.allow_same_origin 开启时 same_origin=true，iframe sandbox
+        属性与后端 CSP 沙箱同步追加 allow-same-origin，内容可访问 localStorage）。
+      required: [kind, url, same_origin]
       properties:
         kind: { type: string, const: webpkg }
         url:
           type: string
           description: '内容入口 /content/<public_id>/index.html（public_id 为 43 字符随机串）'
+        same_origin:
+          type: boolean
+          description: content.allow_same_origin 热读取值（iframe sandbox 属性联动标志）
     WebpkgPackage:
       type: object
       description: >-
