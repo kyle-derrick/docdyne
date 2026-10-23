@@ -1,6 +1,23 @@
-import { defineConfig } from 'vite'
+import { cpSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+
+// Excalidraw 运行时静态资源本地化：包体默认从 unpkg CDN 拉字体/vendor
+//（EXCALIDRAW_ASSET_PATH 缺省），内网/离线部署不可达 → 组件初始化挂起 →
+// 白板页白屏（无报错）。构建期拷入产物 /excalidraw-assets/，dev server
+// 以中间件同源服务；配合 index.html 前置设置的 EXCALIDRAW_ASSET_PATH。
+function copyExcalidrawAssets(): Plugin {
+  const src = fileURLToPath(new URL('./node_modules/@excalidraw/excalidraw/dist/excalidraw-assets', import.meta.url))
+  return {
+    name: 'copy-excalidraw-assets',
+    apply: 'build',
+    closeBundle() {
+      cpSync(src, fileURLToPath(new URL('./dist/excalidraw-assets', import.meta.url)), { recursive: true })
+    },
+  }
+}
 
 // 开发服务器将 /api 代理到本地 Go 后端，避免跨域；refresh cookie 也保持同源。
 //
@@ -44,6 +61,30 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // Excalidraw 字体/vendor 资源本地服务（dev）：与 build 期拷贝产物同路径。
+    // vite 的 public/ 目录方案要求资源进仓库（包产物，体积与升级都不合适），
+    // 故 dev 用中间件、build 用 closeBundle 拷贝，两侧路径一致。
+    {
+      name: 'serve-excalidraw-assets-dev',
+      apply: 'serve',
+      configureServer(server) {
+        server.middlewares.use('/excalidraw-assets/', (req, res, next) => {
+          const rel = decodeURIComponent(req.url?.split('?')[0] ?? '').replace(/^\/+|\/+$/g, '')
+          if (!/^[\w.-]+$/.test(rel)) { next(); return }
+          try {
+            const data = readFileSync(
+              fileURLToPath(new URL(`./node_modules/@excalidraw/excalidraw/dist/excalidraw-assets/${rel}`, import.meta.url)),
+            )
+            res.setHeader(
+              'Content-Type',
+              rel.endsWith('.js') ? 'text/javascript' : rel.endsWith('.css') ? 'text/css' : rel.endsWith('.woff2') ? 'font/woff2' : 'application/octet-stream',
+            )
+            res.end(data)
+          } catch { next() }
+        })
+      },
+    },
+    copyExcalidrawAssets(),
     // PWA 基础（v1.1）：可安装（manifest）+ 应用 Shell 预缓存，不做离线数据。
     // - registerType autoUpdate：新 SW 安装即激活（skipWaiting+clientsClaim），
     //   运行中的页面内存里仍是旧 Shell，由前端 onNeedReload 提示「点击刷新」；
@@ -87,6 +128,9 @@ export default defineConfig({
           'assets/RichTextEditor*.js',
           'assets/MonacoEditor*.js',
           'assets/*.worker-*.js',
+          // Excalidraw 运行时资源（字体 + 2.96MB vendor）：按需加载，不进
+          // 预缓存（vendor 超过 workbox 2MiB 上限会直接报错；策略同 mermaid）。
+          'excalidraw-assets/**',
         ],
       },
     }),

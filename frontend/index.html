@@ -11,6 +11,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Excalidraw 运行时静态资源（字体/vendor）改走本地：默认 unpkg CDN
+         在内网/离线部署不可达，组件初始化挂起导致白板页白屏。资源由
+         vite.config.ts 的 copyExcalidrawAssets 插件从 node_modules 拷入
+         /excalidraw-assets/（build 产物 + dev server 同源服务）。
+         注意值为 dist 根「/」——库会自行追加 excalidraw-assets/ 前缀。 -->
+    <script>
+      window.EXCALIDRAW_ASSET_PATH = '/'
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
