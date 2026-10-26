@@ -19,6 +19,10 @@ export interface FloatingAction {
 const STORAGE_KEY = 'docdyne.fab.pos'
 const EDGE_MARGIN = 16
 const BTN_SIZE = 48
+// 拖拽/点击判别阈值：按下后位移超过该值（px）视为拖拽，pointerup 后的
+// click 被抑制。不能用 dragging state 做守卫——pointerup 的 setState 先于
+// click 生效，click 到达时守卫已复位（曾致拖拽转 md 误触发）。
+const DRAG_THRESHOLD = 6
 
 /** 从 sessionStorage 恢复位置（或默认右下角）。 */
 function loadPos(): { x: number; y: number } {
@@ -37,6 +41,9 @@ export default function FloatingActionBar({ actions }: { actions: FloatingAction
   const [expanded, setExpanded] = useState(false)
   const [dragging, setDragging] = useState(false)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
+  // 本次按下的位移是否超过拖拽阈值（click 抑制判据；pointerdown 时复位）。
+  const movedRef = useRef(false)
+  const downPtRef = useRef<{ x: number; y: number } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
   // 窗口 resize 时保持在视口内。
@@ -52,13 +59,22 @@ export default function FloatingActionBar({ actions }: { actions: FloatingAction
   }, [])
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // 仅主按钮可发起拖拽（菜单项点击不受影响）。
+    if (!(e.target as HTMLElement).closest?.('.fab-btn')) return
     dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
+    downPtRef.current = { x: e.clientX, y: e.clientY }
+    movedRef.current = false
     setDragging(true)
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
   }, [pos])
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current || !dragging) return
+    if (downPtRef.current) {
+      const ddx = e.clientX - downPtRef.current.x
+      const ddy = e.clientY - downPtRef.current.y
+      if (ddx * ddx + ddy * ddy > DRAG_THRESHOLD * DRAG_THRESHOLD) movedRef.current = true
+    }
     const x = Math.max(EDGE_MARGIN, Math.min(e.clientX - dragRef.current.dx, window.innerWidth - BTN_SIZE - EDGE_MARGIN))
     const y = Math.max(EDGE_MARGIN, Math.min(e.clientY - dragRef.current.dy, window.innerHeight - BTN_SIZE - EDGE_MARGIN))
     setPos({ x, y })
@@ -67,10 +83,24 @@ export default function FloatingActionBar({ actions }: { actions: FloatingAction
   const onPointerUp = useCallback(() => {
     if (dragging) {
       dragRef.current = null
+      downPtRef.current = null
       setDragging(false)
       try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pos)) } catch { /* 忽略 */ }
+      // 拖拽后的 movedRef 不留到下一次交互：macro-task 复位——紧随 pointerup
+      // 派发的 click（浏览器在按下/抬起同元素时补发）被抑制，之后的独立
+      // 点击正常触发（曾在拖拽后首次真实点击被吞）。
+      if (movedRef.current) window.setTimeout(() => { movedRef.current = false }, 0)
     }
   }, [dragging, pos])
+
+  // 拖拽结束后的 click 抑制（消费一次 movedRef；见 DRAG_THRESHOLD 注释）。
+  const clickSuppressed = useCallback(() => {
+    if (movedRef.current) {
+      movedRef.current = false
+      return true
+    }
+    return false
+  }, [])
 
   const single = actions.length === 1 ? actions[0] : null
   const hasMenu = actions.length > 1
@@ -107,7 +137,7 @@ export default function FloatingActionBar({ actions }: { actions: FloatingAction
         <button
           className={`fab-btn ${single?.danger ? 'fab-btn-danger' : ''}`}
           onClick={() => {
-            if (dragging) return // 拖拽结束不触发点击
+            if (clickSuppressed()) return // 拖拽结束不触发点击
             if (single) single.onClick()
             else if (hasMenu) setExpanded((v) => !v)
           }}

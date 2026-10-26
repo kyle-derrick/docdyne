@@ -2187,11 +2187,13 @@ export default function FileBrowser({
             </Button>
           </Tooltip>
         )}
-        {/* 悬浮 AI 助理（对话/摘要/修改保存新版本；AI 未启用时组件自隐藏）。
-            与独立查看页同组件，替代原标题行内嵌的 AI 摘要按钮行。 */}
+        {/* AI 助理（对话/摘要/修改保存新版本；AI 未启用时组件自隐藏）。
+            v7.13：弹窗内不再用右下角悬浮球（定位随弹窗动画/滚动易漂移），
+            改为标题行内联图标按钮，卡片仍锚定弹窗右下角展开。 */}
         {!previewEdit && (
           <ViewerAIWidget
             key={item.id}
+            variant="embedded"
             fileId={item.id}
             fileName={item.name}
             onSaved={() => setPreviewReloadKey((k) => k + 1)}

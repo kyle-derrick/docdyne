@@ -144,15 +144,32 @@ function extractSaveContent(reply: string): string {
   return reply.trim()
 }
 
-/** 查看页悬浮 AI 助理（fileId/fileName 必填；onSaved = 保存新版本后的刷新回调）。 */
+/** 查看页悬浮 AI 助理。 */
 export default function ViewerAIWidget({
   fileId,
   fileName,
   onSaved,
+  variant = 'float',
+  contextText,
+  showSummary = true,
+  allowSave = true,
 }: {
-  fileId: string
+  /** 当前用户空间内的文件 id（认证上下文）；分享页访客无此语义可省略
+   *  （省略时不做会话持久化与「保存为新版本」，上下文经 contextText 注入）。 */
+  fileId?: string
   fileName: string
   onSaved?: () => void
+  /** 悬浮形态：float = 右下角悬浮球（独立查看页/分享页）；embedded = 弹窗
+   *  标题行内联图标按钮（无悬浮球，卡片锚定弹窗右下角，位置不持久化——
+   *  与 float 共用持久化 key 会在两种上下文间串位）。 */
+  variant?: 'float' | 'embedded'
+  /** 外部提供的文件全文（分享页公开预览文本）；提供时不再经 fetchFileText
+   *  拉取（访客对原文件无认证读权限）。 */
+  contextText?: string | null
+  /** 是否展示「摘要」页签（分享页访客无 owner 摘要端点权限，默认关）。 */
+  showSummary?: boolean
+  /** 是否允许「保存为新版本」（分享页访客只读，默认关）。 */
+  allowSave?: boolean
 }) {
   const locale = useLocale()
   const zh = locale === 'zh-CN'
@@ -166,7 +183,8 @@ export default function ViewerAIWidget({
   // 显示时机：挂载后延迟 ~250ms（弹窗动画/DOM 稳定）测量边界完成才显示，
   // 弹窗内不会「先视口右下角再跳到弹窗右下角」。
   const [open, setOpen] = useState(false)
-  const [customPos, setCustomPos] = useState<CustomPos>(() => loadPos())
+  // 位置记忆仅 float 形态（embedded 弹窗内联，卡片恒锚定弹窗右下角）。
+  const [customPos, setCustomPos] = useState<CustomPos>(() => (variant === 'float' ? loadPos() : null))
   const [dragging, setDragging] = useState(false)
   const [settled, setSettled] = useState(false)
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; lastX: number; lastY: number; moved: boolean } | null>(null)
@@ -264,9 +282,9 @@ export default function ViewerAIWidget({
     window.removeEventListener('pointercancel', endDragRaw)
     if (d?.moved) {
       suppressClickRef.current = true
-      persistPos({ x: d.lastX, y: d.lastY })
+      if (variant === 'float') persistPos({ x: d.lastX, y: d.lastY })
     }
-  }, [moveDragRaw])
+  }, [moveDragRaw, variant])
 
   const startDrag = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return
@@ -377,18 +395,26 @@ export default function ViewerAIWidget({
     applyTurns((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch(x) } : x)))
   }
 
-  /** 文件上下文系统提示（文本类：文件名 + 全文截 12000 字；非文本：仅文件名）。 */
+  /** 文件上下文系统提示（文本类：文件名 + 全文截 12000 字；非文本：仅文件名）。
+   *  contextText（分享页公开预览文本）提供时直接采用，不走认证拉取。 */
   const ensureFileContext = async (): Promise<string> => {
     if (!textLike) {
       return zh
         ? `用户正在 DocDyne 查看文件「${fileName}」（非文本类文件，无法提供全文，仅可就文件名对话）。`
         : `The user is viewing "${fileName}" in DocDyne (non-text file; no full text available).`
     }
+    if (contextText !== undefined && contextText !== null) {
+      fileTextRef.current = contextText
+    }
     if (fileTextRef.current === null) {
-      try {
-        fileTextRef.current = await fetchFileText(fileId)
-      } catch {
+      if (!fileId) {
         fileTextRef.current = ''
+      } else {
+        try {
+          fileTextRef.current = await fetchFileText(fileId)
+        } catch {
+          fileTextRef.current = ''
+        }
       }
     }
     const full = fileTextRef.current ?? ''
@@ -463,9 +489,10 @@ export default function ViewerAIWidget({
     }
   }
 
-  /** 生成/重新生成摘要（流式；think 且模型支持时附思考折叠区）。 */
+  /** 生成/重新生成摘要（流式；think 且模型支持时附思考折叠区）。
+   *  仅认证上下文（有 fileId）可摘要——分享页 showSummary=false 不会触发。 */
   const runSummary = async () => {
-    if (sumBusyRef.current) return
+    if (sumBusyRef.current || !fileId) return
     // 用户主动触发摘要 = 关注输出：强制恢复贴底跟随。
     sticky.scrollToBottom()
     sumBusyRef.current = true
@@ -495,9 +522,9 @@ export default function ViewerAIWidget({
     }
   }
 
-  // 打开且切到「摘要」页签时自动生成一次（无结果且无错误时）。
+  // 打开且切到「摘要」页签时自动生成一次（无结果且无错误时；分享页无摘要页签）。
   useEffect(() => {
-    if (open && tab === 'summary' && !summary.text && !summary.error && !summary.loading) void runSummary()
+    if (open && showSummary && tab === 'summary' && !summary.text && !summary.error && !summary.loading) void runSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab])
 
@@ -592,9 +619,10 @@ export default function ViewerAIWidget({
   }
 
   /** 保存为新版本：提取代码块/全文 → uploadFileVersion 覆盖当前 file_id
-   * （自动留版本链，可在历史版本回退）→ onSaved 通知查看页刷新预览。 */
+   * （自动留版本链，可在历史版本回退）→ onSaved 通知查看页刷新预览。
+   *  分享页访客（allowSave=false）不可保存。 */
   const saveAsVersion = async (turn: WidgetTurn) => {
-    if (!textLike || savingId !== null) return
+    if (!allowSave || !textLike || !fileId || savingId !== null) return
     const content = extractSaveContent(turn.content)
     if (!content) return
     setSavingId(turn.id)
@@ -687,12 +715,13 @@ export default function ViewerAIWidget({
               onChange={(v) => setTab(v as 'chat' | 'summary')}
               options={[
                 { label: zh ? '对话' : 'Chat', value: 'chat' },
-                { label: t(locale, 'aiSummary'), value: 'summary' },
+                ...(showSummary ? [{ label: t(locale, 'aiSummary'), value: 'summary' }] : []),
               ]}
             />
           </div>
-          {/* 内容区：对话 = ChatThread（统一消息流，S9）；摘要 = 自有滚动容器。 */}
-          {tab === 'chat' ? (
+          {/* 内容区：对话 = ChatThread（统一消息流，S9）；摘要 = 自有滚动容器
+              （showSummary=false 时恒为对话——分享页访客只开对话）。 */}
+          {tab === 'chat' || !showSummary ? (
             <ChatThread
               zh={zh}
               messages={turns as unknown as ChatMessage[]}
@@ -710,8 +739,8 @@ export default function ViewerAIWidget({
               checkedIds={EMPTY_CHECKED}
               onToggleChecked={() => {}}
               wrapRef={sticky.wrapRef} onScroll={sticky.onScroll}
-              /* 「保存为新版本」（文本类）：viewer 特有消息级操作，经扩展位注入。 */
-              actionSlot={(msg) => (textLike ? saveButton(msg as unknown as WidgetTurn) : (
+              /* 「保存为新版本」（文本类且允许保存）：viewer 特有消息级操作。 */
+              actionSlot={(msg) => (allowSave && textLike ? saveButton(msg as unknown as WidgetTurn) : (
                 <Tooltip title={zh ? '仅文本类文件支持保存修改' : 'Only text-like files support saving changes'}>
                   <Button size="small" type="text" className="viewer-aiw-act" disabled aria-label={zh ? '保存为新版本' : 'Save as new version'}>
                     <Save size={13} strokeWidth={2} aria-hidden="true" />
@@ -750,7 +779,7 @@ export default function ViewerAIWidget({
           )}
           {/* 底部输入区（S9 统一 ChatInput：联网/思考/清空开关组 + 模型选择 +
               发送/停止，与 AI 助手/编辑页同款）。 */}
-          {tab === 'chat' && (
+          {(tab === 'chat' || !showSummary) && (
             <ChatInput
               zh={zh}
               value={input} onChange={setInput}
@@ -789,6 +818,22 @@ export default function ViewerAIWidget({
           )}
 
         </div>
+      ) : variant === 'embedded' ? (
+        /* 弹窗内联形态：标题行图标按钮（无悬浮球——弹窗内悬浮球定位易漂移，
+           v7.13 起弹窗只保留内联入口，卡片仍锚定弹窗右下角）。 */
+        <Tooltip title={zh ? 'AI 助理：摘要 / 对话 / 修改' : 'AI assistant: summary / chat / edit'}>
+          <span ref={(el) => { hostRef.current = el }}>
+            <Button
+              size="small"
+              type="text"
+              className="viewer-aiw-inline"
+              onClick={toggleOpen}
+              aria-label={zh ? 'AI 助理' : 'AI assistant'}
+            >
+              <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
+            </Button>
+          </span>
+        </Tooltip>
       ) : (
         <button
           type="button"

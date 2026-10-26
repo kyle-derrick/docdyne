@@ -43,6 +43,8 @@ import DrawioViewer from '../components/DrawioViewer'
 import ExcalidrawViewer from '../components/ExcalidrawViewer'
 import MermaidDiagram from '../components/MermaidDiagram'
 import XMindViewer from '../components/XMindViewer'
+import FloatingActionBar, { type FloatingAction } from '../components/FloatingActionBar'
+import ViewerAIWidget from '../components/ViewerAIWidget'
 import { useColorMode } from '../theme'
 
 // 富文本编辑器（Tiptap 产物 1MB+）懒加载独立 chunk（与 DdocEditorPage 同法）。
@@ -837,16 +839,38 @@ export default function SharePage() {
     )
   }
 
+  // 悬浮下载（可拖拽）：经 FloatingActionBar 呈现，点击以临时 <a> 触发
+  // 浏览器下载（与原 share-fab 直链行为一致）。
+  const downloadActions: FloatingAction[] = info.permission === 'download'
+    ? [{
+        key: 'download',
+        label: `下载 ${info.name}`,
+        icon: Download,
+        onClick: () => {
+          const a = document.createElement('a')
+          a.href = downloadUrl
+          a.download = info.name
+          document.body.appendChild(a)
+          a.click()
+          a.remove()
+        },
+      }]
+    : []
+
   return (
     <div className="share-page share-direct">
       {showWatermark && <WatermarkOverlay text={info.watermark_text as string} />}
       {body}
-      {info.permission === 'download' && (
-        <a className="share-fab" href={downloadUrl} download={info.name} title={`下载 ${info.name}`}>
-          <Download size={16} strokeWidth={2} aria-hidden="true" />
-          <span>下载</span>
-        </a>
-      )}
+      {downloadActions.length > 0 && <FloatingActionBar actions={downloadActions} />}
+      {/* 已登录访客的 AI 对话（悬浮球；未登录时 /ai/status 401 → 组件自隐藏，
+          无 AI 使用权语义天然成立）。上下文用公开预览文本注入（访客对原
+          文件无认证读权限）；无摘要页签与「保存为新版本」。 */}
+      <ViewerAIWidget
+        fileName={info.name}
+        contextText={text}
+        showSummary={false}
+        allowSave={false}
+      />
     </div>
   )
 }
