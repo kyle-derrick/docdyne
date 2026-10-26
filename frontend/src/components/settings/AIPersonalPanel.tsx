@@ -32,6 +32,7 @@ import {
   getAIPersonalSettings,
   getAIPersonalSkills,
   lookupAIModel,
+  postAIPersonalReindex,
   putAIPersonalChatSkills,
   putAIPersonalMCPServers,
   putAIPersonalRules,
@@ -40,7 +41,7 @@ import {
   testAIPersonalMCP,
 } from '../../api'
 import type { AIEffectiveConfig, AIEffectiveItem, AIMCPTestResult, AIModelCapabilities, AIModelKind } from '../../api'
-import type { AIPersonalChatSkill, AIPersonalOverrides } from '../../api'
+import type { AIPersonalChatSkill, AIPersonalOverrides, AIPersonalRAGOverrides } from '../../api'
 import { Modal } from '../FileBrowser'
 import { SettingsField, SettingsSection } from './SettingsSections'
 
@@ -206,6 +207,15 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
   const [ovPersona, setOvPersona] = useState<string | null>(null)
   const [ovTemp, setOvTemp] = useState<number | null>(null)
   const [ovOCR, setOvOCR] = useState<AIPersonalModelRef | null>(null)
+  // RAG 覆盖（null = 跟随平台）：embedding 模型 / top_k / 分块参数。
+  const [ovRagEmbedding, setOvRagEmbedding] = useState<AIPersonalModelRef | null>(null)
+  const [ovRagTopK, setOvRagTopK] = useState<number | null>(null)
+  const [ovRagChunkSize, setOvRagChunkSize] = useState<number | null>(null)
+  const [ovRagChunkOverlap, setOvRagChunkOverlap] = useState<number | null>(null)
+  // 个人重建索引（POST /ai/personal/reindex）状态。
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexNote, setReindexNote] = useState('')
+  const [reindexError, setReindexError] = useState('')
   // 人设下拉选项（/ai/models 原始响应：平台 + 个人合并视图，personal 标注）。
   const [personaOptions, setPersonaOptions] = useState<{ value: string; label: string }[]>([])
   // 生效配置（覆盖行「个人覆盖」来源徽标数据；增强展示，失败静默降级）。
@@ -238,6 +248,10 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     setOvPersona(v.overrides?.default_persona ?? null)
     setOvTemp(typeof v.overrides?.temperature === 'number' ? v.overrides.temperature : null)
     setOvOCR(v.overrides?.ocr ? { provider_id: v.overrides.ocr.provider_id, model_id: v.overrides.ocr.model_id } : null)
+    setOvRagEmbedding(v.overrides?.rag?.embedding ? { provider_id: v.overrides.rag.embedding.provider_id, model_id: v.overrides.rag.embedding.model_id } : null)
+    setOvRagTopK(typeof v.overrides?.rag?.top_k === 'number' ? v.overrides.rag.top_k : null)
+    setOvRagChunkSize(typeof v.overrides?.rag?.chunk_size === 'number' ? v.overrides.rag.chunk_size : null)
+    setOvRagChunkOverlap(typeof v.overrides?.rag?.chunk_overlap === 'number' ? v.overrides.rag.chunk_overlap : null)
     setOvIncludeDocs(typeof v.overrides?.include_docs === 'boolean' ? v.overrides.include_docs : null)
   }
 
@@ -533,6 +547,12 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
       if (ovPersona !== null) ov.default_persona = ovPersona
       if (ovTemp !== null) ov.temperature = ovTemp
       if (ovOCR !== null) ov.ocr = { provider_id: ovOCR.provider_id, model_id: ovOCR.model_id }
+      const rag: AIPersonalRAGOverrides = {}
+      if (ovRagEmbedding !== null) rag.embedding = { provider_id: ovRagEmbedding.provider_id, model_id: ovRagEmbedding.model_id }
+      if (ovRagTopK !== null) rag.top_k = ovRagTopK
+      if (ovRagChunkSize !== null) rag.chunk_size = ovRagChunkSize
+      if (ovRagChunkOverlap !== null) rag.chunk_overlap = ovRagChunkOverlap
+      if (Object.keys(rag).length > 0) ov.rag = rag
       const saved = await putAIPersonalSettings({
         providers: payloadProviders,
         default_models: dm,
@@ -665,6 +685,38 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
       }
     }
     return opts
+  }
+
+  /** 个人 embedding 模型选项：个人池 openai_compatible Provider 下具备
+   *  embedding 能力者（覆盖后本人文档向量入用户专属库）。 */
+  const ragEmbeddingOptions = () => {
+    const opts: { value: string; label: string }[] = []
+    for (const p of providers) {
+      if (p.kind !== 'openai_compatible') continue
+      for (const m of p.models) {
+        if (m.id.trim() && m.caps.kind === 'embedding') {
+          opts.push({ value: `${p.id}::${m.id}`, label: `${p.name || p.id} / ${m.label || m.id}` })
+        }
+      }
+    }
+    return opts
+  }
+
+  /** 重建个人索引（POST /ai/personal/reindex）：个人 RAG embedding/分块参数
+   *  变更保存后调用（幂等）。 */
+  const runPersonalReindex = async () => {
+    if (reindexing) return
+    setReindexing(true)
+    setReindexNote('')
+    setReindexError('')
+    try {
+      const queued = await postAIPersonalReindex()
+      setReindexNote(`已投递 ${queued} 个文件的索引重建任务，后台完成后生效。`)
+    } catch (err) {
+      setReindexError(err instanceof Error ? err.message : '重建索引失败')
+    } finally {
+      setReindexing(false)
+    }
   }
 
   if (loading) {
@@ -1055,6 +1107,86 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
               placeholder="跟随平台"
               options={ocrModelOptions()}
             />
+          </SettingsField>
+        </SettingsSection>
+
+        {/* 检索增强（RAG）个人覆盖：配置型——默认平台，个人修改后覆盖。 */}
+        <SettingsSection title="检索增强（RAG）">
+          <SettingsField
+            label="Embedding 模型"
+            hint="覆盖后你的文档用自选模型向量化，存入你的专属向量库（与他人完全隔离）；未设置时用平台配置。仅支持 OpenAI 兼容 Provider 的 embedding 模型。"
+          >
+            <Select
+              allowClear
+              value={ovRagEmbedding ? `${ovRagEmbedding.provider_id}::${ovRagEmbedding.model_id}` : undefined}
+              onChange={(v) => {
+                if (typeof v !== 'string' || !v) {
+                  setOvRagEmbedding(null)
+                  return
+                }
+                const [provider_id, model_id] = v.split('::')
+                setOvRagEmbedding({ provider_id, model_id })
+              }}
+              placeholder="跟随平台"
+              notFoundContent="个人池暂无 embedding 能力模型（在上方 Provider 中为模型勾选 embedding 类型）"
+              options={ragEmbeddingOptions()}
+            />
+          </SettingsField>
+          <SettingsField
+            label="召回条数（Top K）"
+            hint="对话检索「我的文件」时的召回条数上限；未设置时用平台默认。"
+          >
+            <InputNumber
+              min={1}
+              max={10}
+              precision={0}
+              value={ovRagTopK ?? undefined}
+              onChange={(v) => setOvRagTopK(typeof v === 'number' ? v : null)}
+              placeholder="跟随平台"
+              style={{ width: 140 }}
+            />
+          </SettingsField>
+          <SettingsField
+            label="切块大小 / 重叠"
+            hint="你的文档入库时的向量切块参数（字符）；未设置时用平台值。修改后需重建个人索引。"
+          >
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+              <InputNumber
+                min={100}
+                max={8000}
+                precision={0}
+                value={ovRagChunkSize ?? undefined}
+                onChange={(v) => setOvRagChunkSize(typeof v === 'number' ? v : null)}
+                placeholder="大小（跟随平台）"
+                style={{ width: 150 }}
+                addonAfter="字"
+              />
+              <InputNumber
+                min={0}
+                max={4000}
+                precision={0}
+                value={ovRagChunkOverlap ?? undefined}
+                onChange={(v) => setOvRagChunkOverlap(typeof v === 'number' ? v : null)}
+                placeholder="重叠（跟随平台）"
+                style={{ width: 150 }}
+                addonAfter="字"
+              />
+            </span>
+          </SettingsField>
+          <SettingsField
+            label="重建我的文档索引"
+            hint="切换 Embedding 模型或修改切块参数并保存后执行：按新配置重建你名下全部文档的向量索引（旧向量保留但不再使用）。"
+          >
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+              <Button size="small" loading={reindexing} disabled={saving} onClick={() => void runPersonalReindex()}>
+                重建索引
+              </Button>
+              {(reindexNote || reindexError) && (
+                <span className={reindexError ? 'error-text' : 'muted'} style={{ fontSize: 12 }}>
+                  {reindexError || reindexNote}
+                </span>
+              )}
+            </span>
           </SettingsField>
         </SettingsSection>
       </div>

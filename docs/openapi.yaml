@@ -4709,6 +4709,29 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /ai/personal/reindex:
+    post:
+      tags: [AI]
+      operationId: postAIPersonalReindex
+      summary: 重建本人文档检索索引（个人 RAG 参数变更后）
+      description: >-
+        遍历当前用户名下全部未软删、有当前版本的文件，分批重投
+        task:search-index（幂等，可重复执行）。个人 overrides.rag 的
+        embedding 模型或分块参数（chunk_size/chunk_overlap）变更后调用：
+        向量按新身份写入新派生 collection（个人库随用户+模型派生，旧库
+        数据保留）；关键词索引行不变（重投自愈语义）。
+      responses:
+        '200':
+          description: 已投递
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued: { type: integer, description: 重投的文件数 }
+        '503':
+          description: 检索重建未配置（未注入任务队列/列表源）
+
   /ai/personal-settings:
     get:
       tags: [AI]
@@ -4804,6 +4827,18 @@ paths:
                             properties:
                               provider_id: { type: string }
                               model_id: { type: string }
+                          rag:
+                            type: object
+                            description: 个人检索增强覆盖（embedding/top_k/chunk_size/chunk_overlap；缺省跟随平台）
+                            properties:
+                              embedding:
+                                type: object
+                                properties:
+                                  provider_id: { type: string }
+                                  model_id: { type: string }
+                              top_k: { type: integer }
+                              chunk_size: { type: integer }
+                              chunk_overlap: { type: integer }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '503':
           description: 个人配置存储未装配
@@ -4885,7 +4920,7 @@ paths:
                 rules: { type: string, description: 个人规则（≤2000 字符；叠加注入） }
                 overrides:
                   type: object
-                  description: 覆盖型偏好（字段缺省 = 跟随平台；ocr 须指向个人池 vision 模型，temperature 0..2，history_search 枚举校验）
+                  description: 覆盖型偏好（字段缺省 = 跟随平台；ocr 须指向个人池 vision 模型，temperature 0..2，history_search 枚举校验，rag.embedding 须指向个人池 openai_compatible Provider 的 embedding 能力模型）
                   properties:
                     web_search: { type: boolean }
                     history_search: { type: string, enum: [keyword, vector, off] }
@@ -4896,6 +4931,19 @@ paths:
                       properties:
                         provider_id: { type: string }
                         model_id: { type: string }
+                    rag:
+                      type: object
+                      description: 个人检索增强覆盖（字段缺省 = 跟随平台；embedding 覆盖后本人文档向量入用户专属 collection，变更后须 POST /ai/personal/reindex 重建）
+                      properties:
+                        embedding:
+                          type: object
+                          description: 个人 embedding 模型（个人池 openai_compatible Provider + embedding 能力模型）
+                          properties:
+                            provider_id: { type: string }
+                            model_id: { type: string }
+                        top_k: { type: integer, description: 检索召回条数 1..10 }
+                        chunk_size: { type: integer, description: 切块大小 100..8000 字符 }
+                        chunk_overlap: { type: integer, description: 切块重叠 0..chunk_size/2 }
       responses:
         '200':
           description: 保存后的掩码视图（结构同 GET）

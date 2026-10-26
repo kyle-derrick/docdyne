@@ -68,7 +68,7 @@ import {
 } from '../openers'
 import { formatTime, Modal } from '../components/FileBrowser'
 import AIPersonalPanel from '../components/settings/AIPersonalPanel'
-import { useAIEnabled } from '../aiFeature'
+import { aiFeatureLoaded, useAIEnabled } from '../aiFeature'
 import { THEME_ACCENTS, ThemeAccent, ThemeMode, ThemePreference, THEME_EVENT, loadTheme, saveTheme } from '../theme'
 import { MessageKey, saveLocale, t, useLocale } from '../i18n'
 import StorageCleanupPanel from '../components/settings/StorageCleanupPanel'
@@ -1699,7 +1699,9 @@ export default function SettingsPage() {
   // 个人/平台分离（v2.x）：设置页不再区分 admin 分区——平台级配置全部
   // 位于「平台管理」（/admin）；此处仅个人分区，admin 探测仅用于
   // 旧地址（/settings/mail|tls|system|ai|agent）平滑弹回个人「外观」。
-  const sections = aiOn ? baseSettingsSections : baseSettingsSections.filter(([key]) => key !== 'aipersonal')
+  // aiFeature 未加载完成前不按 aiOn=false 做终态分流（深链/整页刷新时
+  //  状态请求与会话恢复竞态，曾把 /settings/aipersonal 弹回默认分区）。
+  const sections = aiOn || !aiFeatureLoaded() ? baseSettingsSections : baseSettingsSections.filter(([key]) => key !== 'aipersonal')
   if (!sections.some(([key]) => key === section)) {
     return <Navigate to="/settings/appearance" replace />
   }

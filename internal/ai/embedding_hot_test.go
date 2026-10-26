@@ -117,8 +117,8 @@ func TestVectorIndexerHotSwitch(t *testing.T) {
 	current := old
 	ix := &VectorIndexer{
 		ChunkSize: 8, Overlap: 0,
-		Resolve: func() (EmbeddingProvider, VectorStore, error) {
-			return NewMockEmbeddingProvider(8), current, nil
+		ResolveOwner: func(uuid.UUID) (EmbeddingProvider, VectorStore, int, int, error) {
+			return NewMockEmbeddingProvider(8), current, 0, -1, nil
 		},
 	}
 	ctx := context.Background()
@@ -134,7 +134,7 @@ func TestVectorIndexerHotSwitch(t *testing.T) {
 	}
 	// 未启用向量（热配置关闭）：安静跳过，零向量库调用。
 	touched := &recordingStore{label: "disabled"}
-	ix.Resolve = func() (EmbeddingProvider, VectorStore, error) { return nil, nil, ErrVectorDisabled }
+	ix.ResolveOwner = func(uuid.UUID) (EmbeddingProvider, VectorStore, int, int, error) { return nil, nil, 0, -1, ErrVectorDisabled }
 	if err := ix.IndexVector(ctx, uuid.New(), uuid.New(), nil, "c.txt", "hello"); err != nil {
 		t.Fatalf("disabled must skip silently: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestVectorIndexerHotSwitch(t *testing.T) {
 	}
 	// 配置错误（未配置 Provider）：原样上抛。
 	cfgErr := errors.New("rag embedding provider \"x\" not configured")
-	ix.Resolve = func() (EmbeddingProvider, VectorStore, error) { return nil, nil, cfgErr }
+	ix.ResolveOwner = func(uuid.UUID) (EmbeddingProvider, VectorStore, int, int, error) { return nil, nil, 0, -1, cfgErr }
 	if err := ix.IndexVector(ctx, uuid.New(), uuid.New(), nil, "d.txt", "hello"); !errors.Is(err, cfgErr) {
 		t.Fatalf("config error must propagate, got %v", err)
 	}
@@ -194,7 +194,7 @@ func TestHybridRetrieverHotResolve(t *testing.T) {
 	kw := keywordStub{[]search.Result{{ID: allowed, Type: "file", Name: "doc"}}}
 	r := &HybridRetriever{
 		Keyword: kw,
-		Resolve: func() (EmbeddingProvider, VectorStore, error) { return nil, nil, ErrVectorDisabled },
+		ResolveUser: func(uuid.UUID) (EmbeddingProvider, VectorStore, error) { return nil, nil, ErrVectorDisabled },
 	}
 	out, err := r.Retrieve(context.Background(), uuid.New(), "q", 5, nil)
 	if err != nil || len(out) != 1 || out[0].ID != allowed || out[0].Snippet != "" {
@@ -202,7 +202,7 @@ func TestHybridRetrieverHotResolve(t *testing.T) {
 	}
 	hr := &HybridRetriever{
 		Keyword: kw,
-		Resolve: func() (EmbeddingProvider, VectorStore, error) {
+		ResolveUser: func(uuid.UUID) (EmbeddingProvider, VectorStore, error) {
 			return NewMockEmbeddingProvider(8), vectorStub{[]VectorHit{{Payload: map[string]any{"file_id": allowed.String(), "text": "hot"}}}}, nil
 		},
 	}

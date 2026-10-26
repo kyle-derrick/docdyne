@@ -81,8 +81,9 @@ func (h *Handler) aiConvoVectorIndex(userID, convoID uuid.UUID, kind string, pay
 	}()
 }
 
-// aiConvoVectorDelete 会话删除后异步清理其向量点（best-effort）。
-func (h *Handler) aiConvoVectorDelete(convoID uuid.UUID) {
+// aiConvoVectorDelete 会话删除后异步清理其向量点（best-effort；userID
+// 用于解析该用户的向量库——个人 embedding 覆盖时点在用户专属库）。
+func (h *Handler) aiConvoVectorDelete(userID, convoID uuid.UUID) {
 	if h.aiConvVectors == nil {
 		return
 	}
@@ -90,7 +91,7 @@ func (h *Handler) aiConvoVectorDelete(convoID uuid.UUID) {
 		defer func() { _ = recover() }()
 		ctx, cancel := context.WithTimeout(context.Background(), aiHistoryVectorIndexTimeout)
 		defer cancel()
-		_ = h.aiConvVectors.DeleteConversation(ctx, convoID)
+		_ = h.aiConvVectors.DeleteConversation(ctx, userID, convoID)
 	}()
 }
 

@@ -523,6 +523,9 @@ type reindexLister interface {
 	// ReindexFileIDs 返回 id 大于 after 的前 limit 个未软删、有当前版本
 	// 的文件 ID（按 id 升序）；spaceID 非 nil 时限定空间。
 	ReindexFileIDs(after uuid.UUID, limit int, spaceID *uuid.UUID) ([]uuid.UUID, error)
+	// ReindexFileIDsByOwner 同上，限定文件属主（个人重建索引用：个人
+	// embedding/分块参数变更后重建本人文档向量）。
+	ReindexFileIDsByOwner(after uuid.UUID, limit int, owner uuid.UUID) ([]uuid.UUID, error)
 }
 
 type gormReindexLister struct{ db *gorm.DB }
@@ -539,6 +542,17 @@ func (l *gormReindexLister) ReindexFileIDs(after uuid.UUID, limit int, spaceID *
 	}
 	var ids []uuid.UUID
 	if err := q.Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// ReindexFileIDsByOwner 属主维度游标分页（个人重建索引）。
+func (l *gormReindexLister) ReindexFileIDsByOwner(after uuid.UUID, limit int, owner uuid.UUID) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	if err := l.db.Model(&files.File{}).
+		Where("deleted_at IS NULL AND type = ? AND current_version_id IS NOT NULL AND id > ? AND owner_id = ?", "file", after, owner).
+		Order("id").Limit(limit).Pluck("id", &ids).Error; err != nil {
 		return nil, err
 	}
 	return ids, nil

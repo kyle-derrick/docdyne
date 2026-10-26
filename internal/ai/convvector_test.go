@@ -96,7 +96,7 @@ func (f *fakeConvStore) DeleteByFilter(ctx context.Context, filter map[string]an
 }
 
 func newConvIndexer(store *fakeConvStore) *ConvVectorIndexer {
-	return &ConvVectorIndexer{Resolve: func() (EmbeddingProvider, VectorStore, error) {
+	return &ConvVectorIndexer{Resolve: func(uuid.UUID) (EmbeddingProvider, VectorStore, error) {
 		return fakeConvEmbedding{}, store, nil
 	}}
 }
@@ -168,7 +168,7 @@ func TestConvVectorSnapshotReplaces(t *testing.T) {
 }
 
 func TestConvVectorDisabled(t *testing.T) {
-	ix := &ConvVectorIndexer{Resolve: func() (EmbeddingProvider, VectorStore, error) {
+	ix := &ConvVectorIndexer{Resolve: func(uuid.UUID) (EmbeddingProvider, VectorStore, error) {
 		return nil, nil, ErrVectorDisabled
 	}}
 	if err := ix.IndexTurn(context.Background(), uuid.New(), uuid.New(), "", "turn", []ConvMsg{{Role: "user", Content: "x"}}); err == nil {

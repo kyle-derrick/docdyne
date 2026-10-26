@@ -20,6 +20,21 @@ type fakeReindexLister struct {
 	calls   []string // "after=<id>:limit=<n>:space=<id|->"
 }
 
+// ReindexFileIDsByOwner 属主过滤版（个人重建索引；内存实现不过滤具体
+// 属主——调用方测试只验证转发语义，属主过滤由 gorm 实现保证）。
+func (f *fakeReindexLister) ReindexFileIDsByOwner(after uuid.UUID, limit int, owner uuid.UUID) ([]uuid.UUID, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]uuid.UUID, 0, limit)
+	for _, id := range f.ids {
+		if id.ID() > after.ID() && len(out) < limit {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeReindexLister) ReindexFileIDs(after uuid.UUID, limit int, spaceID *uuid.UUID) ([]uuid.UUID, error) {
 	if f.err != nil {
 		return nil, f.err

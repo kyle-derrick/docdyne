@@ -3654,6 +3654,19 @@ export interface AIPersonalChatSkill {
   content: string
 }
 
+/** 个人检索增强（RAG）覆盖（字段缺省 = 跟随平台；embedding 覆盖后本人
+ *  文档向量入用户专属 collection，变更后须 postAIPersonalReindex 重建）。 */
+export interface AIPersonalRAGOverrides {
+  /** 个人 embedding 模型（个人池 openai_compatible Provider + embedding 能力模型）。 */
+  embedding?: AIPersonalModelRef
+  /** 检索召回条数 1..10。 */
+  top_k?: number
+  /** 切块大小 100..8000 字符。 */
+  chunk_size?: number
+  /** 切块重叠 0..chunk_size/2。 */
+  chunk_overlap?: number
+}
+
 /** 覆盖型个人偏好（字段缺省 = 跟随平台值；生效视图见 getAIEffectiveConfig）。 */
 export interface AIPersonalOverrides {
   /** 对话联网搜索默认开关。 */
@@ -3666,6 +3679,8 @@ export interface AIPersonalOverrides {
   temperature?: number
   /** 图片兜底识图模型（个人池 vision 模型）。 */
   ocr?: AIPersonalModelRef
+  /** 个人检索增强（RAG）覆盖。 */
+  rag?: AIPersonalRAGOverrides
   /** 对话「我的文件」检索（RAG）默认开关（nil = 跟随平台）。 */
   include_docs?: boolean
 }
@@ -3711,6 +3726,12 @@ export async function getAIPersonalSettings(): Promise<AIPersonalPrefsView> {
 export async function putAIPersonalSettings(input: AIPersonalPrefsInput): Promise<AIPersonalPrefsView> {
   const data = await api<{ prefs: AIPersonalPrefsView }>('/api/v1/ai/personal-settings', jsonInit('PUT', input))
   return data.prefs
+}
+
+/** 重建本人文档检索索引（个人 RAG embedding/分块参数变更后；返回重投文件数）。 */
+export async function postAIPersonalReindex(): Promise<number> {
+  const data = await api<{ queued: number }>('/api/v1/ai/personal/reindex', { method: 'POST' })
+  return data.queued
 }
 
 /** 个人技能列表（GET /ai/personal/skills；对话「技能」弹层与个人技能卡消费）。 */

@@ -53,8 +53,9 @@ func (s *Service) Retrieve(ctx context.Context, user uuid.UUID, query string) ([
 	return s.RetrieveOpt(ctx, user, query, 0, nil)
 }
 
-// RetrieveOpt 带选项召回：topK<=0 用默认；spaceID 非 nil 限定空间
-// （ask_docs 的 space_id 参数；权限过滤仍由 search 层保证）。
+// RetrieveOpt 带选项召回：topK<=0 时用个人覆盖（overrides.rag.top_k）→
+// 平台默认；spaceID 非 nil 限定空间（ask_docs 的 space_id 参数；权限过滤
+// 仍由 search 层保证）。
 func (s *Service) RetrieveOpt(ctx context.Context, user uuid.UUID, query string, topK int, spaceID *uuid.UUID) ([]search.Result, error) {
 	if s.searcher == nil {
 		return nil, nil
@@ -63,6 +64,11 @@ func (s *Service) RetrieveOpt(ctx context.Context, user uuid.UUID, query string,
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+	}
+	if topK <= 0 {
+		if prefs, ok := s.PersonalPrefs(); ok && prefs.Overrides != nil && prefs.Overrides.RAG != nil && prefs.Overrides.RAG.TopK != nil {
+			topK = *prefs.Overrides.RAG.TopK
+		}
 	}
 	if topK <= 0 || topK > RAGTopKMax {
 		topK = RAGTopKDefault

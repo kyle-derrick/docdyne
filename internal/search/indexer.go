@@ -20,7 +20,7 @@ import (
 // SearchIndexHandler），失败仅记日志不影响上传主流程；重复投递幂等
 // （整行覆盖）。
 type VectorIndexer interface {
-	IndexVector(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, string, string) error
+	IndexVectorFor(ctx context.Context, owner, fileID, versionID uuid.UUID, spaceID *uuid.UUID, name, content string) error
 }
 
 // OCRExtractor 抽象图片文字提取（*ai.Service 经 SetOCR 注入；接口放
@@ -103,7 +103,7 @@ func (ix *Indexer) Index(fileID uuid.UUID) error {
 		return err
 	}
 	if ix.vector != nil && content != "" {
-		if err := ix.vector.IndexVector(context.Background(), fileID, versionID, &spaceID, f.Name, content); err != nil {
+		if err := ix.vector.IndexVectorFor(context.Background(), f.OwnerID, fileID, versionID, &spaceID, f.Name, content); err != nil {
 			return err
 		}
 	}

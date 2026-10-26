@@ -80,6 +80,13 @@ export function aiFeatureEnabled(): boolean {
   return status.enabled
 }
 
+/** 状态是否已加载完成（深链/刷新场景：未完成前消费方不应按 false 做终态
+ *  分流——如设置页 aipersonal 分区的重定向判定，避免状态竞态把用户弹回
+ *  默认分区）。 */
+export function aiFeatureLoaded(): boolean {
+  return loaded
+}
+
 /** 当前 AI 能力标志（同步读缓存；未加载完成前全 false）。 */
 export function aiFeatureStatus(): AIFeatureStatus {
   return status

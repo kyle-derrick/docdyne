@@ -41,18 +41,26 @@ type VectorIndexer struct {
 	Vectors    VectorStore
 	ChunkSize  int
 	Overlap    int
-	// Resolve 热解析注入（非 nil 时优先于 Embeddings/Vectors 固定字段）：
-	// 每次索引按当前热配置解析 embedding Provider 与目标向量库视图
-	//（collection 已随视图固定，Ensure/Upsert 不会跨库）。返回
-	// ErrVectorDisabled 时安静跳过（RAG 未启用，零向量库连接），其余
+	// ResolveOwner 按文件属主热解析注入（非 nil 时优先于 Embeddings/
+	// Vectors/ChunkSize/Overlap 固定字段）：每次索引以属主解析 embedding
+	// Provider、目标向量库视图与个人分块参数（个人 overrides.rag 覆盖 →
+	// 用户专属库/切分；collection 已随视图固定，Ensure/Upsert 不会跨库）。
+	// 返回 ErrVectorDisabled 时安静跳过（RAG 未启用，零向量库连接），其余
 	// 错误原样上抛（task:search-index 记日志）。
-	Resolve func() (EmbeddingProvider, VectorStore, error)
+	ResolveOwner func(owner uuid.UUID) (EmbeddingProvider, VectorStore, int, int, error)
 }
 
 func (ix *VectorIndexer) IndexVector(ctx context.Context, fileID, versionID uuid.UUID, spaceID *uuid.UUID, name, content string) error {
+	return ix.IndexVectorFor(ctx, uuid.Nil, fileID, versionID, spaceID, name, content)
+}
+
+// IndexVectorFor 带属主版本（owner = uuid.Nil 时走固定字段/默认分块——
+// 兼容旧装配与测试）。
+func (ix *VectorIndexer) IndexVectorFor(ctx context.Context, owner, fileID, versionID uuid.UUID, spaceID *uuid.UUID, name, content string) error {
 	embeddings, vectors := ix.Embeddings, ix.Vectors
-	if ix.Resolve != nil {
-		emb, store, err := ix.Resolve()
+	chunkSize, overlap := ix.ChunkSize, ix.Overlap
+	if ix.ResolveOwner != nil {
+		emb, store, cs, ov, err := ix.ResolveOwner(owner)
 		if err != nil {
 			if errors.Is(err, ErrVectorDisabled) {
 				return nil
@@ -60,11 +68,17 @@ func (ix *VectorIndexer) IndexVector(ctx context.Context, fileID, versionID uuid
 			return err
 		}
 		embeddings, vectors = emb, store
+		if cs > 0 {
+			chunkSize = cs
+		}
+		if ov >= 0 {
+			overlap = ov
+		}
 	}
 	if embeddings == nil || vectors == nil {
 		return nil
 	}
-	chunks := ChunkText(content, ix.ChunkSize, ix.Overlap)
+	chunks := ChunkText(content, chunkSize, overlap)
 	if len(chunks) == 0 {
 		return nil
 	}

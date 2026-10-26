@@ -207,7 +207,7 @@ func (h *Handler) aiConvoDelete(c *gin.Context) {
 		return
 	}
 	h.deleteConversationAttachments(userID(c), messages)
-	h.aiConvoVectorDelete(id) // vector 档：异步清理该会话的向量点
+	h.aiConvoVectorDelete(userID(c), id) // vector 档：异步清理该会话的向量点（个人库按用户解析）
 	c.Status(http.StatusNoContent)
 }
 

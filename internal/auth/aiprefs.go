@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"github.com/kyle-derrick/docdyne/internal/settings"
 )
@@ -155,9 +154,28 @@ type AIPersonalOverrides struct {
 	// OCR 图片兜底识图模型（指向个人池的 vision 能力 chat 模型；非 vision
 	// 模型对话带图时优先用此模型识图，失败回退平台 ai.ocr 配置）。
 	OCR *AIPersonalModelRef `json:"ocr,omitempty"`
-	// IncludeDocs 对话「我的文件」检索（RAG）默认开关（nil = 跟随平台；
-	// RAG 基础设施如 Qdrant/embedding 模型仍为平台级配置）。
+	// RAG 个人检索增强覆盖（nil = 全部跟随平台；见 AIPersonalRAGOverrides）。
+	RAG *AIPersonalRAGOverrides `json:"rag,omitempty"`
+	// IncludeDocs 对话「我的文件」检索（RAG）默认开关（nil = 跟随平台）。
 	IncludeDocs *bool `json:"include_docs,omitempty"`
+}
+
+// AIPersonalRAGOverrides 个人检索增强（RAG）覆盖集（字段 nil = 跟随平台）：
+// 覆盖 embedding 后该用户的文档向量入「个人专属 collection」（与平台库
+// 及其他用户隔离），检索/会话向量同身份解析；个人条目失效（模型删改）
+// 时运行时静默回落平台链（不报错、不中断对话）。切换 embedding 或分块
+// 参数后需重建个人索引（POST /api/v1/ai/personal/reindex）。
+type AIPersonalRAGOverrides struct {
+	// Embedding 个人 embedding 模型（指向个人池 openai_compatible Provider
+	// 下具备 embedding 能力的模型；nil = 平台 ai.rag.embedding_*）。
+	Embedding *AIPersonalModelRef `json:"embedding,omitempty"`
+	// TopK 检索召回条数（1..10；nil = 平台默认）。
+	TopK *int `json:"top_k,omitempty"`
+	// ChunkSize 切块大小（100..8000 字符；nil = 平台值）。影响个人文档
+	// 入库切分，变更后需重建个人索引。
+	ChunkSize *int `json:"chunk_size,omitempty"`
+	// ChunkOverlap 切块重叠（0..ChunkSize/2；nil = 平台值）。
+	ChunkOverlap *int `json:"chunk_overlap,omitempty"`
 }
 
 // AIPersonalPrefs 为用户个人 AI 配置全集（user_ai_prefs.prefs 的 JSON 结构）。
@@ -444,6 +462,36 @@ func ValidateAIPersonalPrefs(p AIPersonalPrefs) error {
 				return fmt.Errorf("%w: overrides.ocr 模型 %q 缺少 chat+vision 能力", ErrInvalidAIPrefs, o.OCR.ModelID)
 			}
 		}
+		if r := o.RAG; r != nil {
+			if r.Embedding != nil {
+				prov, ok := p.PersonalProviderByID(r.Embedding.ProviderID)
+				if !ok {
+					return fmt.Errorf("%w: overrides.rag.embedding.provider_id %q 不在个人 Provider 中", ErrInvalidAIPrefs, r.Embedding.ProviderID)
+				}
+				if prov.Kind != settings.AIKindOpenAICompatible {
+					return fmt.Errorf("%w: overrides.rag.embedding 须为 openai_compatible Provider（%s 无 embeddings API）", ErrInvalidAIPrefs, prov.Kind)
+				}
+				m, ok := prov.PersonalModelWithID(r.Embedding.ModelID)
+				if !ok {
+					return fmt.Errorf("%w: overrides.rag.embedding.model_id %q 不在 Provider %q 中", ErrInvalidAIPrefs, r.Embedding.ModelID, prov.ID)
+				}
+				if !m.Capabilities.IsEmbedding() {
+					return fmt.Errorf("%w: overrides.rag.embedding 模型 %q 缺少 embedding 能力", ErrInvalidAIPrefs, r.Embedding.ModelID)
+				}
+			}
+			if r.TopK != nil && (*r.TopK < 1 || *r.TopK > 10) {
+				return fmt.Errorf("%w: overrides.rag.top_k 须为 1..10", ErrInvalidAIPrefs)
+			}
+			if r.ChunkSize != nil && (*r.ChunkSize < 100 || *r.ChunkSize > 8000) {
+				return fmt.Errorf("%w: overrides.rag.chunk_size 须为 100..8000", ErrInvalidAIPrefs)
+			}
+			if r.ChunkOverlap != nil && *r.ChunkOverlap < 0 {
+				return fmt.Errorf("%w: overrides.rag.chunk_overlap 须 ≥0", ErrInvalidAIPrefs)
+			}
+			if r.ChunkOverlap != nil && r.ChunkSize != nil && *r.ChunkOverlap > *r.ChunkSize/2 {
+				return fmt.Errorf("%w: overrides.rag.chunk_overlap 须 ≤ chunk_size/2", ErrInvalidAIPrefs)
+			}
+		}
 	}
 	return nil
 }
@@ -622,21 +670,21 @@ func (p AIPersonalPrefs) Masked() AIPersonalPrefsView {
 // GetAIPrefs 读取用户的个人 AI 配置原始 JSON；无记录返回 (nil, nil)（由
 // 调用方归一为空配置）。解析失败（库中 JSON 损坏）返回错误。
 func (s *UserStore) GetAIPrefs(userID uuid.UUID) (json.RawMessage, error) {
-	var raw []byte
-	err := s.db.Raw("SELECT prefs FROM user_ai_prefs WHERE user_id = ?", userID).Scan(&raw).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+	// 注意不能 Scan 到 []byte：GORM 的 Scan 会把目标当切片、尝试把列值
+	// 装进单个元素（uint8）——「converting []uint8 to uint8: invalid
+	// syntax」，行存在也恒报错（GET 个人配置曾因此恒空，保存后刷新即丢
+	// 显示）。jsonb 经 ::text + *string 取回。
+	var raw *string
+	if err := s.db.Raw("SELECT prefs::text FROM user_ai_prefs WHERE user_id = ?", userID).Scan(&raw).Error; err != nil {
 		return nil, err
 	}
-	if len(raw) == 0 {
+	if raw == nil || *raw == "" {
 		return nil, nil
 	}
-	if !json.Valid(raw) {
+	if !json.Valid([]byte(*raw)) {
 		return nil, fmt.Errorf("user_ai_prefs: invalid json for user %s", userID)
 	}
-	return json.RawMessage(raw), nil
+	return json.RawMessage(*raw), nil
 }
 
 // SetAIPrefs 整块写入（UPSERT，更新 updated_at）；prefs 须先经

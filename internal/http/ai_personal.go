@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kyle-derrick/docdyne/internal/ai"
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 )
 
@@ -78,6 +79,43 @@ func (h *Handler) aiServiceFor(svc *ai.Service, userID uuid.UUID) *ai.Service {
 		return userSvc.WithPersonalPrefs(prefs)
 	}
 	return userSvc
+}
+
+// postAIPersonalReindex POST /api/v1/ai/personal/reindex：重建本人文档的
+// 检索索引（个人 overrides.rag 的 embedding/分块参数变更后调用；幂等，
+// 可重复执行）。分批重投 task:search-index，返回 {queued:n}。仅向量路径
+// 需要重建——关键词行不变，但统一重投语义简单且自愈。
+func (h *Handler) postAIPersonalReindex(c *gin.Context) {
+	if h.tasks == nil || h.reindex == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "search reindex is not configured"})
+		return
+	}
+	user := userID(c)
+	queued := 0
+	after := uuid.Nil
+	for {
+		ids, err := h.reindex.ReindexFileIDsByOwner(after, reindexBatchSize, user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to list files for reindex", "queued": queued})
+			return
+		}
+		for _, id := range ids {
+			if err := h.tasks.EnqueueSearchIndex(id); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to enqueue search-index", "queued": queued})
+				return
+			}
+			queued++
+		}
+		if len(ids) < reindexBatchSize {
+			break
+		}
+		after = ids[len(ids)-1]
+	}
+	if h.audit != nil {
+		metadata, _ := json.Marshal(map[string]any{"queued": queued, "scope": "personal"})
+		_ = h.audit.Record(audit.Entry{UserID: &user, Action: "ai.reindex.personal", ResourceType: audit.ResourceAI, ResourceID: "ai/personal/reindex", Status: audit.StatusSuccess, Metadata: string(metadata)})
+	}
+	c.JSON(http.StatusOK, gin.H{"queued": queued})
 }
 
 // getAIPersonalSettings GET /api/v1/ai/personal-settings：本人个人 AI 配置

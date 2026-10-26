@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -601,6 +602,19 @@ func main() {
 		list, _ := settingsStore.AIMCPServices()
 		return list
 	})
+	// aiPrefsFor 读取用户个人 AI 配置（best-effort：失败/无记录返回零值——
+	// 个人池故障不阻塞平台 RAG 链路；向量索引/检索与会话向量共用）。
+	aiPrefsFor := func(user uuid.UUID) auth.AIPersonalPrefs {
+		raw, err := userStore.GetAIPrefs(user)
+		if err != nil || len(raw) == 0 {
+			return auth.AIPersonalPrefs{}
+		}
+		var prefs auth.AIPersonalPrefs
+		if json.Unmarshal(raw, &prefs) != nil {
+			return auth.AIPersonalPrefs{}
+		}
+		return prefs
+	}
 	if vectorClient != nil {
 		ragEffective := func() settings.AIRAGConfig {
 			effective := aiEnvBaseline.RAG
@@ -609,24 +623,47 @@ func main() {
 			}
 			return effective
 		}
-		// 向量路径热解析（索引与检索共用）：RAG mode/开关未启用 →
-		// ErrVectorDisabled（索引安静跳过、检索降级关键词，零 Qdrant
-		// 连接）；启用 → ResolveEmbedding 按当前 Provider/模型派生
-		// collection，取 Qdrant 单例的 Scope 视图（同配置同库、切模型
-		// 即换库）。
-		resolveVectors := func() (ai.EmbeddingProvider, ai.VectorStore, error) {
+		// 向量路径热解析（索引与检索共用，按用户）：RAG mode/开关未启用 →
+		// ErrVectorDisabled（索引安静跳过、检索降级关键词，零 Qdrant 连接）；
+		// 启用 → ResolveEmbeddingFor 按用户解析（个人 overrides.rag.embedding
+		// 覆盖 → 用户专属 collection；否则平台 Provider/模型派生），取
+		// Qdrant 单例的 Scope 视图（同配置同库、切模型即换库）。
+		resolveVectorsFor := func(user uuid.UUID) (ai.EmbeddingProvider, ai.VectorStore, error) {
 			rag := ragEffective()
 			if rag.Mode != "hybrid" || !rag.VectorEnabled {
 				return nil, nil, ai.ErrVectorDisabled
 			}
-			embedding, collection, err := aiService.ResolveEmbedding()
+			embedding, collection, err := aiService.WithPersonalPrefs(aiPrefsFor(user)).ResolveEmbeddingFor(user)
 			if err != nil {
 				return nil, nil, err
 			}
 			return embedding, vectorClient.Scope(collection), nil
 		}
-		searchIndexer.SetVectorIndexer(&ai.VectorIndexer{Resolve: resolveVectors, ChunkSize: cfg.RAGChunkSize, Overlap: cfg.RAGChunkOverlap})
-		hybrid := &ai.HybridRetriever{Keyword: searchStore, Resolve: resolveVectors, CurrentVersion: func(id uuid.UUID) (uuid.UUID, error) {
+		// 索引路径附加个人分块参数（overrides.rag.chunk_* → 平台值 → env）。
+		searchIndexer.SetVectorIndexer(&ai.VectorIndexer{ResolveOwner: func(owner uuid.UUID) (ai.EmbeddingProvider, ai.VectorStore, int, int, error) {
+			emb, store, err := resolveVectorsFor(owner)
+			if err != nil {
+				return nil, nil, 0, -1, err
+			}
+			rag := ragEffective()
+			chunkSize, overlap := cfg.RAGChunkSize, cfg.RAGChunkOverlap
+			if rag.ChunkSize > 0 {
+				chunkSize = rag.ChunkSize
+			}
+			if rag.ChunkOverlap >= 0 {
+				overlap = rag.ChunkOverlap
+			}
+			if prefs := aiPrefsFor(owner); prefs.Overrides != nil && prefs.Overrides.RAG != nil {
+				if r := prefs.Overrides.RAG; r.ChunkSize != nil && *r.ChunkSize > 0 {
+					chunkSize = *r.ChunkSize
+				}
+				if r := prefs.Overrides.RAG; r.ChunkOverlap != nil && *r.ChunkOverlap >= 0 {
+					overlap = *r.ChunkOverlap
+				}
+			}
+			return emb, store, chunkSize, overlap, nil
+		}, ChunkSize: cfg.RAGChunkSize, Overlap: cfg.RAGChunkOverlap})
+		hybrid := &ai.HybridRetriever{Keyword: searchStore, ResolveUser: resolveVectorsFor, CurrentVersion: func(id uuid.UUID) (uuid.UUID, error) {
 			var f files.File
 			if err := db.Select("current_version_id").Where("id = ? AND deleted_at IS NULL", id).First(&f).Error; err != nil {
 				return uuid.Nil, err
@@ -643,8 +680,8 @@ func main() {
 	// ——只看 embedding 是否可用（mock → ErrVectorDisabled 降级关键词）；
 	// 未部署 Qdrant（ai-vector profile）时不注入，vector 档整体降级。
 	if vectorClient != nil {
-		handler.SetConvVectorIndexer(&ai.ConvVectorIndexer{Resolve: func() (ai.EmbeddingProvider, ai.VectorStore, error) {
-			embedding, collection, err := aiService.ResolveConvVectors()
+		handler.SetConvVectorIndexer(&ai.ConvVectorIndexer{Resolve: func(user uuid.UUID) (ai.EmbeddingProvider, ai.VectorStore, error) {
+			embedding, collection, err := aiService.WithPersonalPrefs(aiPrefsFor(user)).ResolveConvVectorsFor(user)
 			if err != nil {
 				return nil, nil, ai.ErrVectorDisabled
 			}

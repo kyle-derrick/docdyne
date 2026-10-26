@@ -652,6 +652,8 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// prefer_personal；api_key 掩码回显、PUT 留空继承）。
 	api.GET("/ai/personal-settings", h.getAIPersonalSettings)
 	api.PUT("/ai/personal-settings", h.putAIPersonalSettings)
+	// 个人重建索引：overrides.rag（embedding/分块）变更后重建本人文档向量。
+	api.POST("/ai/personal/reindex", h.postAIPersonalReindex)
 	// 个人技能 / 个人 MCP 服务（user_ai_prefs 的 skills / mcp_servers 子集
 	// 整表读写；技能供对话「技能」弹层合并展示，MCP 服务在 use_mcp 开启
 	// 时与平台服务合并加载——仅本人对话生效；auth_headers 掩码回显、PUT

@@ -47,10 +47,11 @@ type convVectorDeleter interface {
 	DeleteByFilter(ctx context.Context, filter map[string]any) error
 }
 
-// ConvVectorIndexer 会话向量索引器（Resolve 每次按热配置解析 embedding
-// 与目标集合视图；返回 ErrVectorDisabled 时调用方安静跳过/降级）。
+// ConvVectorIndexer 会话向量索引器（Resolve 每次按用户解析 embedding
+// 与目标集合视图——个人覆盖 overrides.rag.embedding 时切换用户专属库；
+// 返回 ErrVectorDisabled 时调用方安静跳过/降级）。
 type ConvVectorIndexer struct {
-	Resolve func() (EmbeddingProvider, VectorStore, error)
+	Resolve func(userID uuid.UUID) (EmbeddingProvider, VectorStore, error)
 }
 
 // convPointID 稳定点 ID：会话内 role+内容 哈希（同内容去重，重复消息
@@ -69,7 +70,7 @@ func convFilter(userID uuid.UUID) map[string]any {
 // IndexTurn 索引一轮会话消息（snapshot 先清空该会话的全部点再重建）。
 // 消息为空且非 snapshot 时为 no-op。
 func (ix *ConvVectorIndexer) IndexTurn(ctx context.Context, userID, convoID uuid.UUID, title, kind string, msgs []ConvMsg) error {
-	embeddings, vectors, err := ix.resolve()
+	embeddings, vectors, err := ix.resolve(userID)
 	if err != nil {
 		return err
 	}
@@ -120,7 +121,7 @@ func (ix *ConvVectorIndexer) IndexTurn(ctx context.Context, userID, convoID uuid
 
 // Search 向量检索当前用户的会话历史（query 嵌入 + user_id 过滤）。
 func (ix *ConvVectorIndexer) Search(ctx context.Context, userID uuid.UUID, query string, limit int) ([]ConvHit, error) {
-	embeddings, vectors, err := ix.resolve()
+	embeddings, vectors, err := ix.resolve(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,9 +159,10 @@ func (ix *ConvVectorIndexer) Search(ctx context.Context, userID uuid.UUID, query
 	return out, nil
 }
 
-// DeleteConversation 清理一个会话的全部向量点（会话删除时 best-effort）。
-func (ix *ConvVectorIndexer) DeleteConversation(ctx context.Context, convoID uuid.UUID) error {
-	_, vectors, err := ix.resolve()
+// DeleteConversation 清理一个会话的全部向量点（会话删除时 best-effort；
+// userID 用于解析该用户的向量库——个人 embedding 覆盖时点在用户专属库）。
+func (ix *ConvVectorIndexer) DeleteConversation(ctx context.Context, userID, convoID uuid.UUID) error {
+	_, vectors, err := ix.resolve(userID)
 	if err != nil {
 		return err
 	}
@@ -178,9 +180,9 @@ func convFilterConvo(convoID uuid.UUID) map[string]any {
 	}}}
 }
 
-func (ix *ConvVectorIndexer) resolve() (EmbeddingProvider, VectorStore, error) {
+func (ix *ConvVectorIndexer) resolve(userID uuid.UUID) (EmbeddingProvider, VectorStore, error) {
 	if ix == nil || ix.Resolve == nil {
 		return nil, nil, ErrVectorDisabled
 	}
-	return ix.Resolve()
+	return ix.Resolve(userID)
 }

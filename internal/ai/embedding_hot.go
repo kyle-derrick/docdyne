@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
+
 	"github.com/kyle-derrick/docdyne/internal/settings"
 )
 
@@ -56,6 +58,42 @@ func (s *Service) ResolveEmbedding() (EmbeddingProvider, string, error) {
 	return embeddingProviderFor(p, model), EmbeddingCollection(prefix, p.ID, model), nil
 }
 
+// ResolveEmbeddingFor 按用户解析（个人覆盖优先）：挂载的个人配置
+// overrides.rag.embedding 命中（openai_compatible Provider + embedding 能力
+// 模型）→ 个人 embedding 客户端 + 用户专属 collection；未配置/失效（模型
+// 删改）→ 静默回落平台链（ResolveEmbedding）。个人库前缀 u<uid8>_ 保证
+// 用户间与平台库完全隔离，换模型即换库（同平台语义）。
+func (s *Service) ResolveEmbeddingFor(userID uuid.UUID) (EmbeddingProvider, string, error) {
+	prefs, ok := s.PersonalPrefs()
+	if ok && prefs.Overrides != nil && prefs.Overrides.RAG != nil && prefs.Overrides.RAG.Embedding != nil {
+		ref := prefs.Overrides.RAG.Embedding
+		if prov, pok := ResolvePersonalProvider(prefs, ref.ProviderID); pok && prov.Kind == settings.AIKindOpenAICompatible {
+			if m, mok := prov.ModelWithID(ref.ModelID); mok && m.Capabilities.IsEmbedding() {
+				cfg, err := s.Config()
+				if err != nil {
+					return nil, "", fmt.Errorf("read ai config: %w", err)
+				}
+				return embeddingProviderFor(prov, m.ID), UserEmbeddingCollection(cfg.RAG.CollectionPrefix, userID, prov.ID, m.ID), nil
+			}
+		}
+		// 个人条目失效：回落平台链（不中断对话/索引）。
+	}
+	return s.ResolveEmbedding()
+}
+
+// UserEmbeddingCollection 派生用户专属向量 collection 名：
+// prefix + "u" + userID 哈希 + "_" + 身份哈希——用户间隔离 + 换模型换库。
+// 注意不能用 UUIDv7 的原生前缀（时间戳段，同毫秒生成的用户前缀相同，
+// 无区分度）。
+func UserEmbeddingCollection(prefix string, userID uuid.UUID, providerID, modelID string) string {
+	return prefix + "u" + embeddingIdentityHash("user", userID.String()) + "_" + embeddingIdentityHash(providerID, modelID)
+}
+
+// userHash 用户维度的稳定短哈希（个人库命名共用：文件库与会话 conv_ 变体）。
+func userHash(userID uuid.UUID) string {
+	return embeddingIdentityHash("user", userID.String())
+}
+
 // ResolveConvVectors 解析会话向量档（ai.history_search=vector）的 embedding
 // 与派生 collection：与文件 RAG 同 embedding 身份、conv_ 变体名隔离。
 // mock embedding 的向量无语义召回意义（sha256 散列）——返回
@@ -73,6 +111,31 @@ func (s *Service) ResolveConvVectors() (EmbeddingProvider, string, error) {
 		return nil, "", ErrVectorDisabled
 	}
 	return embeddingProviderFor(p, model), ConvCollection(cfg.RAG.CollectionPrefix, p.ID, model), nil
+}
+
+// ResolveConvVectorsFor 按用户解析会话向量档（个人 overrides.rag.embedding
+// 覆盖 → 用户专属 conv_ 变体库；个人 embedding 不可用/mock 时降级
+// ErrVectorDisabled——个人 mock 无语义，同平台语义）。未配置个人覆盖时与
+// ResolveConvVectors 等价。
+func (s *Service) ResolveConvVectorsFor(userID uuid.UUID) (EmbeddingProvider, string, error) {
+	prefs, ok := s.PersonalPrefs()
+	if ok && prefs.Overrides != nil && prefs.Overrides.RAG != nil && prefs.Overrides.RAG.Embedding != nil {
+		ref := prefs.Overrides.RAG.Embedding
+		if prov, pok := ResolvePersonalProvider(prefs, ref.ProviderID); pok && prov.Kind == settings.AIKindOpenAICompatible {
+			if m, mok := prov.ModelWithID(ref.ModelID); mok && m.Capabilities.IsEmbedding() {
+				cfg, err := s.Config()
+				if err != nil {
+					return nil, "", fmt.Errorf("read ai config: %w", err)
+				}
+				// 用户专属会话库：prefix + conv_u<userHash>_<身份哈希>（与该
+				// 用户文件库 u<userHash>_<hash> 仅前缀 conv_ 之差，语义对齐
+				// 平台 conv_ 变体）。
+				coll := cfg.RAG.CollectionPrefix + "conv_u" + userHash(userID) + "_" + embeddingIdentityHash(prov.ID, m.ID)
+				return embeddingProviderFor(prov, m.ID), coll, nil
+			}
+		}
+	}
+	return s.ResolveConvVectors()
 }
 
 // embeddingProviderFor 取（或缓存）OpenAI 兼容 embedding 客户端。缓存键含

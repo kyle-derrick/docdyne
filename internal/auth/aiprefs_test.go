@@ -406,3 +406,50 @@ func TestValidateAIPersonalPrefsChatSkillsRulesOverrides(t *testing.T) {
 		t.Fatal("non-vision ocr model accepted")
 	}
 }
+
+// TestValidateAIPersonalRAGOverrides 个人 RAG 覆盖校验：合法 embedding 引用
+// 通过；非法 provider/模型/能力/kind 拒绝；top_k/chunk 范围校验。
+func TestValidateAIPersonalRAGOverrides(t *testing.T) {
+	i := func(v int) *int { return &v }
+	cases := []struct {
+		name string
+		rag  *AIPersonalRAGOverrides
+	}{
+		{"合法 embedding", &AIPersonalRAGOverrides{Embedding: &AIPersonalModelRef{ProviderID: "mine", ModelID: "deepseek-emb"}}},
+		{"非法 provider", &AIPersonalRAGOverrides{Embedding: &AIPersonalModelRef{ProviderID: "nope", ModelID: "deepseek-emb"}}},
+		{"非法模型", &AIPersonalRAGOverrides{Embedding: &AIPersonalModelRef{ProviderID: "mine", ModelID: "nope"}}},
+		{"非 embedding 能力", &AIPersonalRAGOverrides{Embedding: &AIPersonalModelRef{ProviderID: "mine", ModelID: "deepseek-chat"}}},
+		{"top_k 越界", &AIPersonalRAGOverrides{TopK: i(11)}},
+		{"chunk_size 越界", &AIPersonalRAGOverrides{ChunkSize: i(50)}},
+		{"overlap 超 size/2", &AIPersonalRAGOverrides{ChunkSize: i(100), ChunkOverlap: i(60)}},
+	}
+	for i, c := range cases {
+		p := validPrefs()
+		p.Overrides = &AIPersonalOverrides{RAG: c.rag}
+		err := ValidateAIPersonalPrefs(p)
+		if i == 0 {
+			if err != nil {
+				t.Fatalf("case %q 应通过: %v", c.name, err)
+			}
+			continue
+		}
+		if err == nil || !errors.Is(err, ErrInvalidAIPrefs) {
+			t.Fatalf("case %q 应拒绝, got %v", c.name, err)
+		}
+	}
+	// anthropic Provider 的 embedding 覆盖拒绝（无 embeddings API）。
+	p := validPrefs()
+	p.Providers[0].Kind = AIPersonalKindAnthropic
+	p.Overrides = &AIPersonalOverrides{RAG: &AIPersonalRAGOverrides{Embedding: &AIPersonalModelRef{ProviderID: "mine", ModelID: "deepseek-emb"}}}
+	if err := ValidateAIPersonalPrefs(p); err == nil || !errors.Is(err, ErrInvalidAIPrefs) {
+		t.Fatalf("anthropic embedding 应拒绝, got %v", err)
+	}
+	// 合法参数组合通过。
+	p2 := validPrefs()
+	p2.Overrides = &AIPersonalOverrides{RAG: &AIPersonalRAGOverrides{
+		TopK: i(5), ChunkSize: i(1200), ChunkOverlap: i(100),
+	}}
+	if err := ValidateAIPersonalPrefs(p2); err != nil {
+		t.Fatalf("合法参数组合应通过: %v", err)
+	}
+}

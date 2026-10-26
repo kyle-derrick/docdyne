@@ -13,11 +13,12 @@ type HybridRetriever struct {
 	Embeddings     EmbeddingProvider
 	Vectors        VectorStore
 	CurrentVersion func(uuid.UUID) (uuid.UUID, error)
-	// Resolve 热解析注入（非 nil 时优先于 Embeddings/Vectors 固定字段）：
-	// 每次检索按当前热配置解析 embedding Provider 与目标向量库视图
-	//（embedding 热切换免重启）。失败（含 ErrVectorDisabled——mode/开关
-	// 关闭）降级纯关键词召回：向量侧本就是 best-effort 增强。
-	Resolve func() (EmbeddingProvider, VectorStore, error)
+	// ResolveUser 按用户热解析注入（非 nil 时优先于 Embeddings/Vectors
+	// 固定字段）：每次检索以当前用户解析 embedding Provider 与目标向量库
+	// 视图（个人 overrides.rag.embedding 覆盖 → 用户专属库；平台热配置
+	// 免重启）。失败（含 ErrVectorDisabled——mode/开关关闭）降级纯关键词
+	// 召回：向量侧本就是 best-effort 增强。
+	ResolveUser func(user uuid.UUID) (EmbeddingProvider, VectorStore, error)
 }
 
 func (r *HybridRetriever) Retrieve(ctx context.Context, user uuid.UUID, query string, topK int, spaceID *uuid.UUID) ([]search.Result, error) {
@@ -26,8 +27,8 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, user uuid.UUID, query st
 		return nil, err
 	}
 	embeddings, vectors := r.Embeddings, r.Vectors
-	if r.Resolve != nil {
-		if emb, store, rerr := r.Resolve(); rerr == nil {
+	if r.ResolveUser != nil {
+		if emb, store, rerr := r.ResolveUser(user); rerr == nil {
 			embeddings, vectors = emb, store
 		} else {
 			embeddings, vectors = nil, nil
