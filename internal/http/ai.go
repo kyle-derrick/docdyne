@@ -420,12 +420,8 @@ func (h *Handler) aiChat(c *gin.Context) {
 	var ocrOverrideModel string
 	if o := prefs.Overrides; o != nil {
 		tempOverride = o.Temperature
-		if o.OCR != nil {
-			if p, ok := ai.ResolvePersonalProvider(prefs, o.OCR.ProviderID); ok {
-				if m, ok2 := p.ModelWithID(o.OCR.ModelID); ok2 && m.Capabilities.Vision && m.Capabilities.IsChat() {
-					ocrOverride, ocrOverrideModel = &p, m.ID
-				}
-			}
+		if p, m, ok := ai.PersonalOCRTarget(prefs); ok {
+			ocrOverride, ocrOverrideModel = &p, m
 		}
 	}
 	var memExec ai.ToolExecutorFunc

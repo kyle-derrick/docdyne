@@ -3464,6 +3464,13 @@ paths:
           required: false
           description: 编辑器界面语言（BCP 47，如 zh-CN；非法值回退 zh）
           schema: { type: string }
+        - name: path
+          in: query
+          required: false
+          description: >-
+            目录分享条目路径（相对分享根的 canonical path；v2.6 条目级
+            Office 预览）。非空时经分享树解析目标文件（单文件分享留空）。
+          schema: { type: string }
       responses:
         '200':
           description: 只读查看会话配置
@@ -3492,6 +3499,49 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '404': { $ref: '#/components/responses/NotFound' }
         '410': { $ref: '#/components/responses/Gone' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /public/shares/{token}/entry-preview:
+    get:
+      tags: [Public Shares]
+      operationId: publicShareEntryPreview
+      summary: 目录分享条目的类型化预览指引（无认证）
+      description: >-
+        目录分享 zip 条目存在 ready 解包包时返回 {kind:"webpkg",
+        url:"/content/<pid>/index.html", same_origin}（与单文件分享
+        /preview 的 webpkg 联动同构；前端以 sandbox iframe 渲染，
+        same_origin 与平台设置 content.allow_same_origin 联动）。无
+        ready 包返回 415（前端回退「不支持在线预览/下载」）。预览成功
+        计入 view_count。Office 条目走 office 端点的 path 参数，不经此端点。
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: path
+          in: query
+          required: true
+          description: 条目路径（相对分享根的 canonical path）
+          schema: { type: string }
+      responses:
+        '200':
+          description: 网页包预览指引
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebpkgPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: 分享受密码保护且未携带有效会话 cookie
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '410': { $ref: '#/components/responses/Gone' }
+        '415':
+          description: 条目无 ready 解包包（不支持 webpkg 预览）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /public/shares/{token}/tree/*path:

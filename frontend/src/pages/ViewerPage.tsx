@@ -8,12 +8,14 @@
 // /excalidraw）不受影响，仅本页只读。
 // FileViewerDispatch / RawHtmlViewer 同时供按路径查看页（/view/by-path）
 // 复用：fileId 由 resolve 结果提供（各编辑器页支持 fileId prop）。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'antd'
 import { useParams, useSearchParams } from 'react-router-dom'
+import { Download, Sparkles } from 'lucide-react'
 import {
   FileWithVersion,
   PreviewContent,
+  downloadFileById,
   fetchFileText,
   fetchPreview,
   getFileMeta,
@@ -35,6 +37,9 @@ import TextEditorPage from './TextEditorPage'
 import MermaidDiagram from '../components/MermaidDiagram'
 import XMindViewer from '../components/XMindViewer'
 import ViewerAIWidget from '../components/ViewerAIWidget'
+import { ViewerFloatMenuProvider } from '../components/ViewerFloatMenu'
+import type { FloatingAction } from '../components/FloatingActionBar'
+import { useAIEnabled } from '../aiFeature'
 import { setAIContextFile } from '../components/AIAssistant'
 import { useColorMode } from '../theme'
 
@@ -412,6 +417,21 @@ export default function ViewerPage() {
   // ?open=<viewMethod>：强制查看方式（「打开方式」子菜单 / 用户偏好传递）。
   const forceOpen = searchParams.get('open') ?? undefined
   const [file, setFile] = useState<FileWithVersion | null>(null)
+  // 统一悬浮菜单（v2.6）：AI 助理 + 下载（页面级）与查看器注册动作（如
+  // xmind 转 md）合并为一个可拖拽悬浮菜单；AI 卡片仍由 ViewerAIWidget
+  // 渲染（hideBall + 受控 open，菜单动作触发）。hooks 必须在早退之前。
+  const aiOn = useAIEnabled()
+  const [aiOpen, setAiOpen] = useState(false)
+  const baseActions = useMemo<FloatingAction[]>(() => {
+    const acts: FloatingAction[] = []
+    if (aiOn) {
+      acts.push({ key: 'ai', label: 'AI 助理（对话 / 摘要 / 修改）', icon: Sparkles, onClick: () => setAiOpen((v) => !v) })
+    }
+    if (file) {
+      acts.push({ key: 'download', label: '下载', icon: Download, onClick: () => void downloadFileById(file.id, file.name) })
+    }
+    return acts
+  }, [aiOn, file])
   const [error, setError] = useState('')
   // AI 助理「保存为新版本」后的预览刷新：key 自增触发 FileViewerDispatch
   // 整体重挂载（重新拉取元数据与预览，页面同步更新）。
@@ -454,7 +474,7 @@ export default function ViewerPage() {
   if (!file) return <main className="text-editor-page"><div className="text-editor-state">正在加载…</div></main>
 
   return (
-    <>
+    <ViewerFloatMenuProvider baseActions={baseActions}>
       <FileViewerDispatch
         key={reloadKey}
         fileId={file.id}
@@ -462,8 +482,10 @@ export default function ViewerPage() {
         resolveRawUrl={resolveRawUrl}
         force={forceOpen}
       />
-      {/* 悬浮 AI 助理（可摘要/对话/修改保存新版本；AI 未启用时组件自隐藏）。 */}
-      <ViewerAIWidget fileId={file.id} fileName={file.name} onSaved={handleAISaved} />
-    </>
+      {/* AI 助理卡片（悬浮球并入统一菜单；AI 未启用时组件自隐藏）。 */}
+      {aiOn && (
+        <ViewerAIWidget fileId={file.id} fileName={file.name} onSaved={handleAISaved} hideBall open={aiOpen} onOpenChange={setAiOpen} />
+      )}
+    </ViewerFloatMenuProvider>
   )
 }

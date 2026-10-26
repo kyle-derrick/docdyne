@@ -4,10 +4,11 @@
 //   （纯浏览器 JS 库，支持缩放/拖拽/主题/多布局，无 Node.js 依赖）
 // - 悬浮按钮「转为 Markdown」
 // - 老版 content.xml 与损坏文件给出明确错误
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { convertMarkdown, fetchFileArrayBuffer } from '../api'
 import { useLocale } from '../i18n'
 import FloatingActionBar from './FloatingActionBar'
+import { useViewerFloatActions } from './ViewerFloatMenu'
 import { FileText } from 'lucide-react'
 import { unzipSync, strFromU8 } from 'fflate'
 import MindMap from 'simple-mind-map'
@@ -144,6 +145,13 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId, zh, loadBuffer])
 
+  // 转换结果提示自动消退（5s——「已生成…正在打开编辑…」曾常驻不消失）。
+  useEffect(() => {
+    if (!convertNotice && !convertError) return
+    const timer = window.setTimeout(() => { setConvertNotice(''); setConvertError('') }, 5000)
+    return () => window.clearTimeout(timer)
+  }, [convertNotice, convertError])
+
   const handleConvert = async () => {
     if (converting) return
     setConverting(true)
@@ -160,9 +168,21 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
     }
   }
 
+  // 统一悬浮菜单宿主（查看页/分享页）：转 md 动作注册进宿主菜单；无宿主
+  //（查看弹窗/富文本嵌入）回退自渲染悬浮钮。
+  const hosted = useViewerFloatActions('xmind-convert', useMemo(
+    () => (convertible ? [{
+      key: 'convert',
+      label: converting ? (zh ? '转换中…' : 'Converting…') : (zh ? '转为 Markdown' : 'Convert to Markdown'),
+      icon: FileText,
+      onClick: () => void handleConvert(),
+    }] : null),
+    [convertible, converting, zh, handleConvert],
+  ))
+
   return (
     <div className="xmind-viewer" title={title}>
-      {convertible && (
+      {convertible && !hosted && (
         <FloatingActionBar
           actions={[{
             key: 'convert',

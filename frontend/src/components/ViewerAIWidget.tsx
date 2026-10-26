@@ -153,6 +153,9 @@ export default function ViewerAIWidget({
   contextText,
   showSummary = true,
   allowSave = true,
+  hideBall = false,
+  open: openControlled,
+  onOpenChange,
 }: {
   /** 当前用户空间内的文件 id（认证上下文）；分享页访客无此语义可省略
    *  （省略时不做会话持久化与「保存为新版本」，上下文经 contextText 注入）。 */
@@ -170,6 +173,12 @@ export default function ViewerAIWidget({
   showSummary?: boolean
   /** 是否允许「保存为新版本」（分享页访客只读，默认关）。 */
   allowSave?: boolean
+  /** 隐藏悬浮球（统一悬浮菜单宿主场景：AI 动作在菜单里，卡片仍由本组件
+   *  渲染；受控 open/onOpenChange 联动）。 */
+  hideBall?: boolean
+  /** 受控展开（统一悬浮菜单触发）；缺省为内部自管。 */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
   const locale = useLocale()
   const zh = locale === 'zh-CN'
@@ -182,7 +191,14 @@ export default function ViewerAIWidget({
   // 时改贴弹窗容器右下角（JS 定位）；拖拽后切 left/top 自定义；双击重置。
   // 显示时机：挂载后延迟 ~250ms（弹窗动画/DOM 稳定）测量边界完成才显示，
   // 弹窗内不会「先视口右下角再跳到弹窗右下角」。
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  /** 生效展开态：受控（统一悬浮菜单触发）> 内部自管。 */
+  const open = openControlled ?? openInternal
+  const setOpen = (v: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof v === 'function' ? v(open) : v
+    if (onOpenChange) onOpenChange(next)
+    else setOpenInternal(next)
+  }
   // 位置记忆仅 float 形态（embedded 弹窗内联，卡片恒锚定弹窗右下角）。
   const [customPos, setCustomPos] = useState<CustomPos>(() => (variant === 'float' ? loadPos() : null))
   const [dragging, setDragging] = useState(false)
@@ -834,7 +850,7 @@ export default function ViewerAIWidget({
             </Button>
           </span>
         </Tooltip>
-      ) : (
+      ) : !hideBall ? (
         <button
           type="button"
           ref={(el) => { hostRef.current = el }}
@@ -854,7 +870,7 @@ export default function ViewerAIWidget({
         >
           <Sparkles size={14} strokeWidth={2} aria-hidden="true" />
         </button>
-      )}
+      ) : null}
     </>
   )
 }

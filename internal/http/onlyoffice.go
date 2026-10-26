@@ -136,24 +136,45 @@ func (h *Handler) publicShareOfficeConfig(c *gin.Context) {
 	if !h.shareSessionAllowed(c, token, pre.Share) {
 		return
 	}
-	r, err := h.shares.ResolveForPreview(token)
-	if publicShareError(c, err) {
-		return
+	// 目录分享条目（v2.6）：?path= 非空时经树解析目标文件（条目预览与
+	// 单文件分享同口径，Type Coverage 对齐主应用）；空 = 单文件分享。
+	var targetFile files.File
+	var targetVersion files.FileVersion
+	if rel := strings.TrimSpace(c.Query("path")); rel != "" {
+		result, terr := h.shares.ResolveTree(token, rel)
+		if publicShareError(c, terr) {
+			return
+		}
+		if result.Folder || result.File == nil || result.File.Type != "file" || result.File.CurrentVersionID == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "share entry is not a file"})
+			return
+		}
+		targetFile = *result.File
+		targetVersion = files.FileVersion{ID: *result.File.CurrentVersionID}
+		if err := h.shares.IncrementPreviewView(share.Resolved{Share: result.Share, File: targetFile}); err == nil {
+			h.recordPublicAccessEvent(c, share.Resolved{Share: result.Share, File: targetFile}, share.ActionPreview)
+		}
+	} else {
+		r, rerr := h.shares.ResolveForPreview(token)
+		if publicShareError(c, rerr) {
+			return
+		}
+		if r.File.Type != "file" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "share target is not a file"})
+			return
+		}
+		targetFile, targetVersion = r.File, r.Version
+		if err := h.shares.IncrementPreviewView(r); err == nil {
+			h.recordPublicAccessEvent(c, r, share.ActionPreview)
+		}
 	}
-	if r.File.Type != "file" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "share target is not a file"})
-		return
-	}
-	config, err := h.onlyoffice.NewShareViewConfig(r.File, r.Version, onlyoffice.SessionOptions{
+	config, err := h.onlyoffice.NewShareViewConfig(targetFile, targetVersion, onlyoffice.SessionOptions{
 		Lang:          c.Query("lang"),
 		AllowDownload: pre.Share.Permission == share.PermissionDownload,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "onlyoffice operation failed"})
 		return
-	}
-	if err := h.shares.IncrementPreviewView(r); err == nil {
-		h.recordPublicAccessEvent(c, r, share.ActionPreview)
 	}
 	scheme, host := requestSchemeHost(c)
 	c.JSON(http.StatusOK, gin.H{"server_url": h.onlyoffice.PublicServerURLFor(scheme, host), "config": config})

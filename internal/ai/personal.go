@@ -168,6 +168,24 @@ func personalDefaultTarget(prefs auth.AIPersonalPrefs, scenario string) (ChatTar
 	return ChatTarget{}, false
 }
 
+// PersonalOCRTarget 解析个人 OCR 覆盖目标（overrides.ocr → 个人池
+// vision 能力 chat 模型）。未设置/失效返回 ok=false（调用方回落平台
+// ai.ocr 配置）。
+func PersonalOCRTarget(prefs auth.AIPersonalPrefs) (settings.AIProvider, string, bool) {
+	if prefs.Overrides == nil || prefs.Overrides.OCR == nil {
+		return settings.AIProvider{}, "", false
+	}
+	ref := prefs.Overrides.OCR
+	provider, ok := ResolvePersonalProvider(prefs, ref.ProviderID)
+	if !ok {
+		return settings.AIProvider{}, "", false
+	}
+	if m, ok := provider.ModelWithID(ref.ModelID); ok && m.Capabilities.Vision && m.Capabilities.IsChat() {
+		return provider, m.ID, true
+	}
+	return settings.AIProvider{}, "", false
+}
+
 // personalDefaultModel 返回个人 Provider 的场景默认模型（default_models
 // 命中同 Provider 优先），否则首个 chat 能力模型，再否则首个模型。
 func personalDefaultModel(prefs auth.AIPersonalPrefs, provider settings.AIProvider, scenario string) string {

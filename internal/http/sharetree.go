@@ -138,3 +138,37 @@ func (h *Handler) serveRawShare(c *gin.Context) {
 	}
 	h.serveRawBlob(c, result.File.Name, *result.Blob)
 }
+
+// publicShareEntryPreview GET /api/v1/public/shares/:token/entry-preview?path=：
+// 目录分享条目的类型化预览指引（v2.6：与单文件分享 /preview 的 webpkg 联动
+// 对齐）。zip 候选条目存在 ready 解包包时返回 {kind:"webpkg",
+// url:"/content/<pid>/index.html", same_origin}（前端以 sandbox iframe 渲染，
+// same_origin 与平台设置 content.allow_same_origin 联动）；无 ready 包返回
+// 415（前端回退「不支持在线预览/下载」分支）。Office 条目走 office 端点的
+// path 参数（publicShareOfficeConfig），不经此端点。
+func (h *Handler) publicShareEntryPreview(c *gin.Context) {
+	token := c.Param("token")
+	pre, err := h.shares.Resolve(token)
+	if publicShareError(c, err) {
+		return
+	}
+	if !h.shareSessionAllowed(c, token, pre.Share) {
+		return
+	}
+	rel := strings.TrimSpace(c.Query("path"))
+	result, err := h.shares.ResolveTree(token, rel)
+	if publicShareError(c, err) {
+		return
+	}
+	if result.Folder || result.File == nil || result.Blob == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "entry is not a file"})
+		return
+	}
+	record := func() error {
+		return h.shares.IncrementPreviewView(share.Resolved{Share: result.Share, File: *result.File})
+	}
+	if h.tryWebpkgPreview(c, *result.File, *result.Blob, record) {
+		return
+	}
+	c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "no typed preview for entry"})
+}

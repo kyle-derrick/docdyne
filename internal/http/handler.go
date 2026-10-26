@@ -928,6 +928,8 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// Office 文档公开查看会话（OnlyOffice view 配置；集成启用时可用，访客
 	// 无需登录，view/download 权限均可预览）。
 	public.GET("/shares/:token/office", h.publicShareOfficeConfig)
+	// 目录分享条目的类型化预览（zip→webpkg 指引；office 走 office 端点 path 参数）。
+	public.GET("/shares/:token/entry-preview", h.publicShareEntryPreview)
 	// 目录分享树（清单/子文件元数据 + raw grant 签发；密码分享先 verify）。
 	public.GET("/shares/:token/tree/*path", h.publicShareTree)
 	public.POST("/shares/:token/verify", shareVerifyLimiter(NewRateLimiter(shareVerifyRateLimitPerMin)), h.publicShareVerify)

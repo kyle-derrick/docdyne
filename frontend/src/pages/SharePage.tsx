@@ -9,9 +9,9 @@
 //   查看弹窗同规格），补齐富文本(.ddrt/.ddoc)/md/xmind/白板/mermaid/
 //   drawio 的只读渲染路径（内容经 /raw/share 白名单扩展获取）；
 // - 密码保护分享先解锁（HttpOnly 会话 cookie），水印开启时叠加全屏覆盖层。
-import { FormEvent, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { FileQuestion, FileText, Folder, Lock , Download } from 'lucide-react'
+import { FileQuestion, FileText, Folder, Lock, Download, Sparkles } from 'lucide-react'
 import { Button, Input, Modal as AntdModal, Segmented } from 'antd'
 import {
   ApiError,
@@ -22,6 +22,7 @@ import {
   ShareTreeEntry,
   fetchPublicPreviewText,
   fetchPublicShareOffice,
+  fetchPublicShareEntryWebpkg,
   fetchPublicWebpkgPreview,
   getPublicShare,
   isDdocFile,
@@ -43,9 +44,11 @@ import DrawioViewer from '../components/DrawioViewer'
 import ExcalidrawViewer from '../components/ExcalidrawViewer'
 import MermaidDiagram from '../components/MermaidDiagram'
 import XMindViewer from '../components/XMindViewer'
-import FloatingActionBar, { type FloatingAction } from '../components/FloatingActionBar'
+import type { FloatingAction } from '../components/FloatingActionBar'
+import { ViewerFloatMenuProvider } from '../components/ViewerFloatMenu'
 import ViewerAIWidget from '../components/ViewerAIWidget'
 import { useColorMode } from '../theme'
+import { useAIEnabled } from '../aiFeature'
 
 // 富文本编辑器（Tiptap 产物 1MB+）懒加载独立 chunk（与 DdocEditorPage 同法）。
 const RichTextEditor = lazy(() => import('../components/richtext/RichTextEditor'))
@@ -149,7 +152,7 @@ function sortTreeEntries(entries: ShareTreeEntry[]): ShareTreeEntry[] {
  * 签名的只读 DocEditor 配置，复用 EditorPage 的 api.js 动态加载初始化编辑
  * 器（恒 view 模式）；失败（集成未启用/网络）回落「不支持在线预览」文案。
  */
-function PublicOfficeViewer({ token, name }: { token: string; name: string }) {
+function PublicOfficeViewer({ token, name, path }: { token: string; name: string; path?: string }) {
   const dark = useColorMode() === 'dark'
   const [phase, setPhase] = useState<'loading' | 'ready' | 'failed'>('loading')
   const shellRef = useRef<HTMLDivElement | null>(null)
@@ -161,7 +164,7 @@ function PublicOfficeViewer({ token, name }: { token: string; name: string }) {
     const init = async () => {
       setPhase('loading')
       try {
-        const { server_url, config }: PublicShareOffice = await fetchPublicShareOffice(token, 'zh-CN')
+        const { server_url, config }: PublicShareOffice = await fetchPublicShareOffice(token, 'zh-CN', undefined, path)
         await loadDocEditorScript(server_url)
         if (!alive || !window.DocsAPI?.DocEditor || !shellRef.current) return
         const holder = document.createElement('div')
@@ -267,7 +270,7 @@ function PublicSingleDdocViewer({ token }: { token: string }) {
  * xmind/白板(drawio/excalidraw)/图片/PDF/纯文本。内容经 raw/share 获取
  * （后端白名单已扩展相应扩展名）；html 仍新窗口打开（点击处已分流）。
  */
-function PublicEntryViewer({ rawBase, entry }: { rawBase: string; entry: ShareTreeEntry }) {
+function PublicEntryViewer({ token, rawBase, entry }: { token: string; rawBase: string; entry: ShareTreeEntry }) {
   const dark = useColorMode() === 'dark'
   const lower = entry.name.toLowerCase()
   const url = rawUrlOf(rawBase, entry.path, false)
@@ -367,9 +370,46 @@ function PublicEntryViewer({ rawBase, entry }: { rawBase: string; entry: ShareTr
     if (text === null) return <ViewerState text="正在加载内容…" />
     return <div className="text-editor-page viewer-only"><pre className="preview-text">{text}</pre></div>
   }
+  // Office 文档（v2.6）：与单文件分享同款 OnlyOffice 访客预览（经 office
+  // 端点的 path 参数按树解析目标文件）。
+  if (isOfficeFile(lower)) {
+    return <PublicOfficeViewer token={token} name={entry.name} path={entry.path} />
+  }
+  // 网页包 zip（v2.6）：entry-preview 存在 ready 解包包时以 sandbox iframe
+  // 渲染（same_origin 与平台设置联动，同单文件分享）。
+  if (/\.zip$/i.test(lower) || (entry.mime_type ?? '').split(';')[0].trim().toLowerCase() === 'application/zip') {
+    return <PublicEntryWebpkg token={token} entry={entry} />
+  }
   return (
     <ViewerState text="该文件类型不支持在线预览，可下载后查看。" />
   )
+}
+
+/** 目录分享 zip 条目的网页包渲染（无 ready 包回退「不支持预览/下载」）。 */
+function PublicEntryWebpkg({ token, entry }: { token: string; entry: ShareTreeEntry }) {
+  const [webpkg, setWebpkg] = useState<{ url: string; same_origin: boolean } | null>(null)
+  const [absent, setAbsent] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setWebpkg(null)
+    setAbsent(false)
+    fetchPublicShareEntryWebpkg(token, entry.path)
+      .then((w) => { if (alive) setWebpkg(w) })
+      .catch(() => { if (alive) setAbsent(true) })
+    return () => { alive = false }
+  }, [token, entry.path])
+  if (webpkg) {
+    return (
+      <iframe
+        className="preview-frame"
+        sandbox={webpkg.same_origin ? 'allow-scripts allow-same-origin' : 'allow-scripts'}
+        src={webpkg.url}
+        title={entry.name}
+      />
+    )
+  }
+  if (absent) return <ViewerState text="该文件类型不支持在线预览，可下载后查看。" />
+  return <ViewerState text="正在加载网页…" />
 }
 
 /**
@@ -378,11 +418,13 @@ function PublicEntryViewer({ rawBase, entry }: { rawBase: string; entry: ShareTr
  * 内容渲染由 PublicEntryViewer 分发。下载按钮按分享权限展示。
  */
 function ShareEntryModal({
+  token,
   rawBase,
   entry,
   permission,
   onClose,
 }: {
+  token: string
   rawBase: string
   entry: ShareTreeEntry
   permission: 'view' | 'download'
@@ -407,7 +449,7 @@ function ShareEntryModal({
       onCancel={onClose}
     >
       <div className="preview-embed">
-        <PublicEntryViewer rawBase={rawBase} entry={entry} />
+        <PublicEntryViewer token={token} rawBase={rawBase} entry={entry} />
       </div>
       {permission === 'download' && isRawServed(entry.name) && (
         <div className="preview-foot">
@@ -604,7 +646,7 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
 
         {/* 弹窗查看（v2.4：点击文件 = 与文件页一致的查看弹窗）。 */}
         {viewing && rawBase && (
-          <ShareEntryModal rawBase={rawBase} entry={viewing} permission={info.permission} onClose={() => setViewing(null)} />
+          <ShareEntryModal token={token} rawBase={rawBase} entry={viewing} permission={info.permission} onClose={() => setViewing(null)} />
         )}
       </div>
     </>
@@ -624,6 +666,33 @@ export default function SharePage() {
   const [webpkg, setWebpkg] = useState<{ url: string; same_origin: boolean } | null>(null)
   const [passwordBusy, setPasswordBusy] = useState(false)
   const [passwordError, setPasswordError] = useState('')
+  // 统一悬浮菜单（v2.6，hooks 须在条件返回之前）：下载 + 已登录访客的
+  // AI 对话合并为一个可拖拽悬浮菜单（未登录 /ai/status 401 → 不显示）。
+  const aiOn = useAIEnabled()
+  const [aiOpen, setAiOpen] = useState(false)
+  const baseActions = useMemo<FloatingAction[]>(() => {
+    const info = state.status === 'ok' ? state.info : null
+    const acts: FloatingAction[] = []
+    if (info && info.type !== 'folder' && info.permission === 'download') {
+      acts.push({
+        key: 'download',
+        label: `下载 ${info.name}`,
+        icon: Download,
+        onClick: () => {
+          const a = document.createElement('a')
+          a.href = `/api/v1/public/shares/${encodeURIComponent(token)}/download`
+          a.download = info.name
+          document.body.appendChild(a)
+          a.click()
+          a.remove()
+        },
+      })
+    }
+    if (aiOn) {
+      acts.push({ key: 'ai', label: 'AI 助理（对话）', icon: Sparkles, onClick: () => setAiOpen((v) => !v) })
+    }
+    return acts
+  }, [state, aiOn, token])
 
   const load = (cancelled: () => boolean) => {
     setState({ status: 'loading' })
@@ -748,7 +817,6 @@ export default function SharePage() {
   const info = state.info
   const kind = previewKind(info.mime_type ?? '')
 
-  const downloadUrl = `/api/v1/public/shares/${encodeURIComponent(token)}/download`
   const showWatermark = info.watermark_enabled && !!info.watermark_text
 
   // 目录分享：tree 模式（根 index.html 整站 iframe / 文件列表），
@@ -839,38 +907,33 @@ export default function SharePage() {
     )
   }
 
-  // 悬浮下载（可拖拽）：经 FloatingActionBar 呈现，点击以临时 <a> 触发
-  // 浏览器下载（与原 share-fab 直链行为一致）。
-  const downloadActions: FloatingAction[] = info.permission === 'download'
-    ? [{
-        key: 'download',
-        label: `下载 ${info.name}`,
-        icon: Download,
-        onClick: () => {
-          const a = document.createElement('a')
-          a.href = downloadUrl
-          a.download = info.name
-          document.body.appendChild(a)
-          a.click()
-          a.remove()
-        },
-      }]
-    : []
-
+  // 统一悬浮菜单（hooks 已上移组件顶部——早退之前）：下载 + 已登录访客
+  // AI 对话合并；无动作（view 分享 + 未登录）时不渲染菜单宿主。
+  if (baseActions.length === 0) {
+    return (
+      <div className="share-page share-direct">
+        {showWatermark && <WatermarkOverlay text={info.watermark_text as string} />}
+        {body}
+      </div>
+    )
+  }
   return (
-    <div className="share-page share-direct">
-      {showWatermark && <WatermarkOverlay text={info.watermark_text as string} />}
-      {body}
-      {downloadActions.length > 0 && <FloatingActionBar actions={downloadActions} />}
-      {/* 已登录访客的 AI 对话（悬浮球；未登录时 /ai/status 401 → 组件自隐藏，
-          无 AI 使用权语义天然成立）。上下文用公开预览文本注入（访客对原
-          文件无认证读权限）；无摘要页签与「保存为新版本」。 */}
-      <ViewerAIWidget
-        fileName={info.name}
-        contextText={text}
-        showSummary={false}
-        allowSave={false}
-      />
-    </div>
+    <ViewerFloatMenuProvider baseActions={baseActions}>
+      <div className="share-page share-direct">
+        {showWatermark && <WatermarkOverlay text={info.watermark_text as string} />}
+        {body}
+        {aiOn && (
+          <ViewerAIWidget
+            fileName={info.name}
+            contextText={text}
+            showSummary={false}
+            allowSave={false}
+            hideBall
+            open={aiOpen}
+            onOpenChange={setAiOpen}
+          />
+        )}
+      </div>
+    </ViewerFloatMenuProvider>
   )
 }

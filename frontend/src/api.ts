@@ -903,8 +903,13 @@ async function fetchBlob(path: string, failText: string): Promise<Blob> {
 }
 
 export async function downloadFile(item: FileItem): Promise<void> {
-  const blob = await fetchBlob(`/api/v1/files/${item.id}/download`, '下载失败')
-  saveBlob(blob, item.name)
+  await downloadFileById(item.id, item.name)
+}
+
+/** 按 id 下载（查看页悬浮菜单等无完整 FileItem 的场景）。 */
+export async function downloadFileById(id: string, name: string): Promise<void> {
+  const blob = await fetchBlob(`/api/v1/files/${id}/download`, '下载失败')
+  saveBlob(blob, name)
 }
 
 /** 认证读取文件当前版本内容为文本（draw.io 编辑器加载 XML 用；走下载端点）。
@@ -1078,12 +1083,29 @@ export interface PublicShareOffice {
  * 集成未启用/分享失效等抛 ApiError，由调用方回退「不支持在线预览」分支。
  * refFileId 非空时查看该分享的引用资源（refs，share_files 白名单内）而非分享根。
  */
-export async function fetchPublicShareOffice(token: string, lang: string, refFileId?: string): Promise<PublicShareOffice> {
+export async function fetchPublicShareOffice(token: string, lang: string, refFileId?: string, entryPath?: string): Promise<PublicShareOffice> {
   const params = new URLSearchParams()
   if (lang) params.set('lang', lang)
   if (refFileId) params.set('ref', refFileId)
+  // 目录分享条目（folder share）：path 非空时后端经树解析目标文件。
+  if (entryPath) params.set('path', entryPath)
   const q = params.toString()
   return publicApi<PublicShareOffice>(`/api/v1/public/shares/${encodeURIComponent(token)}/office${q ? `?${q}` : ''}`)
+}
+
+/**
+ * 目录分享条目的网页包预览指引（GET /public/shares/:token/entry-preview?path=）：
+ * zip 条目存在 ready 解包包时返回 {kind:"webpkg", url, same_origin}（与单文件
+ * 分享 /preview 的 webpkg 联动同构）；无 ready 包抛 415 ApiError（回退下载）。
+ */
+export async function fetchPublicShareEntryWebpkg(token: string, entryPath: string): Promise<{ url: string; same_origin: boolean }> {
+  const data = await publicApi<{ kind?: string; url?: string; same_origin?: boolean }>(
+    `/api/v1/public/shares/${encodeURIComponent(token)}/entry-preview?path=${encodeURIComponent(entryPath)}`,
+  )
+  if (data?.kind === 'webpkg' && typeof data.url === 'string') {
+    return { url: data.url, same_origin: data.same_origin === true }
+  }
+  throw new ApiError(415, '网页包预览不可用')
 }
 
 // ---------- 目录分享树（公开，/public/shares/{token}/tree） ----------

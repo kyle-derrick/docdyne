@@ -29,6 +29,14 @@ type OCRExtractor interface {
 	ExtractImageText(ctx context.Context, storageKey, mimeType, name string, size int64) (string, error)
 }
 
+// OwnerOCRExtractor 为可选的按属主提取扩展：实现者按文件属主解析其个人
+// OCR 覆盖（overrides.ocr → 个人池 vision 模型，失效回落平台 ai.ocr）。
+// 未实现时回落 OCRExtractor（平台配置路径）。
+type OwnerOCRExtractor interface {
+	OCRExtractor
+	ExtractImageTextForOwner(ctx context.Context, owner uuid.UUID, storageKey, mimeType, name string, size int64) (string, error)
+}
+
 // ocrTimeout 单次图片 OCR 的等待上限：视觉模型对大图较慢，90s 覆盖常规
 // 响应；超时/失败均降级仅名称索引，不拖垮 task:search-index 主流程。
 const ocrTimeout = 90 * time.Second
@@ -94,7 +102,7 @@ func (ix *Indexer) Index(fileID uuid.UUID) error {
 	// 图片 OCR 兜底：文本抽取为空（图片非文本类型）且为可 OCR 图片时补全
 	// 内容；未注入提取器/失败返回空（降级仅名称，不阻塞索引写入）。
 	if content == "" && blobFound {
-		if text := ix.ocrText(fileID, blob, f.Name); text != "" {
+		if text := ix.ocrText(fileID, f.OwnerID, blob, f.Name); text != "" {
 			content = text
 		}
 	}
@@ -111,15 +119,22 @@ func (ix *Indexer) Index(fileID uuid.UUID) error {
 }
 
 // ocrText 对文本抽取为空的 blob 尝试 OCR 补全内容：仅当已注入提取器且
-// 为可 OCR 图片时发起（90s 上限）；失败记日志返回空串（索引回退仅名称，
-// 提取文本为空同样视为无内容）。
-func (ix *Indexer) ocrText(fileID uuid.UUID, blob files.ObjectBlob, name string) string {
+// 为可 OCR 图片时发起（90s 上限）；实现 OwnerOCRExtractor 时按文件属主
+// 解析个人 OCR 覆盖（平台默认 → 属主个人模型优先）；失败记日志返回空串
+// （索引回退仅名称，提取文本为空同样视为无内容）。
+func (ix *Indexer) ocrText(fileID uuid.UUID, owner uuid.UUID, blob files.ObjectBlob, name string) string {
 	if ix.ocr == nil || !IsImageIndexable(blob.MimeType, name) {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ocrTimeout)
 	defer cancel()
-	text, err := ix.ocr.ExtractImageText(ctx, blob.StorageKey, blob.MimeType, name, blob.Size)
+	var text string
+	var err error
+	if ox, ok := ix.ocr.(OwnerOCRExtractor); ok {
+		text, err = ox.ExtractImageTextForOwner(ctx, owner, blob.StorageKey, blob.MimeType, name, blob.Size)
+	} else {
+		text, err = ix.ocr.ExtractImageText(ctx, blob.StorageKey, blob.MimeType, name, blob.Size)
+	}
 	if err != nil {
 		log.Printf("[search] ocr for %s: %v (index name only)", fileID, err)
 		return ""

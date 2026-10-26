@@ -689,10 +689,12 @@ func main() {
 		}})
 	}
 	// 图片 OCR 自动入索引：aiService 读 blob 需要存储读取器；把它挂到
-	// 索引器（*ai.Service 满足 search.OCRExtractor，编译期保证），OCR
-	// 未开启时 ExtractImageText 安静返回空、索引行为不变。
+	// 索引器（ownerOCRAdapter 满足 search.OCRExtractor + OwnerOCRExtractor，
+	// 编译期保证），OCR 未开启时 ExtractImageText 安静返回空、索引行为不变。
+	// 属主维度：文件属主配置了个人 OCR 覆盖（overrides.ocr）时优先用其
+	// 个人模型（失效回落平台 ai.ocr——与对话识图兜底同语义）。
 	aiService.SetStorageReader(storage)
-	searchIndexer.SetOCR(aiService)
+	searchIndexer.SetOCR(ownerOCRAdapter{Service: aiService, prefsFor: aiPrefsFor})
 	// 站内通知：列表/已读/未读数与通知偏好端点（本人维度）。
 	handler.SetNotifications(notifyService)
 	// Webhook 通知渠道端点（本人维度）：注册/列举/启停/删除。
@@ -944,4 +946,19 @@ func humanBytes(n int64) string {
 		return fmt.Sprintf("%.2f MiB", float64(n)/float64(mib))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// ownerOCRAdapter 按文件属主解析个人 OCR 覆盖（overrides.ocr → 个人池
+// vision 模型，失效回落平台 ai.ocr）后转发图片文字提取；满足
+// search.OwnerOCRExtractor（索引管道按属主生效个人 OCR 覆盖）。
+type ownerOCRAdapter struct {
+	*ai.Service
+	prefsFor func(uuid.UUID) auth.AIPersonalPrefs
+}
+
+func (a ownerOCRAdapter) ExtractImageTextForOwner(ctx context.Context, owner uuid.UUID, storageKey, mimeType, name string, size int64) (string, error) {
+	if p, m, ok := ai.PersonalOCRTarget(a.prefsFor(owner)); ok {
+		return a.Service.ExtractImageTextWith(ctx, storageKey, mimeType, name, size, &p, m)
+	}
+	return a.Service.ExtractImageText(ctx, storageKey, mimeType, name, size)
 }
