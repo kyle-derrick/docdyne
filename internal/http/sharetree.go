@@ -1,14 +1,19 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
+	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/contenturl"
 	"github.com/kyle-derrick/docdyne/internal/share"
+	"github.com/kyle-derrick/docdyne/internal/upload"
 )
 
 // publicShareTree GET /api/v1/public/shares/:token/tree/*path：
@@ -171,4 +176,61 @@ func (h *Handler) publicShareEntryPreview(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "no typed preview for entry"})
+}
+
+// shareEntryDownload GET /api/v1/public/shares/:token/download?path= 的目录
+// 分享条目分支（由 publicShareDownload 分流；v2.6：全类型——此前仅 raw
+// 白名单扩展名经 raw/share 可下，zip/office 等无下载路径）。权限须
+// download（view 返回 403）；有效期/撤销/密码会话校验同 tree 口径；消耗
+// shares.download_count 与 files.download_count（读失败经 DecrementDownload
+// 补偿），支持 Range 与 Content-Disposition attachment（同单文件分享下载）。
+func (h *Handler) shareEntryDownload(c *gin.Context, pre share.Resolved) {
+	token := c.Param("token")
+	if pre.Share.Permission != share.PermissionDownload {
+		c.JSON(http.StatusForbidden, gin.H{"error": "share does not allow download"})
+		return
+	}
+	rel := strings.TrimSpace(c.Query("path"))
+	result, err := h.shares.ResolveTree(token, rel)
+	if publicShareError(c, err) {
+		return
+	}
+	if result.Folder || result.File == nil || result.Blob == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "entry is not a file"})
+		return
+	}
+	r := share.Resolved{Share: result.Share, File: *result.File, Blob: *result.Blob}
+	if err := h.shares.ConsumeDownloadFor(r, uuid.Nil); err != nil {
+		publicShareError(c, err)
+		return
+	}
+	fileRange, hasRange, err := parseRange(c.GetHeader("Range"), r.Blob.Size)
+	if err != nil {
+		c.Header("Content-Range", fmt.Sprintf("bytes */%d", r.Blob.Size))
+		c.JSON(http.StatusRequestedRangeNotSatisfiable, gin.H{"error": "invalid range"})
+		return
+	}
+	start, length := int64(0), r.Blob.Size
+	if hasRange {
+		start, length = fileRange.Start, fileRange.Length()
+	}
+	reader, err := upload.ReadSection(h.storage, r.Blob.StorageKey, start, length)
+	if err != nil {
+		_ = h.shares.DecrementDownload(r)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to read file"})
+		return
+	}
+	defer reader.Close()
+	h.recordAudit(c, audit.Entry{UserID: nil, Action: audit.ActionPublicDownload, ResourceType: audit.ResourceShare, ResourceID: r.Share.ID.String(), Metadata: `{"entry":"` + sanitizeAuditToken(rel) + `","size":` + strconv.FormatInt(r.Blob.Size, 10) + `}`})
+	h.recordPublicAccessEvent(c, r, share.ActionDownload)
+	status := http.StatusOK
+	contentLength := r.Blob.Size
+	if hasRange {
+		status = http.StatusPartialContent
+		contentLength = fileRange.Length()
+		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", fileRange.Start, fileRange.End, r.Blob.Size))
+	}
+	c.Header("Content-Disposition", contentDisposition(r.File.Name))
+	c.Header("Accept-Ranges", "bytes")
+	c.DataFromReader(status, contentLength, r.Blob.MimeType, reader, nil)
 }

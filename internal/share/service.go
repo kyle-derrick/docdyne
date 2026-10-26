@@ -1349,3 +1349,29 @@ func (s *Service) GetDetail(owner, shareID uuid.UUID) (ShareDetail, error) {
 func (s *Service) RecordAccessEvent(e AccessEvent) error {
 	return s.repo.RecordAccessEvent(e)
 }
+
+// ConsumeDownloadFor 为已解析的目录分享条目消耗一次下载计数（v2.6：条目
+// 下载无独立 ResolveForDownload 路径——分享有效性已由 ResolveTree 前置
+// 校验，此处做原子 ConsumeDownload + 文件计数递增 + owner 通知，语义与
+// ResolveForDownload 的消耗段一致；上限命中返回 ErrDownloadLimit）。
+func (s *Service) ConsumeDownloadFor(r Resolved, user uuid.UUID) error {
+	consumed, err := s.repo.ConsumeDownload(r.Share.ID, s.now())
+	if err != nil {
+		return err
+	}
+	if !consumed {
+		latest, gerr := s.repo.Get(r.Share.ID)
+		if gerr != nil {
+			return ErrNotFound
+		}
+		if latest.MaxDownloads != nil && latest.DownloadCount >= *latest.MaxDownloads {
+			return ErrDownloadLimit
+		}
+		return ErrGone
+	}
+	if err := s.files.IncrementDownloadCount(r.Share.OwnerID, r.File.ID); err != nil {
+		return err
+	}
+	s.notifyAccessed(r, user)
+	return nil
+}

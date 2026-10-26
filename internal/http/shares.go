@@ -686,6 +686,11 @@ func (h *Handler) publicShareDownload(c *gin.Context) {
 	if !h.shareSessionAllowed(c, token, pre.Share) {
 		return
 	}
+	// v2.6：目录分享单文件下载（?path= 非空 → 条目分支，全类型）。
+	if strings.TrimSpace(c.Query("path")) != "" {
+		h.shareEntryDownload(c, pre)
+		return
+	}
 	r, err := h.shares.ResolveForDownload(token)
 	if publicShareError(c, err) {
 		return

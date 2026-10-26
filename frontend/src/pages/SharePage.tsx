@@ -10,7 +10,7 @@
 //   drawio 的只读渲染路径（内容经 /raw/share 白名单扩展获取）；
 // - 密码保护分享先解锁（HttpOnly 会话 cookie），水印开启时叠加全屏覆盖层。
 import { FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { FileQuestion, FileText, Folder, Lock, Download, Sparkles } from 'lucide-react'
 import { Button, Input, Modal as AntdModal, Segmented } from 'antd'
 import {
@@ -430,7 +430,6 @@ function ShareEntryModal({
   permission: 'view' | 'download'
   onClose: () => void
 }) {
-  const url = rawUrlOf(rawBase, entry.path, false)
   return (
     <AntdModal
       open
@@ -451,11 +450,17 @@ function ShareEntryModal({
       <div className="preview-embed">
         <PublicEntryViewer token={token} rawBase={rawBase} entry={entry} />
       </div>
-      {permission === 'download' && isRawServed(entry.name) && (
-        <div className="preview-foot">
-          <Button size="small" href={url} download={entry.name}>下载</Button>
-        </div>
-      )}
+      <div className="preview-foot">
+        <Button
+          size="small"
+          onClick={() => window.open(`/s/${encodeURIComponent(token)}?file=${encodeURIComponent(entry.path)}`, '_blank', 'noopener')}
+        >
+          新标签页打开
+        </Button>
+        {permission === 'download' && (
+          <Button size="small" href={entryDownloadUrl(token, entry.path)} download={entry.name}>下载</Button>
+        )}
+      </div>
     </AntdModal>
   )
 }
@@ -467,6 +472,17 @@ function ShareEntryModal({
  * 子目录、按类型预览/下载/新窗口打开网页。每次 tree 拉取均刷新 raw_base
  *（10 分钟 grant，页面常驻时点击目录/文件前由最新 grant 支撑）。
  */
+/** 从 ?file=path 参数构造查看条目（新标签页直开：mime 未知——绝大多数
+ *  类型按扩展名分派，entries 加载后同一 path 的条目可补齐 mime）。 */
+function entryFromPath(path: string): ShareTreeEntry {
+  return { name: path.split('/').filter(Boolean).pop() ?? path, type: 'file', path }
+}
+
+/** 目录分享单文件下载 URL（全类型；消耗分享下载计数）。 */
+function entryDownloadUrl(token: string, path: string): string {
+  return `/api/v1/public/shares/${encodeURIComponent(token)}/download?path=${encodeURIComponent(path)}`
+}
+
 function FolderShareView({ token, info }: { token: string; info: PublicShareInfo }) {
   const [dir, setDir] = useState('')
   const [entries, setEntries] = useState<ShareTreeEntry[] | null>(null)
@@ -475,12 +491,48 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
   // 根 index.html 探测：null = 探测中；true = 可整站渲染。
   const [siteReady, setSiteReady] = useState<boolean | null>(null)
   const [view, setView] = useState<'site' | 'files'>('site')
-  // 弹窗查看目标（v2.4：点击文件弹出与文件页一致的查看弹窗）。
-  const [viewing, setViewing] = useState<ShareTreeEntry | null>(null)
+  // 弹窗查看目标（v2.4：点击文件弹出与文件页一致的查看弹窗；v2.6 经
+  // ?file= URL 状态支撑新标签页直开/刷新保持）。
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [viewing, setViewing] = useState<ShareTreeEntry | null>(() => {
+    const f = new URLSearchParams(window.location.search).get('file')
+    return f ? entryFromPath(f) : null
+  })
+  // 查看状态同步 URL（replace 不产生历史条目；关闭清参）。
+  useEffect(() => {
+    const cur = searchParams.get('file') ?? ''
+    const want = viewing?.type === 'file' ? viewing.path : ''
+    if (cur !== want) {
+      const next = new URLSearchParams(searchParams)
+      if (want) next.set('file', want)
+      else next.delete('file')
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewing])
+  // 条目 mime 补齐：?file= 直开的条目在目录清单加载后按 path 匹配补上。
+  useEffect(() => {
+    if (!viewing || viewing.mime_type || !entries) return
+    const hit = entries.find((e) => e.path === viewing.path)
+    if (hit?.mime_type) setViewing({ ...viewing, mime_type: hit.mime_type, size: hit.size })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries])
+  // 右键菜单（v2.6：查看 / 新标签页打开 / 下载 / 打开网页）。
+  const [ctxMenu, setCtxMenu] = useState<{ entry: ShareTreeEntry; x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!ctxMenu) return
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest?.('.ctx-menu')) setCtxMenu(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [ctxMenu])
 
-  const loadDir = useCallback(async (path: string) => {
+  // keepViewing：挂载期目录加载不清 ?file= 直开的查看目标（loadDir 的
+  // setViewing(null) 语义是「切换目录关闭弹窗」，首载须保留）。
+  const loadDir = useCallback(async (path: string, keepViewing = false) => {
     setError('')
-    setViewing(null)
+    if (!keepViewing) setViewing(null)
     setEntries(null)
     try {
       const res = await publicShareTree(token, path)
@@ -494,7 +546,7 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
   }, [token])
 
   useEffect(() => {
-    void loadDir('')
+    void loadDir('', true)
   }, [loadDir])
 
   // 根 index.html 探测（一次性）：命中则默认整站 iframe，否则默认文件列表。
@@ -610,7 +662,14 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
                   const isHtml = entry.name.toLowerCase().endsWith('.html') || entry.name.toLowerCase().endsWith('.htm')
                   const previewable = previewKind(entry.mime_type ?? '') !== 'unsupported' || isHtml || isRawServed(entry.name)
                   return (
-                    <li key={entry.path} className="share-tree-row">
+                    <li
+                      key={entry.path}
+                      className="share-tree-row"
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setCtxMenu({ entry, x: e.clientX, y: e.clientY })
+                      }}
+                    >
                       <button className="share-tree-name" onClick={() => openEntry(entry)} title={entry.name}>
                         <span className="icon">{entry.type === 'folder'
                           ? <Folder size={14} strokeWidth={2} aria-hidden="true" />
@@ -629,8 +688,8 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
                             打开网页
                           </Button>
                         )}
-                        {entry.type === 'file' && !isHtml && isRawServed(entry.name) && (
-                          <Button size="small" href={rawUrlOf(rawBase, entry.path, false)} download={entry.name}>
+                        {entry.type === 'file' && info.permission === 'download' && (
+                          <Button size="small" href={entryDownloadUrl(token, entry.path)} download={entry.name}>
                             下载
                           </Button>
                         )}
@@ -640,6 +699,45 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
                   )
                 })}
               </ul>
+            )}
+          </div>
+        )}
+
+        {/* 右键菜单（v2.6）：查看 / 新标签页打开 / 下载 / 打开网页；视口
+            定位浮层复用 .ctx-menu 样式（FileBrowser 同款）。 */}
+        {ctxMenu && (
+          <div className="ctx-menu" role="menu" style={{ left: `${ctxMenu.x}px`, top: `${ctxMenu.y}px` }}>
+            {ctxMenu.entry.type === 'folder' ? (
+              <button role="menuitem" onClick={() => { void loadDir(ctxMenu.entry.path); setCtxMenu(null) }}>
+                打开目录
+              </button>
+            ) : (
+              <>
+                <button role="menuitem" onClick={() => { openEntry(ctxMenu.entry); setCtxMenu(null) }}>
+                  查看
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => { window.open(`/s/${encodeURIComponent(token)}?file=${encodeURIComponent(ctxMenu.entry.path)}`, '_blank', 'noopener'); setCtxMenu(null) }}
+                >
+                  新标签页打开
+                </button>
+                {(ctxMenu.entry.name.toLowerCase().endsWith('.html') || ctxMenu.entry.name.toLowerCase().endsWith('.htm')) && (
+                  <button role="menuitem" onClick={() => { window.open(rawUrlOf(rawBase, ctxMenu.entry.path, false), '_blank', 'noopener'); setCtxMenu(null) }}>
+                    打开网页
+                  </button>
+                )}
+                {info.permission === 'download' && (
+                  <a
+                    role="menuitem"
+                    href={entryDownloadUrl(token, ctxMenu.entry.path)}
+                    download={ctxMenu.entry.name}
+                    onClick={() => setCtxMenu(null)}
+                  >
+                    下载
+                  </a>
+                )}
+              </>
             )}
           </div>
         )}

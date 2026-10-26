@@ -3273,15 +3273,23 @@ paths:
     get:
       tags: [Public Shares]
       operationId: publicShareDownload
-      summary: 公开分享下载（无认证）
+      summary: 公开分享下载（无认证；?path= 目录分享条目）
       description: >-
         校验分享有效性与对象可用性；成功原子递增分享与文件 download_count，
         并写入访问事件（action=download，IP 以加盐哈希存储）；
         存储内容读取失败（500）时补偿回退已消耗的计数；支持单区间 Range 与
         Content-Disposition: attachment。密码保护分享须先经 verify 取得会话
         cookie（未携带时 401 code=PASSWORD_REQUIRED，且不消耗下载计数）。
+        v2.6：path 查询参数非空 = 目录分享单文件下载（全类型——此前仅 raw
+        白名单扩展名可下；权限须 download，view 分享 403；消耗计数与
+        Range/attachment 语义同单文件）。
       security: []
       parameters:
+        - name: path
+          in: query
+          required: false
+          description: 目录分享条目路径（相对分享根；空 = 单文件分享整体下载）
+          schema: { type: string }
         - name: token
           in: path
           required: true
