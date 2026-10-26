@@ -1,13 +1,17 @@
 package http
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
 	"github.com/kyle-derrick/docdyne/internal/audit"
 	"github.com/kyle-derrick/docdyne/internal/auth"
 )
@@ -48,9 +52,90 @@ func adminUserJSON(u auth.User) gin.H {
 	}
 }
 
-// adminListUsers GET /api/v1/admin/users?q=&limit=&offset=：username/email
-// 前缀检索（ILIKE，通配符已转义）+ 分页（limit 默认 50 上限 200，offset>=0），
-// 返回 {users, total, limit, offset}。
+// adminCreateUser POST /api/v1/admin/users {username, password, email?,
+// nickname?, department?, role?}：管理员手动开户——无 SMTP/未配置邮件的
+// 环境不依赖邮箱邀请流程。用户名（auth.ValidateUsername）与密码强度
+// （auth.ValidatePasswordStrength）规则与邀请注册一致；email 可选，留空时
+// 以 {username}@local.invalid 占位（RFC 保留域，不可能是真实邮箱，天然
+// 唯一）；role ∈ user|admin（缺省 user）。创建后确保默认空间（失败仅记
+// 日志不阻断，与邀请注册路径同语义——否则新用户进文件页因无默认空间
+// 500）。用户名/邮箱占用返回 409。
+func (h *Handler) adminCreateUser(c *gin.Context) {
+	var req struct {
+		Username   string  `json:"username"`
+		Password   string  `json:"password"`
+		Email      string  `json:"email"`
+		Nickname   *string `json:"nickname"`
+		Department *string `json:"department"`
+		Role       string  `json:"role"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	username := strings.TrimSpace(req.Username)
+	if err := auth.ValidateUsername(username); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := auth.ValidatePasswordStrength(req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		role = "user"
+	}
+	if role != "user" && role != "admin" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "role must be user or admin"})
+		return
+	}
+	email := auth.NormalizeEmail(strings.TrimSpace(req.Email))
+	if email == "" {
+		// 占位邮箱：.invalid 为 RFC 2606 保留 TLD，不可能与真实邮箱冲突。
+		email = auth.NormalizeEmail(username + "@local.invalid")
+	} else if err := auth.ValidateEmail(email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to create user"})
+		return
+	}
+	now := time.Now().UTC()
+	user := auth.User{
+		ID: uuid.New(), Username: username, Email: email, PasswordHash: hash,
+		Status: auth.StatusActive, Role: role,
+		Nickname: req.Nickname, Department: req.Department,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := h.users.CreateUser(user); err != nil {
+		if errors.Is(err, auth.ErrUserExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": "username or email already exists"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to create user"})
+		return
+	}
+	if h.spaces != nil {
+		if _, _, serr := h.spaces.EnsureDefaultSpace(user.ID, user.Username); serr != nil {
+			log.Printf("[admin] ensure default space for %s: %v", user.ID, serr)
+		}
+	}
+	// 回读落库后的完整记录（CreateUser 内部回填默认配额/语言等，值拷贝
+	// 不回传调用方）；读失败回退入参视图（用户已创建，不因回读失败报错）。
+	if stored, err := h.users.GetByID(user.ID); err == nil {
+		user = stored
+	}
+	if h.audit != nil {
+		actor := userID(c)
+		metadata, _ := json.Marshal(map[string]string{"username": username, "email": email, "role": role})
+		_ = h.audit.Record(audit.Entry{UserID: &actor, Action: "user.create", ResourceType: audit.ResourceUser, ResourceID: user.ID.String(), Status: audit.StatusSuccess, Metadata: string(metadata)})
+	}
+	c.JSON(http.StatusCreated, adminUserJSON(user))
+}
+
 func (h *Handler) adminGetUser(c *gin.Context) {
 	id, ok := parseID(c, c.Param("id"))
 	if !ok {

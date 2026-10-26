@@ -62,6 +62,8 @@ type userDirectory interface {
 	AdminListUsers(q string, limit, offset int) ([]auth.User, int64, error)
 	// AdminUpdateUser applies administrative changes to a user account.
 	AdminUpdateUser(id uuid.UUID, update auth.AdminUserUpdate) error
+	// CreateUser 手动开户（POST /admin/users；无 SMTP 环境不经邮箱邀请）。
+	CreateUser(auth.User) error
 }
 
 var _ userDirectory = (*auth.UserStore)(nil)
@@ -888,6 +890,7 @@ func (h *Handler) Register(r *gin.Engine, jwtSecret string, rateLimit, loginRate
 	// 改配额/改角色（禁用立即撤销全部会话；不可禁用自己）与重置密码。
 	// 设计 DELETE /users/:id 以软禁用替代（数据完整性取舍，见 admin_users.go）。
 	admin.GET("/users", h.adminListUsers)
+	admin.POST("/users", h.adminCreateUser)
 	admin.GET("/users/:id", h.adminGetUser)
 	admin.PATCH("/users/:id", h.adminUpdateUser)
 	admin.DELETE("/users/:id", h.adminDeleteUser)

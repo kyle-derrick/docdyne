@@ -8269,6 +8269,41 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /admin/users:
+    post:
+      tags: [Admin]
+      operationId: adminCreateUser
+      summary: 手动创建用户（仅 admin；无 SMTP 环境的开户路径）
+      description: >-
+        管理员直接开户，不依赖邮箱邀请（未配置 SMTP 的环境）。用户名
+        （3-32 字母数字_-）与密码强度（≥12 位含大小写数字）规则与邀请
+        注册一致；email 可选——留空以 {username}@local.invalid 占位
+        （RFC 2606 保留域，不可能与真实邮箱冲突）；role ∈ user|admin
+        （缺省 user）。创建后自动确保默认空间（失败仅记日志不阻断）。
+        用户名/邮箱已占用返回 409。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, description: 3-32 字母/数字/_/-（不支持点号） }
+                password: { type: string, description: ≥12 位且含大写、小写与数字 }
+                email: { type: string, description: 可选；留空用占位邮箱 }
+                nickname: { type: string }
+                department: { type: string }
+                role: { type: string, enum: [user, admin] }
+      responses:
+        '201':
+          description: 已创建（脱敏视图，同列表项结构）
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: 用户名或邮箱已占用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     get:
       tags: [Admin]
       operationId: adminListUsers

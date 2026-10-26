@@ -46,6 +46,7 @@ import {
   adminUpdateSpace,
   adminGetStats,
   adminListInvitations,
+  adminCreateUser,
   adminListUsers,
   adminPutSetting,
   adminResetUserPassword,
@@ -459,6 +460,15 @@ function PeopleAndGroupsPanel({ onError, onNotice }: { onError: (msg: string) =>
   const [addGroupPick, setAddGroupPick] = useState<UserSearchResult | null>(null)
   /** 新建用户组弹窗（v2.2 平铺表单弹窗化）：名/描述 + 初始成员多选远程搜索。 */
   const [createOpen, setCreateOpen] = useState(false)
+  /** 手动开户弹窗（无 SMTP 环境）：用户名/密码/可选邮箱/档案/角色。 */
+  const [newUserOpen, setNewUserOpen] = useState(false)
+  const [nuBusy, setNuBusy] = useState(false)
+  const [nuUsername, setNuUsername] = useState('')
+  const [nuPassword, setNuPassword] = useState('')
+  const [nuEmail, setNuEmail] = useState('')
+  const [nuNickname, setNuNickname] = useState('')
+  const [nuDepartment, setNuDepartment] = useState('')
+  const [nuRole, setNuRole] = useState<'user' | 'admin'>('user')
   const [name, setName] = useState('')
   const [desc, setDesc] = useState('')
   const [memberIds, setMemberIds] = useState<string[]>([])
@@ -522,6 +532,42 @@ function PeopleAndGroupsPanel({ onError, onNotice }: { onError: (msg: string) =>
     }, 300)
     return () => window.clearTimeout(timer)
   }, [memberQuery, memberNameRef])
+
+  /** 随机强密码（手动开户/重置密码共用：12 位含大小写数字）。 */
+  const genPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+    let out = ''
+    const arr = new Uint32Array(14)
+    crypto.getRandomValues(arr)
+    for (let i = 0; i < arr.length; i++) out += chars[arr[i] % chars.length]
+    return out
+  }
+
+  /** 手动开户提交（POST /admin/users）：成功后刷新列表并提示线下告知密码。 */
+  const submitNewUser = async (e: FormEvent) => {
+    e.preventDefault()
+    if (nuBusy) return
+    setNuBusy(true)
+    onError('')
+    try {
+      const created = await adminCreateUser({
+        username: nuUsername.trim(),
+        password: nuPassword,
+        email: nuEmail.trim() || undefined,
+        nickname: nuNickname.trim() || undefined,
+        department: nuDepartment.trim() || undefined,
+        role: nuRole,
+      })
+      setNewUserOpen(false)
+      setNuUsername(''); setNuPassword(''); setNuEmail(''); setNuNickname(''); setNuDepartment(''); setNuRole('user')
+      onNotice(`已创建用户「${created.username}」，请将密码线下告知本人`)
+      await load(0, '')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '创建用户失败')
+    } finally {
+      setNuBusy(false)
+    }
+  }
 
   const submitSearch = (e: FormEvent) => {
     e.preventDefault()
@@ -797,9 +843,12 @@ function PeopleAndGroupsPanel({ onError, onNotice }: { onError: (msg: string) =>
         邀请记录（创建/重发/撤销）经右上按钮弹窗。禁用账号立即撤销其全部登录会话；
         账号不支持删除——以禁用替代（保留其名下文件与审计记录）。
       </div>
-      {/* 顶部操作行：组 CRUD + 邀请记录 + 检索/筛选。 */}
+      {/* 顶部操作行：手动开户 + 组 CRUD + 邀请记录 + 检索/筛选。 */}
       <form className="member-list-toolbar" style={{ marginBottom: 12 }} onSubmit={(e) => void submitSearch(e)}>
-        <Button type="primary" onClick={() => { setCreateOpen(true); setName(''); setDesc(''); setMemberIds([]) }}>
+        <Button type="primary" onClick={() => { setNewUserOpen(true); setNuPassword(genPassword()) }}>
+          新建用户
+        </Button>
+        <Button onClick={() => { setCreateOpen(true); setName(''); setDesc(''); setMemberIds([]) }}>
           新建用户组
         </Button>
         <Button onClick={() => setInvitesOpen(true)}>邀请记录</Button>
@@ -1087,6 +1136,59 @@ function PeopleAndGroupsPanel({ onError, onNotice }: { onError: (msg: string) =>
           />
         </div>
       </div>
+      {/* 手动开户弹窗（无 SMTP 环境的开户路径；不经邮箱邀请）。 */}
+      {newUserOpen && (
+        <Modal title="直接创建用户" onClose={() => { if (!nuBusy) setNewUserOpen(false) }}>
+          <form className="team-create-row" style={{ flexDirection: 'column', alignItems: 'stretch' }} onSubmit={(e) => void submitNewUser(e)}>
+            <div className="setting-desc muted" style={{ marginBottom: 8 }}>
+              适用于未配置邮件服务的环境：账号即时创建，用户名 + 密码直接登录；
+              邮箱可留空（仅用于展示与检索，密码找回等功能需邮箱时请补填）。
+            </div>
+            <label className="field">
+              <span>用户名（3-32 位字母/数字/_/-，登录用）</span>
+              <Input autoFocus required value={nuUsername} onChange={(e) => setNuUsername(e.target.value)} placeholder="如 zhangsan" />
+            </label>
+            <label className="field">
+              <span>初始密码（≥12 位含大小写与数字；请线下告知本人）</span>
+              <span style={{ display: 'inline-flex', gap: 8 }}>
+                <Input required value={nuPassword} onChange={(e) => setNuPassword(e.target.value)} style={{ flex: 1 }} />
+                <Button onClick={() => setNuPassword(genPassword())}>随机</Button>
+              </span>
+            </label>
+            <label className="field">
+              <span>邮箱（可选；留空则不占用真实邮箱）</span>
+              <Input type="email" value={nuEmail} onChange={(e) => setNuEmail(e.target.value)} placeholder="可选" />
+            </label>
+            <label className="field">
+              <span>昵称（可选）</span>
+              <Input value={nuNickname} onChange={(e) => setNuNickname(e.target.value)} placeholder="可选" />
+            </label>
+            <label className="field">
+              <span>部门（可选）</span>
+              <Input value={nuDepartment} onChange={(e) => setNuDepartment(e.target.value)} placeholder="可选" />
+            </label>
+            <label className="field">
+              <span>角色</span>
+              <Select
+                value={nuRole}
+                onChange={(v) => setNuRole(v === 'admin' ? 'admin' : 'user')}
+                options={[
+                  { value: 'user', label: '普通用户（user）' },
+                  { value: 'admin', label: '管理员（admin）' },
+                ]}
+              />
+            </label>
+            <div className="setting-control" style={{ marginTop: 8, justifyContent: 'flex-end' }}>
+              <Button type="primary" htmlType="submit" disabled={nuBusy || nuUsername.trim() === '' || nuPassword === ''}>
+                {nuBusy ? '创建中…' : '创建用户'}
+              </Button>
+              <Button disabled={nuBusy} onClick={() => setNewUserOpen(false)}>
+                取消
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {resetUser && (
         <Modal title={`重置密码：${resetUser.profile.nickname || resetUser.username}`} onClose={() => { setResetUser(null); setNewPassword('') }}>
           <form className="setting-edit" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12 }} onSubmit={(e) => void submitResetPassword(e, resetUser)}>

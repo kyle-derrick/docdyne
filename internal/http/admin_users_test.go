@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,53 @@ func TestAdminListUsers(t *testing.T) {
 		w := callJSON(env.router, http.MethodGet, "/api/v1/admin/users"+query, "")
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("query %s: status = %d, want 400", query, w.Code)
+		}
+	}
+}
+
+// TestAdminCreateUser 手动开户：成功（email 留空 → 占位邮箱）+ 用户名/邮箱
+// 占用 409 + 弱密码/非法角色/非法用户名 400。
+func TestAdminCreateUser(t *testing.T) {
+	env := newAdminUsersTestEnv(t)
+	env.router.POST("/api/v1/admin/users", func(c *gin.Context) {
+		c.Set(auth.UserIDContextKey, env.actor.ID)
+		env.h.adminCreateUser(c)
+	})
+	post := func(body string) (*httptest.ResponseRecorder, int) {
+		w := httptest.NewRecorder()
+		env.router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/users", strings.NewReader(body)))
+		return w, w.Code
+	}
+
+	// 成功：email 留空 → {username}@local.invalid 占位。
+	w, code := post(`{"username":"carol","password":"CarolPassword123"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create = %d (%s)", code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "carol@local.invalid") {
+		t.Fatalf("placeholder email expected: %s", w.Body.String())
+	}
+	// 显式 email 成功。
+	w, code = post(`{"username":"dave","password":"DavePassword1234","email":"dave@corp.example","role":"admin"}`)
+	if code != http.StatusCreated || !strings.Contains(w.Body.String(), "dave@corp.example") {
+		t.Fatalf("explicit email create = %d (%s)", code, w.Body.String())
+	}
+	// 用户名占用 → 409。
+	if _, code := post(`{"username":"carol","password":"CarolPassword123"}`); code != http.StatusConflict {
+		t.Fatalf("dup username = %d, want 409", code)
+	}
+	// 邮箱占用 → 409。
+	if _, code := post(`{"username":"erin","password":"ErinPassword12345","email":"dave@corp.example"}`); code != http.StatusConflict {
+		t.Fatalf("dup email = %d, want 409", code)
+	}
+	// 弱密码 / 非法角色 / 非法用户名 → 400。
+	for _, body := range []string{
+		`{"username":"frank","password":"short"}`,
+		`{"username":"grace","password":"GracePassword123","role":"boss"}`,
+		`{"username":"bad name!","password":"GracePassword123"}`,
+	} {
+		if _, code := post(body); code != http.StatusBadRequest {
+			t.Fatalf("invalid payload %q = %d, want 400", body, code)
 		}
 	}
 }

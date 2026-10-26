@@ -2473,6 +2473,20 @@ export async function adminCreateInvitation(email: string, role: 'user' | 'admin
   return api<CreatedInvitation>('/api/v1/admin/invitations', jsonInit('POST', { email, role }))
 }
 
+/** 手动创建用户（POST /admin/users；无 SMTP 环境不经邮箱邀请）。email 留空
+ *  时后端以 {username}@local.invalid 占位；密码规则与注册一致（≥12 位含
+ * 大小写数字）；用户名/邮箱占用 409。 */
+export async function adminCreateUser(input: {
+  username: string
+  password: string
+  email?: string
+  nickname?: string
+  department?: string
+  role?: 'user' | 'admin'
+}): Promise<AdminUser> {
+  return api<AdminUser>('/api/v1/admin/users', jsonInit('POST', input))
+}
+
 /** 邀请列表（created_at 倒序，含派生状态）。 */
 export async function adminListInvitations(): Promise<Invitation[]> {
   const data = await api<{ invitations: Invitation[] }>('/api/v1/admin/invitations')

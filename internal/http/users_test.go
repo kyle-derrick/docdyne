@@ -40,6 +40,8 @@ type fakeUserDirectory struct {
 	lastLockoutFor     time.Duration
 }
 
+func (f *fakeUserDirectory) CreateUser(auth.User) error { return nil }
+
 func (f *fakeUserDirectory) FindActiveByIdentifier(identifier string) (auth.User, error) {
 	if f.identifierErr != nil {
 		return auth.User{}, f.identifierErr
