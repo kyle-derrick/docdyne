@@ -29,6 +29,7 @@ import {
   isDrawioFile,
   isDrawioXmlContent,
   isExcalidrawFile,
+  isGanttFile,
   isMermaidFile,
   isOfficeFile,
   isXmindFile,
@@ -41,6 +42,7 @@ import { loadDocEditorScript } from './EditorPage'
 import { MarkdownViewer } from './TextEditorPage'
 import { parseScene } from './ExcalidrawPage'
 import DrawioViewer from '../components/DrawioViewer'
+import GanttViewer from '../components/GanttViewer'
 import ExcalidrawViewer from '../components/ExcalidrawViewer'
 import MermaidDiagram from '../components/MermaidDiagram'
 import XMindViewer from '../components/XMindViewer'
@@ -129,7 +131,7 @@ function PasswordCard({ busy, error, onSubmit }: {
 /** 与后端 /raw/* 扩展名白名单一致（不在白名单的内容 raw 端点 415）。 */
 const RAW_SERVED_EXTS = new Set([
   'html', 'htm', 'css', 'js', 'json', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif',
-  'svg', 'ico', 'woff', 'woff2', 'pdf', 'mp4', 'webm', 'mp3',
+  'svg', 'ico', 'woff', 'woff2', 'pdf', 'mp4', 'webm', 'mp3', 'ddgantt',
 ])
 
 function isRawServed(name: string): boolean {
@@ -282,6 +284,7 @@ function PublicEntryViewer({ token, rawBase, entry }: { token: string; rawBase: 
   // 文本类内容统一拉取（md/mermaid/drawio/xml 嗅探/ddrt/excalidraw/txt 等）。
   const needsText =
     isDdocFile(lower)
+    || isGanttFile(lower)
     || lower.endsWith('.md') || lower.endsWith('.markdown')
     || isMermaidFile(lower)
     || isExcalidrawFile(lower)
@@ -351,6 +354,15 @@ function PublicEntryViewer({ token, rawBase, entry }: { token: string; rawBase: 
       )
     }
     return <div className="text-editor-page viewer-only"><pre className="preview-text">{text}</pre></div>
+  }
+  if (isGanttFile(lower)) {
+    if (error) return <ViewerState text={error} />
+    if (text === null) return <ViewerState text="正在加载甘特图…" />
+    return (
+      <div className="text-editor-page viewer-only" style={{ minHeight: 420 }}>
+        <GanttViewer content={text} height="100%" title={entry.name} />
+      </div>
+    )
   }
   if (isXmindFile(lower)) {
     return (

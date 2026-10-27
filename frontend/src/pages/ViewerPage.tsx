@@ -23,6 +23,7 @@ import {
   isDrawioFile,
   isDrawioXmlContent,
   isExcalidrawFile,
+  isGanttFile,
   isHtmlFile,
   isMermaidFile,
   isOfficeFile,
@@ -30,6 +31,7 @@ import {
   resolveFileById,
 } from '../api'
 import DrawioPage from './DrawioPage'
+import GanttPage from './GanttPage'
 import DdocEditorPage from './DdocEditorPage'
 import EditorPage from './EditorPage'
 import ExcalidrawPage from './ExcalidrawPage'
@@ -282,6 +284,7 @@ export function FileViewerDispatch({
     (force === 'office' && (isOfficeFile(lower) || /\.(pdf|txt|rtf)$/.test(lower))) ||
     (force === 'drawio' && isDrawioFile(lower)) ||
     (force === 'excalidraw' && isExcalidrawFile(lower)) ||
+    (force === 'gantt' && isGanttFile(lower)) ||
     (force === 'xmind' && isXmindFile(lower)) ||
     (force === 'richtext' && (isDdocFile(lower) || /\.(md|markdown|mdx)$/.test(lower))) ||
     force === 'raw'
@@ -289,6 +292,7 @@ export function FileViewerDispatch({
   if (effForce === 'office') return <EditorPage mode="view" fileId={fileId} />
   if (effForce === 'drawio') return <DrawioPage mode="view" fileId={fileId} />
   if (effForce === 'excalidraw') return <ExcalidrawPage mode="view" fileId={fileId} />
+  if (effForce === 'gantt') return <GanttPage mode="view" fileId={fileId} />
   if (effForce === 'xmind') return <XMindFileViewer fileId={fileId} name={name} />
   // richtext 查看方式：.ddoc → Tiptap 只读渲染；.md 家族 → Markdown 渲染。
   if (effForce === 'richtext') {
@@ -299,6 +303,7 @@ export function FileViewerDispatch({
   if (isOfficeFile(lower)) return <EditorPage mode="view" fileId={fileId} />
   if (isDrawioFile(lower)) return <DrawioPage mode="view" fileId={fileId} />
   if (isExcalidrawFile(lower)) return <ExcalidrawPage mode="view" fileId={fileId} />
+  if (isGanttFile(lower)) return <GanttPage mode="view" fileId={fileId} />
   if (isDdocFile(lower)) return <DdocEditorPage mode="view" fileId={fileId} />
   if (isXmindFile(lower)) return <XMindFileViewer fileId={fileId} name={name} />
   if (isMermaidFile(lower)) return <MermaidFileViewer fileId={fileId} />
@@ -356,12 +361,14 @@ export function FileEditorDispatch({ fileId, name, force }: { fileId: string; na
     (force === 'office' && (isOfficeFile(lower) || /\.(pdf|txt|rtf)$/.test(lower))) ||
     (force === 'drawio' && isDrawioFile(lower)) ||
     (force === 'excalidraw' && isExcalidrawFile(lower)) ||
+    (force === 'gantt' && isGanttFile(lower)) ||
     force === 'richtext' ||
     force === 'text'
   const effForce = forceOk ? force : undefined
   if (effForce === 'office') return <EditorPage mode="edit" fileId={fileId} />
   if (effForce === 'drawio') return <DrawioPage mode="edit" fileId={fileId} />
   if (effForce === 'excalidraw') return <ExcalidrawPage mode="edit" fileId={fileId} />
+  if (effForce === 'gantt') return <GanttPage mode="edit" fileId={fileId} />
   if (effForce === 'richtext') {
     if (isDdocFile(lower)) return <DdocEditorPage mode="edit" fileId={fileId} />
     return <TextEditorPage kind="markdown" mode="edit" fileId={fileId} />

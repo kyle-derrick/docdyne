@@ -1984,6 +1984,13 @@ export function isHtmlFile(name: string): boolean {
 }
 
 /** 仅 .excalidraw 扩展名进入白板编辑；编辑器由前端懒加载，按钮恒可用。 */
+export function isGanttFile(name: string): boolean {
+  return name.toLowerCase().endsWith('.ddgantt')
+}
+
+/** 空甘特图初始模板（dhtmlx parse JSON：一个示例根项目，新建即有骨架）。 */
+export const EMPTY_GANTT_JSON = '{"data":[{"id":1,"text":"新项目计划","start_date":"2026-01-05","duration":5,"progress":0,"open":true,"type":"project"}],"links":[]}'
+
 export function isExcalidrawFile(name: string): boolean {
   return name.toLowerCase().endsWith('.excalidraw')
 }

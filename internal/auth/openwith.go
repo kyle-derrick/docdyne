@@ -26,10 +26,10 @@ var openWithOpeners = map[string]bool{
 // ViewMethod / EditMethod 对齐；存储为复合编码 "v:<view>[+e:<edit>]"。
 var (
 	openWithViews = map[string]bool{
-		"raw": true, "office": true, "drawio": true, "excalidraw": true, "xmind": true, "richtext": true,
+		"raw": true, "office": true, "drawio": true, "excalidraw": true, "xmind": true, "richtext": true, "gantt": true,
 	}
 	openWithEdits = map[string]bool{
-		"text": true, "office": true, "drawio": true, "excalidraw": true, "richtext": true, "none": true,
+		"text": true, "office": true, "drawio": true, "excalidraw": true, "richtext": true, "gantt": true, "none": true,
 	}
 )
 

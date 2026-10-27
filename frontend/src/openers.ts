@@ -10,10 +10,10 @@ import type { OpenWithPrefs } from './api'
 import { isDrawioFile, isExcalidrawFile } from './api'
 
 /** 查看方式枚举：raw=原始内容 / office=OnlyOffice / drawio=图表(转HTML) / excalidraw=白板(转图片) / xmind=思维导图 / richtext=富文本渲染（md 渲染或 .ddrt/.ddoc）。 */
-export type ViewMethod = 'raw' | 'office' | 'drawio' | 'excalidraw' | 'xmind' | 'richtext'
+export type ViewMethod = 'raw' | 'office' | 'drawio' | 'excalidraw' | 'xmind' | 'richtext' | 'gantt'
 
 /** 编辑方式枚举：text=Monaco / office=OnlyOffice / drawio / excalidraw / richtext=Tiptap（.ddrt/.ddoc 专属）/ none=不支持编辑。 */
-export type EditMethod = 'text' | 'office' | 'drawio' | 'excalidraw' | 'richtext' | 'none'
+export type EditMethod = 'text' | 'office' | 'drawio' | 'excalidraw' | 'richtext' | 'gantt' | 'none'
 
 /** 一个扩展名的完整打开方式（查看 + 编辑）。 */
 export interface OpenWithPair {
@@ -33,6 +33,7 @@ export function viewMethodLabel(method: ViewMethod, zh: boolean, ext?: string): 
     drawio: 'drawIO',
     excalidraw: '白板',
     xmind: 'XMind',
+    gantt: '甘特图',
     richtext: '富文本',
   }
   const enLabels: Record<ViewMethod, string> = {
@@ -41,6 +42,7 @@ export function viewMethodLabel(method: ViewMethod, zh: boolean, ext?: string): 
     drawio: 'draw.io',
     excalidraw: 'Whiteboard',
     xmind: 'XMind',
+    gantt: 'Gantt',
     richtext: 'Rich text',
   }
   return zh ? zhLabels[method] : enLabels[method]
@@ -53,6 +55,7 @@ export function editMethodLabel(method: EditMethod, zh: boolean): string {
     office: 'Office',
     drawio: 'drawIO',
     excalidraw: '白板',
+    gantt: '甘特图',
     richtext: '富文本',
     none: '不支持',
   }
@@ -61,6 +64,7 @@ export function editMethodLabel(method: EditMethod, zh: boolean): string {
     office: 'Office',
     drawio: 'draw.io',
     excalidraw: 'Whiteboard',
+    gantt: 'Gantt',
     richtext: 'Rich text',
     none: 'None',
   }
@@ -146,6 +150,7 @@ export function builtinOpenWith(ext: string): OpenWithPair {
   if (OFFICE_DOC_EXTS.has(ext)) return { view: 'office', edit: 'office' }
   if (ext === 'drawio' || isDrawioFile(`x.${ext}`)) return { view: 'drawio', edit: 'drawio' }
   if (ext === 'excalidraw' || isExcalidrawFile(`x.${ext}`)) return { view: 'excalidraw', edit: 'excalidraw' }
+  if (ext === 'ddgantt') return { view: 'gantt', edit: 'gantt' }
   if (ext === 'xmind') return { view: 'xmind', edit: 'none' }
   if (ext === 'pdf') return { view: 'raw', edit: 'office' }
   if (TEXT_EDITABLE_EXTS.has(ext)) return { view: 'raw', edit: 'text' }

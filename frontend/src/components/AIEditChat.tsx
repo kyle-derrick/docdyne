@@ -58,9 +58,11 @@ function agentHostLabel(kind: AIApplyKind): string {
     ? 'Excalidraw 白板'
     : kind === 'drawio-xml'
       ? 'draw.io 图表'
-      : kind === 'richtext-patch'
-        ? '富文本文档'
-        : '文本编辑器'
+      : kind === 'gantt-json'
+        ? '甘特图'
+        : kind === 'richtext-patch'
+          ? '富文本文档'
+          : '文本编辑器'
 }
 
 /** 面板模式：edit=可修改（自动应用+版本保护）；chat=仅对话（纯输出）；
@@ -85,7 +87,7 @@ const READONLY_TOOL_RE = /^(read_|search_|list_|get_|find_)/
  *   replaceAll），宿主执行器（DdocEditorPage.applyRichTextPatch）在
  *   ProseMirror 文档中按定位原文精确匹配逐条执行；围栏缺失时宿主回落
  *   追加。回复原文经 onApply('replace') 透传，解析在宿主侧。 */
-export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'richtext-patch' | 'office-word' | 'office-excel' | 'office-ppt' | 'office-pdf'
+export type AIApplyKind = 'text' | 'excalidraw-json' | 'drawio-xml' | 'gantt-json' | 'richtext-patch' | 'office-word' | 'office-excel' | 'office-ppt' | 'office-pdf'
 
 /** 从 AI 回复中提取 excalidraw 元素 JSON 源码：优先 ```excalidraw-json 围栏；
  * 其次任意围栏代码块内容以 [ 开头；最后裸数组（trim 后 [ 起 ] 止）。
@@ -123,6 +125,31 @@ XML REFERENCE:
  * 自动补全 seed/versionNonce/文本量宽/绑定端点等派生字段）。技术规范
  * 统一英文（同 DRAWIO_XML_GUIDE 约定）。导出供宿主页（ExcalidrawPage
  * Agent 工具循环）复用作 insert_elements 载荷格式规范。 */
+export const GANTT_JSON_GUIDE = `Gantt plan skill (.ddgantt JSON, dhtmlx-gantt parse format). Plans must be actionable schedules: dates ordered, durations realistic, dependencies acyclic.
+
+## Format
+\`\`\`json
+{
+  "data": [
+    {"id": 1, "text": "项目启动", "start_date": "2026-11-02", "duration": 3, "progress": 0, "open": true, "type": "project"},
+    {"id": 2, "text": "需求调研", "start_date": "2026-11-02", "duration": 5, "progress": 0, "parent": 1},
+    {"id": 3, "text": "方案评审", "start_date": "2026-11-09", "duration": 0, "type": "milestone", "parent": 1},
+    {"id": 4, "text": "开发", "start_date": "2026-11-10", "duration": 15, "progress": 0}
+  ],
+  "links": [
+    {"id": 1, "source": 2, "target": 3, "type": "0"},
+    {"id": 2, "source": 3, "target": 4, "type": "0"}
+  ]
+}
+\`\`\`
+
+## Rules
+- Task fields: id (unique), text, start_date "YYYY-MM-DD", duration (days, inclusive), progress 0..1, parent (task id for grouping), open:true, type ("task" default | "project" = summary group | "milestone" duration MUST be 0).
+- Link types: "0" finish-to-start (default) | "1" start-to-start | "2" finish-to-finish | "3" start-to-finish. source/target are task ids. No cycles.
+- Summary (type:"project") dates auto-derive from children in most cases — still emit sensible start_date/duration.
+- WBS hygiene: 5-15 top-level items max for a readable plan; group related tasks under a project parent; every plan starts with one root project or a flat list of phases.
+- Dates: business-plausible, dependencies consistent (successor starts >= predecessor finish for FS).`
+
 export const EXCALIDRAW_JSON_GUIDE = `Excalidraw diagram skill (methodology + element skeletons). Diagrams must ARGUE, not DISPLAY: if you removed all text, the structure alone should still communicate the concept.
 
 DESIGN METHOD (do this before writing elements):
@@ -303,6 +330,14 @@ export function AIEditChatButton({
       { key: 'continue', label: t(locale, 'aiEditContinue'), instruction: zh ? '请顺着当前内容自然续写' : 'Continue writing naturally from the current content', editMode: true },
       { key: 'polish', label: t(locale, 'aiEditPolish'), instruction: zh ? '请润色当前文本，保持原意' : 'Polish the current text while keeping its meaning', editMode: true },
       { key: 'translate-en', label: t(locale, 'aiEditTranslateEn'), instruction: zh ? '把选区翻译成英文' : 'Translate the selection into English', editMode: false },
+      'divider',
+      { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
+    ],
+    'gantt-json': [
+      { key: 'gen-plan', label: zh ? 'AI 生成项目计划' : 'Generate a plan', instruction: zh ? '按当前需求从零生成一份完整的项目计划甘特图（阶段分组/任务/里程碑/依赖，日期从下周一起排）' : 'Generate a complete project plan gantt from scratch (phases/tasks/milestones/dependencies, starting next Monday)', editMode: true },
+      { key: 'add-tasks', label: zh ? '补充任务' : 'Add tasks', instruction: zh ? '在当前计划基础上补充遗漏的任务与依赖，不要改动既有任务' : 'Add missing tasks and dependencies to the current plan without changing existing ones', editMode: true },
+      { key: 'reschedule', label: zh ? '重排日期' : 'Reschedule', instruction: zh ? '按依赖关系重排当前计划日期，使其紧凑合理' : 'Reschedule current plan dates compactly per dependencies', editMode: true },
+      { key: 'risk-review', label: zh ? '计划评审' : 'Review plan', instruction: zh ? '评审当前计划：指出工期风险、缺失依赖与不合理排期，并给出修改建议（先不要直接改）' : 'Review the plan: risks, missing dependencies, unreasonable scheduling; suggest fixes first', editMode: false },
       'divider',
       { key: 'custom', label: t(locale, 'aiEditCustom'), focus: true },
     ],

@@ -131,6 +131,8 @@ export default defineConfig({
           // Excalidraw 运行时资源（字体 + 2.96MB vendor）：按需加载，不进
           // 预缓存（vendor 超过 workbox 2MiB 上限会直接报错；策略同 mermaid）。
           'excalidraw-assets/**',
+          // dhtmlx-gantt 按需 chunk（约 1.2MB）：同 mermaid 策略不进预缓存。
+          'assets/dhtmlx*.js',
         ],
       },
     }),

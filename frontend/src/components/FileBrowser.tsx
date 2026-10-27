@@ -47,6 +47,7 @@ import {
   EMPTY_DRAWIO_XML,
   EMPTY_DFDOC_JSON,
   EMPTY_EXCALIDRAW_JSON,
+  EMPTY_GANTT_JSON,
   FileItem,
   FileQueryOptions,
   FileWithVersion,
@@ -75,6 +76,7 @@ import {
   isDdocFile,
   isDrawioFile,
   isExcalidrawFile,
+  isGanttFile,
   isHtmlFile,
   isOfficeFile,
   isUploadAborted,
@@ -889,7 +891,7 @@ export default function FileBrowser({
   const [folderOpen, setFolderOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [folderError, setFolderError] = useState('')
-  const [createKind, setCreateKind] = useState<'md' | 'ddoc' | 'textfile' | 'drawio' | 'whiteboard' | 'word' | 'spreadsheet' | 'presentation' | null>(null)
+  const [createKind, setCreateKind] = useState<'md' | 'ddoc' | 'textfile' | 'drawio' | 'whiteboard' | 'gantt' | 'word' | 'spreadsheet' | 'presentation' | null>(null)
   const [createName, setCreateName] = useState('')
   const [createError, setCreateError] = useState('')
 
@@ -1744,6 +1746,7 @@ export default function FileBrowser({
     textfile: { label: '文本文件', ext: '', content: '', mime: '', route: '' },
     drawio: { label: 'draw.io', ext: '.drawio', content: EMPTY_DRAWIO_XML, mime: 'text/xml', route: 'drawio' },
     whiteboard: { label: '白板', ext: '.excalidraw', content: EMPTY_EXCALIDRAW_JSON, mime: 'application/json', route: 'excalidraw' },
+    gantt: { label: '甘特图', ext: '.ddgantt', content: EMPTY_GANTT_JSON, mime: 'application/json', route: 'gantt' },
     word: { label: 'Word', ext: '.docx', content: '', mime: '', route: 'edit' },
     spreadsheet: { label: 'Excel', ext: '.xlsx', content: '', mime: '', route: 'edit' },
     presentation: { label: 'PPT', ext: '.pptx', content: '', mime: '', route: 'edit' },
@@ -1752,7 +1755,7 @@ export default function FileBrowser({
   const beginNamedCreate = (kind: NonNullable<typeof createKind>) => {
     const defaults: Record<NonNullable<typeof createKind>, string> = {
       md: '新文档.md', ddoc: '新文档.ddrt', textfile: 'untitled.txt', drawio: '新图表.drawio',
-      whiteboard: '新白板.excalidraw', word: '新文档.docx',
+      whiteboard: '新白板.excalidraw', gantt: '新计划.ddgantt', word: '新文档.docx',
       spreadsheet: '新表格.xlsx', presentation: '新演示文稿.pptx',
     }
     setCreateKind(kind)
@@ -2162,6 +2165,7 @@ export default function FileBrowser({
     if (isTxtLike) editOptions.push({ label: locale === 'zh-CN' ? '编辑文本' : 'Edit text', run: () => openWithMethod(item, 'edit', 'text') })
     if (isDrawio && drawioEnabled) editOptions.push({ label: locale === 'zh-CN' ? '图表编辑' : 'Edit diagram', run: () => openWithMethod(item, 'edit', 'drawio') })
     if (isBoard) editOptions.push({ label: locale === 'zh-CN' ? '白板编辑' : 'Edit whiteboard', run: () => openWithMethod(item, 'edit', 'excalidraw') })
+    if (isGanttFile(lower)) editOptions.push({ label: locale === 'zh-CN' ? '甘特图编辑' : 'Edit gantt', run: () => openWithMethod(item, 'edit', 'gantt') })
     // .ddrt/.ddoc 富文本文档：编辑进 Tiptap（by-path 按扩展名分发）。
     if (isRichDoc) editOptions.push({ label: locale === 'zh-CN' ? '编辑富文本' : 'Edit rich text', run: () => openWithMethod(item, 'edit', 'richtext') })
     // 弹窗内编辑可用性：无对应编辑器组件的类型（集成未启用的 office/drawio）
@@ -2339,6 +2343,7 @@ export default function FileBrowser({
         (m === 'office' && (!ooEnabled || !officeOk)) ||
         (m === 'drawio' && (!drawioEnabled || ext !== 'drawio')) ||
         (m === 'excalidraw' && ext !== 'excalidraw') ||
+        (m === 'gantt' && ext !== 'ddgantt') ||
         (m === 'xmind' && ext !== 'xmind') ||
         (m === 'richtext' && !(mdFamily || ext === 'ddrt' || ext === 'ddoc'))
       const viewEntries = allViewEntries(ext, av, zh).filter(({ method }) => !gated(method))
@@ -2627,10 +2632,10 @@ export default function FileBrowser({
                 ? [{ key: 'folder', label: locale === 'zh-CN' ? '文件夹' : 'Folder' }]
                 : []),
               ...uploadFn
-                ? (['md', 'ddoc', 'textfile', 'drawio', 'whiteboard', 'word', 'spreadsheet', 'presentation'] as const).map((kind) => ({
+                ? (['md', 'ddoc', 'textfile', 'drawio', 'whiteboard', 'gantt', 'word', 'spreadsheet', 'presentation'] as const).map((kind) => ({
                     key: kind,
                     disabled: docCreating,
-                    label: { md: 'Markdown 文档（.md）', ddoc: locale === 'zh-CN' ? '富文本（.ddrt）' : 'Rich text（.ddrt）', textfile: '文本文件（.txt/.html/.js…）', drawio: 'draw.io', whiteboard: '白板', word: 'Word', spreadsheet: 'Excel', presentation: 'PPT' }[kind],
+                    label: { md: 'Markdown 文档（.md）', ddoc: locale === 'zh-CN' ? '富文本（.ddrt）' : 'Rich text（.ddrt）', textfile: '文本文件（.txt/.html/.js…）', drawio: 'draw.io', whiteboard: '白板', gantt: '甘特图（.ddgantt）', word: 'Word', spreadsheet: 'Excel', presentation: 'PPT' }[kind],
                   }))
                 : [],
             ],

@@ -7971,3 +7971,45 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
     transition: none;
   }
 }
+
+/* ---- 甘特图（dhtmlx-gantt Community，.ddgantt）：编辑页/查看器布局 ---- */
+.gantt-editor-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.gantt-editor-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 12px 12px;
+}
+.gantt-editor-host,
+.gantt-viewer-host {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+}
+/* 暗色主题基础适配（dhtmlx 默认皮肤为亮色；覆盖关键面） */
+.gantt-dark .gantt_container {
+  background: var(--surface, #16181d);
+  color: var(--text-primary, #e6e8ec);
+}
+.gantt-dark .gantt_grid_head,
+.gantt-dark .gantt_grid_row,
+.gantt-dark .gantt_row {
+  background: transparent;
+  border-color: var(--border-color, #2a2d34);
+}
+.gantt-dark .gantt_task_row,
+.gantt-dark .gantt_grid_scale,
+.gantt-dark .gantt_scale_line {
+  border-color: var(--border-color, #2a2d34);
+}
+.gantt-dark .gantt_cell {
+  border-color: var(--border-color, #2a2d34);
+  color: inherit;
+}
+.gantt-dark .gantt_task_progress,
+.gantt-dark .gantt_task_progress_drag {
+  background: rgba(255, 255, 255, 0.14);
+}

@@ -47,6 +47,7 @@ import SharedPage from './pages/SharedPage'
 import AdminPage from './pages/AdminPage'
 import DrawioPage from './pages/DrawioPage'
 import ExcalidrawPage from './pages/ExcalidrawPage'
+import GanttPage from './pages/GanttPage'
 import TextEditorPage from './pages/TextEditorPage'
 import DdocEditorPage from './pages/DdocEditorPage'
 import OfficeAIPage from './pages/OfficeAIPage'
@@ -889,6 +890,8 @@ export default function App() {
         {/* Excalidraw 白板编辑页（.excalidraw 文件行「白板」按钮进入；
             编辑器包经 React.lazy 动态加载独立 chunk）。 */}
         <Route path="/excalidraw/:fileId" element={<RequireAuth bare><ExcalidrawPage /></RequireAuth>} />
+        {/* 甘特图编辑页（.ddgantt 文件行「甘特图」按钮进入；查看走 ViewerPage 分发）。 */}
+        <Route path="/gantt/:fileId" element={<RequireAuth bare><GanttPage /></RequireAuth>} />
         {/* 文本与源码使用不带站点顶栏的独立编辑窗口。 */}
         <Route path="/office-ai" element={<RequireAuth bare><OfficeAIPage /></RequireAuth>} />
         <Route path="/text/:fileId" element={<RequireAuth bare><TextEditorPage kind="text" /></RequireAuth>} />

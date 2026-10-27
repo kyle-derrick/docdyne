@@ -843,7 +843,7 @@ var builtinMimeTypes = map[string]string{
 	".docx":   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	".xlsx":   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	".pptx":   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	".drawio": "application/xml", ".excalidraw": "application/json",
+	".drawio": "application/xml", ".excalidraw": "application/json", ".ddgantt": "application/json",
 }
 
 // detectContentType 按文件名扩展推断 Content-Type（小写扩展，系统 MIME 表

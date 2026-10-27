@@ -54,6 +54,8 @@ func ExtractText(name, mime string, data []byte) (text string, ok bool) {
 		return extractDrawio(data)
 	case strings.HasSuffix(lower, ".excalidraw"):
 		return extractExcalidraw(data)
+	case strings.HasSuffix(lower, ".ddgantt"):
+		return extractGantt(data)
 	case strings.HasSuffix(lower, ".docx"):
 		return extractDocx(data)
 	case strings.HasSuffix(lower, ".xlsx"):
@@ -579,4 +581,41 @@ func readPDFString(content []byte, start int) (string, int) {
 
 func appendRuneOctal(b []byte, v int) []byte {
 	return append(b, []byte(string(rune(v)))...)
+}
+
+// extractGantt 提取甘特图文档（.ddgantt，dhtmlx parse JSON：{data:[任务],
+// links:[依赖]}）的检索文本：任务名/起止日期/进度逐行拼接（AI 上下文与
+// 全文检索共用；链接仅含 id 不贡献文本）。
+func extractGantt(data []byte) (string, bool) {
+	var doc struct {
+		Data []struct {
+			Text      string  `json:"text"`
+			StartDate string  `json:"start_date"`
+			EndDate   string  `json:"end_date"`
+			Progress  float64 `json:"progress"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Data) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	for _, t := range doc.Data {
+		name := strings.TrimSpace(t.Text)
+		if name == "" {
+			continue
+		}
+		b.WriteString(name)
+		if t.StartDate != "" {
+			b.WriteString(" " + t.StartDate)
+		}
+		if t.EndDate != "" {
+			b.WriteString("~" + t.EndDate)
+		}
+		if t.Progress > 0 {
+			b.WriteString(fmt.Sprintf(" %.0f%%", t.Progress*100))
+		}
+		b.WriteString("\n")
+	}
+	out := strings.TrimSpace(b.String())
+	return out, out != ""
 }
