@@ -207,11 +207,28 @@ export default function GanttPage({ mode: routeMode, fileId: routeFileId }: { mo
     }
     const base = (file?.name ?? 'plan').replace(/\.ddgantt$/i, '')
     try {
-      // 只读态导出当前视图：临时切换只读避免拖拽句柄入画。
+      // 只读态导出：临时切换只读避免拖拽句柄入画；容器宽度临时撑到
+      // 数据区完整宽度（网格 + 全时间轴），导出「整图」而非当前视口
+      //（撑宽后浏览器横向布局重排，gantt 内容按全宽渲染）。
       const wasReadonly = g.config.readonly
       g.config.readonly = true
+      const gridEl = host.querySelector('.gantt_grid') as HTMLElement | null
+      const dataEl = host.querySelector('.gantt_task .gantt_data_area') as HTMLElement | null
+      const gridW = gridEl?.scrollWidth ?? 0
+      const dataW = dataEl?.scrollWidth ?? 0
+      const hostW = host.style.width
+      const fullW = gridW + dataW
+      if (fullW > (host.offsetWidth || 0)) {
+        host.style.width = `${fullW}px`
+      }
       g.render()
-      const dataUrl = await toPng(host, { backgroundColor: getComputedStyle(document.body).backgroundColor || '#fff', pixelRatio: 2 })
+      const dataUrl = await toPng(host, {
+        backgroundColor: getComputedStyle(document.body).backgroundColor || '#fff',
+        pixelRatio: 2,
+        width: Math.max(fullW, host.offsetWidth),
+        height: host.offsetHeight,
+      })
+      host.style.width = hostW
       g.config.readonly = wasReadonly
       g.render()
       if (kind === 'png') {

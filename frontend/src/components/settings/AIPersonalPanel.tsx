@@ -634,7 +634,11 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
     if (!editing) return
     setProviders((prev) => {
       const idx = prev.findIndex((p) => p.id === editing.id)
-      const next = { ...editing, name: editing.name.trim(), base_url: editing.base_url.trim(), id: editing.id.trim(), models: editing.models.filter((m) => m.id.trim()) }
+      // key_configured：表单填了新 key 或原本已配置即显示已配置（此前恒
+      // 回落 false——填了 key 列表仍显示「未配置密钥」，误导用户以为没
+      // 存上而放弃总保存；服务端掩码回读后会以真值纠正）。
+      const keyConfigured = editing.api_key.trim() !== '' || editing.key_configured
+      const next = { ...editing, key_configured: keyConfigured, name: editing.name.trim(), base_url: editing.base_url.trim(), id: editing.id.trim(), models: editing.models.filter((m) => m.id.trim()) }
       if (idx >= 0) { const copy = [...prev]; copy[idx] = next; return copy }
       return [...prev, next]
     })
