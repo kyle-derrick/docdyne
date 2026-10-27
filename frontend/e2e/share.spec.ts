@@ -56,9 +56,12 @@ test.describe.serial('公开分享', () => {
     await page.goto(`/s/${shareToken}`)
     await expect(page.locator('.preview-text')).toContainText(`DocDyne E2E share ${stamp}`)
 
+    // v2.6 统一悬浮菜单：单动作直钮（.fab-btn）；多动作先展开再点「下载」。
+    await page.locator('.fab-btn').first().click()
+    const dlItem = page.locator('.fab-menu-item', { hasText: '下载' })
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('.share-fab').click(),
+      dlItem.count().then((n) => (n > 0 ? Promise.resolve(dlItem.first()) : page.locator('.fab-btn').first())).then((t) => t.click()),
     ])
     expect(download.suggestedFilename()).toBe(fileName)
   })

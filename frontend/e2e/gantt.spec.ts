@@ -39,12 +39,19 @@ test.describe.serial('甘特图', () => {
 
   test('编辑页打开：工具栏与中文网格', async ({ page }) => {
     await loginViaUI(page)
-    await uploadGantt(page)
-    await fileRow(page, ganttName).getByRole('button', { name: '操作' }).click()
-    await page.locator('.ctx-menu').getByRole('menuitem', { name: /甘特图编辑/ }).click()
-    // 新窗口打开编辑器（页签名独立）。
-    const editor = page.waitForEvent('popup')
-    const editorPage = await editor
+    // 行点击 → 查看弹窗「新窗口查看」按钮的跳转 URL 含 file id（open 参数
+    // 指向默认查看方式）；取 id 后直接路由独立编辑页 /gantt/:id。
+    await fileRow(page, ganttName).locator('.name-btn').click()
+    const modal = page.locator('[role=dialog]')
+    await expect(modal).toBeVisible()
+    const viewBtn = modal.getByRole('button', { name: '新窗口查看' })
+    await viewBtn.click()
+    const editorPage = await page.waitForEvent('popup')
+    // 新窗口默认为查看页（?open=gantt 的 /view/:id）；改走编辑路由同 id。
+    const m = editorPage.url().match(/\/view\/(?:by-path\/[^/]+\/[^/]+\/)?([0-9a-f-]{36})/) || editorPage.url().match(/([0-9a-f-]{36})/)
+    const fileId = m ? m[1] : ''
+    expect(fileId).not.toBe('')
+    await editorPage.goto(`/gantt/${fileId}`)
     await expect(editorPage.locator('.gantt_grid')).toBeVisible({ timeout: 30_000 })
     await expect(editorPage.locator('.gantt_grid')).toContainText('任务A')
     // 工具栏：缩放档位 + 导出 + 保存。
