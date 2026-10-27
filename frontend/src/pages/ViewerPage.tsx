@@ -315,7 +315,7 @@ export function FileViewerDispatch({
     if (isDdocFile(lower)) return <DdocEditorPage mode="view" fileId={fileId} />
     return <TextEditorPage kind="markdown" mode="view" fileId={fileId} />
   }
-  if (effForce === 'raw') return <RawSourceViewer fileId={fileId} />
+  if (effForce === 'raw') return <RawSourceViewer fileId={fileId} name={name} />
   if (isOfficeFile(lower)) return <EditorPage mode="view" fileId={fileId} />
   if (isDrawioFile(lower)) return <DrawioPage mode="view" fileId={fileId} />
   if (isExcalidrawFile(lower)) return <ExcalidrawPage mode="view" fileId={fileId} />
@@ -338,7 +338,7 @@ export function FileViewerDispatch({
 
 /** 强制「原始内容」查看（?open=raw）：认证读取源文本按 <pre> 渲染；
  * 读取失败（二进制/无权限）给出下载提示（raw 查看对二进制的兜底语义）。 */
-function RawSourceViewer({ fileId }: { fileId: string }) {
+function RawSourceViewer({ fileId, name }: { fileId: string; name?: string }) {
   const [text, setText] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
@@ -358,7 +358,17 @@ function RawSourceViewer({ fileId }: { fileId: string }) {
     )
   }
   if (text === null) return <main className="text-editor-page"><div className="text-editor-state">正在加载…</div></main>
-  return <main className="text-editor-page viewer-only"><pre className="preview-text">{text}</pre></main>
+  return (
+    <main className="text-editor-page viewer-only">
+      {isJSONFile(name ?? '') ? (
+        <CodeViewer text={text} language="json" title={name ?? ''} dark={useColorMode() === 'dark'} />
+      ) : isXMLFile(name ?? '') ? (
+        <CodeViewer text={text} language="xml" title={name ?? ''} dark={useColorMode() === 'dark'} />
+      ) : (
+        <pre className="preview-text">{text}</pre>
+      )}
+    </main>
+  )
 }
 
 /**
