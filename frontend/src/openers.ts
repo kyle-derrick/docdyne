@@ -189,10 +189,10 @@ export function editOptionsFor(ext: string): EditMethod[] {
 // ---- 全量方式列表（「打开方式」二级菜单 / 设置页内置表共用） ----
 
 /** 全部查看方式（固定展示顺序）。 */
-export const ALL_VIEW_METHODS: ViewMethod[] = ['raw', 'office', 'drawio', 'excalidraw', 'xmind', 'richtext']
+export const ALL_VIEW_METHODS: ViewMethod[] = ['raw', 'office', 'drawio', 'excalidraw', 'xmind', 'richtext', 'gantt']
 
 /** 全部编辑方式（不含 none）。 */
-export const ALL_EDIT_METHODS: EditMethod[] = ['text', 'office', 'drawio', 'excalidraw', 'richtext']
+export const ALL_EDIT_METHODS: EditMethod[] = ['text', 'office', 'drawio', 'excalidraw', 'richtext', 'gantt']
 
 /** 集成可用性：office 须 OnlyOffice、drawio 须 draw.io embed（查看/编辑同门槛）。 */
 export interface MethodAvailability {
