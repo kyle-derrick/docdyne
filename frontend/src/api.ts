@@ -1309,8 +1309,9 @@ export interface ConvertMarkdownResult {
  * .xmind 转 Markdown：源须 .xmind 且有父目录，产物经上传管线落库同目录
  * （<源名>.md，冲突自动 -converted-N 后缀）；解析失败 422（CONVERT_FAILED）。
  */
-export async function convertMarkdown(fileId: string): Promise<ConvertMarkdownResult> {
-  return api<ConvertMarkdownResult>(`/api/v1/files/${fileId}/convert-markdown`, jsonInit('POST', {}))
+export async function convertMarkdown(fileId: string, target?: 'mindmap'): Promise<ConvertMarkdownResult> {
+  const q = target === 'mindmap' ? '?target=mindmap' : ''
+  return api<ConvertMarkdownResult>(`/api/v1/files/${fileId}/convert-markdown${q}`, jsonInit('POST', {}))
 }
 
 // ---------- 分享 ----------

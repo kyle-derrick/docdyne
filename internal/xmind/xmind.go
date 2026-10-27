@@ -85,6 +85,43 @@ func ToMarkdown(data []byte) (string, error) {
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
 }
 
+// ToMarkmap 解析 .xmind 并生成「思维导图文档」Markdown：首 sheet 的
+// topic 树输出为单个 ```markmap 围栏代码块（列表文本）——查看页经
+// MarkdownViewer 的 fences 钩子直接渲染为交互式思维导图（markmap 引擎，
+// 缩放/拖拽），编辑即编辑围栏内列表文本；多 sheet 时其余 sheet 以普通
+// Markdown 章节附后（markmap 单图语义）。
+func ToMarkmap(data []byte) (string, error) {
+	sheets, err := parseSheets(data)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	first := sheets[0]
+	title := strings.TrimSpace(first.Title)
+	if title == "" {
+		title = strings.TrimSpace(first.RootTopic.Title)
+	}
+	if title == "" {
+		title = "思维导图"
+	}
+	b.WriteString("# ")
+	b.WriteString(title)
+	b.WriteString("\n\n```markmap\n")
+	writeTopic(&b, first.RootTopic, 0)
+	b.WriteString("```\n")
+	for i, sh := range sheets[1:] {
+		st := strings.TrimSpace(sh.Title)
+		if st == "" {
+			st = fmt.Sprintf("Sheet %d", i+2)
+		}
+		b.WriteString("\n## ")
+		b.WriteString(st)
+		b.WriteString("\n\n")
+		writeTopic(&b, sh.RootTopic, 0)
+	}
+	return b.String(), nil
+}
+
 // parseSheets 打开 zip 容器并解析 content.json（新格式）；
 // 老版 content.xml 返回 ErrLegacyUnsupported，其余结构问题返回 ErrInvalid。
 func parseSheets(data []byte) ([]sheet, error) {

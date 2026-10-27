@@ -152,13 +152,13 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
     return () => window.clearTimeout(timer)
   }, [convertNotice, convertError])
 
-  const handleConvert = async () => {
+  const handleConvert = async (target?: 'mindmap') => {
     if (converting) return
     setConverting(true)
     setConvertNotice('')
     setConvertError('')
     try {
-      const created = await convertMarkdown(fileId)
+      const created = await convertMarkdown(fileId, target)
       setConvertNotice(zh ? `已生成「${created.name}」，正在打开编辑…` : `Created "${created.name}", opening editor…`)
       window.open(`/markdown/${created.file_id}`, '_blank', 'noopener')
     } catch (err) {
@@ -172,6 +172,11 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
   //（查看弹窗/富文本嵌入）回退自渲染悬浮钮。
   const hosted = useViewerFloatActions('xmind-convert', useMemo(
     () => (convertible ? [{
+      key: 'convert-mindmap',
+      label: zh ? '转为思维导图' : 'Convert to mind map',
+      icon: FileText,
+      onClick: () => void handleConvert('mindmap'),
+    }, {
       key: 'convert',
       label: converting ? (zh ? '转换中…' : 'Converting…') : (zh ? '转为 Markdown' : 'Convert to Markdown'),
       icon: FileText,
@@ -185,6 +190,11 @@ export default function XMindViewer({ fileId, title, loadBuffer, convertible = t
       {convertible && !hosted && (
         <FloatingActionBar
           actions={[{
+            key: 'convert-mindmap',
+            label: zh ? '转为思维导图' : 'Convert to mind map',
+            icon: FileText,
+            onClick: () => void handleConvert('mindmap'),
+          }, {
             key: 'convert',
             label: converting ? (zh ? '转换中…' : 'Converting…') : (zh ? '转为 Markdown' : 'Convert to Markdown'),
             icon: FileText,

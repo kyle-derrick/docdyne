@@ -1903,6 +1903,12 @@ paths:
 
   /files/{id}/convert-markdown:
     post:
+      parameters:
+        - name: target
+          in: query
+          required: false
+          description: 'mindmap = 生成 markmap 围栏文档（查看页渲染为交互式思维导图）；缺省 = 普通 Markdown'
+          schema: { type: string, enum: [mindmap] }
       tags: [Files]
       operationId: convertToMarkdown
       summary: XMind 转 Markdown（产物落库）

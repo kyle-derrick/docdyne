@@ -60,9 +60,18 @@ func (h *Handler) convertToMarkdown(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to read source file"})
 		return
 	}
-	markdown, err := xmind.ToMarkdown(data)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error(), "code": "CONVERT_FAILED"})
+	// v2.7 target=mindmap：输出 ```markmap 围栏文档（查看页直接渲染为交互
+	// 式思维导图，编辑即编辑围栏列表）；缺省 markdown 保持原语义。
+	target := strings.TrimSpace(c.Query("target"))
+	var markdown string
+	var err2 error
+	if target == "mindmap" {
+		markdown, err2 = xmind.ToMarkmap(data)
+	} else {
+		markdown, err2 = xmind.ToMarkdown(data)
+	}
+	if err2 != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err2.Error(), "code": "CONVERT_FAILED"})
 		return
 	}
 	name, err := h.uniqueConvertName(*f.ParentID, f.Name)
