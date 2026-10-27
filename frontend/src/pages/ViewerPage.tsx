@@ -255,6 +255,27 @@ function XMindFileViewer({ fileId, name }: { fileId: string; name: string }) {
   )
 }
 
+/** v2.7 json/xml 独立查看页：认证读取全文 → CodeViewer（Monaco 只读 +
+ *  美化/压缩/复制工具条）。 */
+function CodeViewerView({ fileId, name, language }: { fileId: string; name: string; language: string }) {
+  const dark = useColorMode() === 'dark'
+  const [text, setText] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    setText(null)
+    void fetchFileText(fileId)
+      .then((t) => { if (alive) setText(t) })
+      .catch(() => { if (alive) setText('') })
+    return () => { alive = false }
+  }, [fileId])
+  if (text === null) return <main className="text-editor-page"><div className="text-editor-state">正在加载…</div></main>
+  return (
+    <main className="text-editor-page viewer-only">
+      <CodeViewer text={text} language={language} title={name} dark={dark} />
+    </main>
+  )
+}
+
 /**
  * 按文件名/扩展名分发的只读查看器（/view/:fileId 与 /view/by-path 共用，
  * FileBrowser 查看弹窗亦经此内嵌）：fileId 由调用方提供（路由参数或
@@ -326,12 +347,13 @@ export function FileViewerDispatch({
   if (endsXml) {
     if (xmlIsDrawio === null) return <main className="text-editor-page"><div className="text-editor-state">正在加载…</div></main>
     if (xmlIsDrawio) return <DrawioPage mode="view" fileId={fileId} />
-    return <GenericViewer fileId={fileId} name={name} />
+    return <CodeViewerView fileId={fileId} name={name} language="xml" />
   }
   if (lower.endsWith('.md') || lower.endsWith('.markdown')) return <TextEditorPage kind="markdown" mode="view" fileId={fileId} />
   if (isHtmlFile(lower)) return <RawHtmlViewer title={name} resolveFn={resolveRawUrl} />
   if (lower.endsWith('.css')) return <TextEditorPage kind="css" mode="view" fileId={fileId} />
-  if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.json')) return <TextEditorPage kind="javascript" mode="view" fileId={fileId} />
+  if (lower.endsWith('.json')) return <CodeViewerView fileId={fileId} name={name} language="json" />
+  if (lower.endsWith('.js') || lower.endsWith('.mjs')) return <TextEditorPage kind="javascript" mode="view" fileId={fileId} />
   if (lower.endsWith('.txt')) return <TextEditorPage kind="text" mode="view" fileId={fileId} />
   return <GenericViewer fileId={fileId} name={name} />
 }
