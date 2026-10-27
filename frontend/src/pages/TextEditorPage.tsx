@@ -1,10 +1,5 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import { isValidElement } from 'react'
 import { App as AntdApp, Button, Segmented } from 'antd'
-import ReactMarkdown from 'react-markdown'
-import type { Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { fetchFileText, getFileMeta, uploadFileVersion } from '../api'
 import MarkmapDiagram from '../components/MarkmapDiagram'
@@ -14,6 +9,7 @@ import AIEditChat, { AIEditChatButton } from '../components/AIEditChat'
 import type { AIEditTool, AIQuickCommand } from '../components/AIEditChat'
 import { closeEditorWithFallback, safeReturnTo } from '../editorNavigation'
 import { MessageKey, t, useLocale } from '../i18n'
+import { AIMarkdown } from '@docdyne/chat'
 import { useColorMode } from '../theme'
 
 // Monaco（VSCode）编辑器：本地打包 + 按语言 worker（产物 3MB+ 独立 chunk，
@@ -67,35 +63,22 @@ function monacoOptions(readOnly: boolean) {
   }
 }
 
-/** 从 <pre> 的子节点中提取 mermaid/markmap 围栏代码块（{lang, code}）。 */
-function diagramFromPre(children: ReactNode): { lang: 'mermaid' | 'markmap'; code: string } | null {
-  const child = Array.isArray(children) ? children[0] : children
-  if (!isValidElement<{ className?: unknown; children?: unknown }>(child)) return null
-  const className = typeof child.props.className === 'string' ? child.props.className : ''
-  const match = /^language-(mermaid|markmap)$/.exec(className)
-  if (!match) return null
-  if (typeof child.props.children !== 'string') return null
-  return { lang: match[1] as 'mermaid' | 'markmap', code: child.props.children.replace(/\n$/, '') }
-}
-
-/** Markdown 只读渲染（mermaid/markmap 围栏代码块转只读图表）；
- * 导出供公开分享页查看器复用（v2.4：分享页点击 md 弹窗与文件页一致）。 */
+/** Markdown 只读渲染（v2.7：复用 @docdyne/chat 的成熟渲染管线——GFM 表格
+ * 样式 / rehype-highlight 代码高亮 / 代码块头部条（语言+复制+保存为文件）
+ * / 长块折叠 / KaTeX 公式；mermaid 与 markmap 围栏经 fences 钩子转只读
+ * 图表，json/xml 围栏转结构化查看器）；导出供公开分享页查看器复用。 */
 export function MarkdownViewer({ source }: { source: string }) {
   const dark = useColorMode() === 'dark'
-  // ```mermaid / ```markmap 围栏代码块渲染为只读图表，其余代码块原样展示。
-  const components: Components = {
-    pre: ({ children, ...rest }) => {
-      const diagram = diagramFromPre(children)
-      if (diagram?.lang === 'mermaid') {
-        return <div className="diagram-block"><MermaidDiagram source={diagram.code} dark={dark} /></div>
-      }
-      if (diagram?.lang === 'markmap') {
-        return <div className="diagram-block markmap-block"><MarkmapDiagram source={diagram.code} /></div>
-      }
-      return <pre {...rest}>{children}</pre>
-    },
-  }
-  return <div className="markdown-preview"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{source}</ReactMarkdown></div>
+  const fences = useCallback((lang: string, code: string) => {
+    if (lang === 'mermaid') {
+      return <div className="diagram-block"><MermaidDiagram source={code} dark={dark} /></div>
+    }
+    if (lang === 'markmap') {
+      return <div className="diagram-block markmap-block"><MarkmapDiagram source={code} /></div>
+    }
+    return null
+  }, [dark])
+  return <AIMarkdown text={source} zh className="md-doc" fences={fences} />
 }
 
 function HtmlViewer({ source, name }: { source: string; name: string }) {
@@ -181,7 +164,7 @@ export default function TextEditorPage({
   // 分栏同步滚动：Monaco 实例与预览容器百分比互推（lock 防回环）。
   // 注意：IStandaloneCodeEditor 无 getHeight()（曾按此调用在分栏滚动时抛
   // TypeError: k.getHeight is not a function），视口高度经 getLayoutInfo().height。
-  const monacoRef = useRef<{ getScrollTop(): number; setScrollTop(v: number): void; getScrollHeight(): number; getLayoutInfo(): { height: number } } | null>(null)
+  const monacoRef = useRef<{ getScrollTop(): number; setScrollTop(v: number): void; getScrollHeight(): number; getLayoutInfo(): { height: number }; getAction?: (id: string) => { run: () => Promise<unknown> } | null } | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
   const syncLockRef = useRef(false)
   // 分栏拖拽：containerRef 记录分栏容器（比例按容器宽度换算）。
@@ -582,6 +565,13 @@ export default function TextEditorPage({
               </div>
             </div>
             <div className="editor-head-actions">
+              <Button size="small" onClick={() => {
+                // v2.7 格式化（json/xml/js 等）：Monaco formatDocument；无
+                // 语言格式化器（纯文本）时 JSON 简单兜底。
+                const ed = monacoRef.current
+                const act = ed?.getAction?.('editor.action.formatDocument')
+                if (act) void act.run()
+              }}>格式化</Button>
               {/* AI 对话（主点击开面板；下拉=原 AIEditMenu 并入的快捷指令：
                   摘要/续写/润色/翻译成英文/自定义，打开面板自动发送）。 */}
               <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} disabled={loading || saving} />

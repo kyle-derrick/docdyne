@@ -8073,3 +8073,40 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 .share-tree-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .share-tree-side .share-tree-children { padding-left: 10px; }
 .share-tree-side .share-tree-children.root { padding-left: 0; }
+
+/* ---- v2.7 文档级 Markdown（.md-doc，复用 .ai-md 全套表格/代码样式）：
+ * 阅读态加大字号与行高、限宽阅读 ---- */
+.md-doc { font-size: 14.5px; line-height: 1.85; max-width: 920px; margin: 0 auto; }
+.md-doc > :first-child { margin-top: 0; }
+.md-doc h1, .md-doc h2, .md-doc h3 { margin: 1.4em 0 0.5em; }
+.md-doc table { font-size: 13.5px; }
+.md-doc .ai-md-code pre { font-size: 13px; line-height: 1.6; }
+
+/* ---- v2.7 结构化代码查看器（CodeViewer：工具条 + Monaco 只读） ---- */
+.code-viewer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.code-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--bg, #f7f8fa);
+  flex: none;
+}
+.code-viewer-lang {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: .7;
+}
+.code-viewer-body { flex: 1; min-height: 0; }
+.code-viewer-body .preview-text { height: 100%; margin: 0; border: 0; }

@@ -39,6 +39,7 @@ import TextEditorPage from './TextEditorPage'
 import MermaidDiagram from '../components/MermaidDiagram'
 import XMindViewer from '../components/XMindViewer'
 import ViewerAIWidget from '../components/ViewerAIWidget'
+import CodeViewer from '../components/CodeViewer'
 import { ViewerFloatMenuProvider } from '../components/ViewerFloatMenu'
 import type { FloatingAction } from '../components/FloatingActionBar'
 import { useAIEnabled } from '../aiFeature'
@@ -142,6 +143,10 @@ export function RawHtmlViewer({ resolveFn, title }: { resolveFn: () => Promise<s
   )
 }
 
+/** json/xml 扩展名判定（CodeViewer 结构化查看分发用）。 */
+const isJSONFile = (name: string) => /\.json$/i.test(name)
+const isXMLFile = (name: string) => /\.xml$/i.test(name)
+
 function GenericViewer({ fileId, name }: { fileId: string; name: string }) {
   const [content, setContent] = useState<PreviewContent | null>(null)
   const [error, setError] = useState('')
@@ -192,7 +197,18 @@ function GenericViewer({ fileId, name }: { fileId: string; name: string }) {
     )
   }
   // 文本：viewer-only 铺满视口（解除 .preview-text 基础 60vh 限高压缩）。
-  if (content.kind === 'text') return <main className="text-editor-page viewer-only"><pre className="preview-text">{content.text}</pre></main>
+  // v2.7：json/xml 经 CodeViewer（Monaco 只读高亮/折叠 + 美化·压缩工具条）；
+  // 其余文本保持纯 pre（md 由 richtext 分支渲染）。
+  if (content.kind === 'text') {
+    if (isJSONFile(name) || isXMLFile(name)) {
+      return (
+        <main className="text-editor-page viewer-only">
+          <CodeViewer text={content.text ?? ''} language={isJSONFile(name) ? 'json' : 'xml'} title={name} dark={useColorMode() === 'dark'} />
+        </main>
+      )
+    }
+    return <main className="text-editor-page viewer-only"><pre className="preview-text">{content.text}</pre></main>
+  }
   return <main className="text-editor-page"><div className="empty">该文件类型暂不支持在线查看</div></main>
 }
 

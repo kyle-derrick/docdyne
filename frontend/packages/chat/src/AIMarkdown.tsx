@@ -290,14 +290,37 @@ function AICodeBlock({ children, zh, streaming }: { children?: ReactNode; zh: bo
   )
 }
 
-/** 代码块渲染上下文（Components 表在模块级，zh/streaming 经 Context 注入子树）。 */
-const AILangContext = createContext({ zh: true, streaming: false })
+/** 代码块渲染上下文（Components 表在模块级，zh/streaming/fences 经 Context
+ * 注入子树——fences 为围栏拦截钩子：命中返回替代渲染（如 mermaid 图表），
+ * 未传/未命中走 AICodeBlock 默认代码块）。 */
+const AILangContext = createContext({
+  zh: true,
+  streaming: false,
+  fences: null as null | ((lang: string, code: string) => ReactNode),
+})
+
+/** 从 pre 子树提取围栏语言与源码（fences 钩子与 AICodeBlock 共用）。 */
+function fenceOf(children: ReactNode): { lang: string; code: string } | null {
+  const child = Array.isArray(children) ? children[0] : children
+  if (child == null || typeof child !== 'object' || !('props' in child)) return null
+  const props = (child as React.ReactElement<{ className?: string; children?: ReactNode }>).props
+  const lang = (props.className ?? '').replace(/^language-/, '').trim()
+  const code = extractText(props.children).replace(/\n$/, '')
+  return { lang, code }
+}
 
 /** react-markdown 自定义渲染表（模块级常量，流式期间引用稳定）。 */
 const mdComponents: Components = {
   pre: ({ children }) => (
     <AILangContext.Consumer>
-      {(ctx) => <AICodeBlock zh={ctx.zh} streaming={ctx.streaming}>{children}</AICodeBlock>}
+      {(ctx) => {
+        const fence = ctx.fences ? fenceOf(children) : null
+        if (fence) {
+          const hit = ctx.fences?.(fence.lang, fence.code)
+          if (hit != null) return <>{hit}</>
+        }
+        return <AICodeBlock zh={ctx.zh} streaming={ctx.streaming}>{children}</AICodeBlock>
+      }}
     </AILangContext.Consumer>
   ),
 }
@@ -307,10 +330,18 @@ const mdComponents: Components = {
  * 使用）。streaming 时同样渲染（调用方已有的行内光标负责动画；流式期间
  * 代码块不折叠，避免边生成边展开/收起跳动）。
  */
-function AIMarkdown({ text, zh, streaming, className = '' }: { text: string; zh?: boolean; streaming?: boolean; className?: string }) {
+function AIMarkdown({ text, zh, streaming, className = '', fences }: {
+  text: string
+  zh?: boolean
+  streaming?: boolean
+  className?: string
+  /** 围栏拦截钩子（可选）：命中语言时返回替代渲染（mermaid/markmap 图表、
+   *  JSON 树查看器等）；返回 null/undefined 走默认代码块。不传 = 全部默认。 */
+  fences?: (lang: string, code: string) => ReactNode
+}) {
   return (
     <div className={`markdown-preview ai-markdown ai-md${streaming ? ' ai-md-streaming' : ''}${className ? ` ${className}` : ''}`}>
-      <AILangContext.Provider value={{ zh: zh ?? true, streaming: !!streaming }}>
+      <AILangContext.Provider value={{ zh: zh ?? true, streaming: !!streaming, fences: fences ?? null }}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex, [rehypeHighlight, { detect: false }]]}
