@@ -861,7 +861,7 @@ export default function SharePage() {
   const metaForText = okState?.info
   const needDirectText = !!metaForText && metaForText.type !== 'folder' && (
     previewKind(metaForText.mime_type ?? '') === 'text'
-    || /\.(md|markdown|drawio|excalidraw|ddrt|ddoc)$/i.test(metaForText.name)
+    || /\.(md|markdown|drawio|excalidraw|ddrt|ddoc|ddgantt)$/i.test(metaForText.name)
   )
   useEffect(() => {
     if (!okState || !needDirectText) return
@@ -981,6 +981,14 @@ export default function SharePage() {
             </div>
           )
         })()
+  } else if (isGanttFile(lower)) {
+    body = text === null
+      ? <ViewerState text="正在加载甘特图…" />
+      : (
+        <div className="text-editor-page viewer-only" style={{ minHeight: 480 }}>
+          <GanttViewer content={text} height="100%" title={info.name} />
+        </div>
+      )
   } else if (isDrawioFile(lower)) {
     body = text === null
       ? <ViewerState text="正在加载图表…" />
