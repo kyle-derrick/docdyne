@@ -206,7 +206,9 @@ type AIPersonalPrefs struct {
 // ---------- 校验 ----------
 
 // validAIPrefsID 校验标识符（provider/model/persona 的 id 与 name 共用）：
-// 去空白后 1..max 字符，字符集 [A-Za-z0-9_\-.：]（支持中文名）。
+// 去空白后 1..max 字符，字符集 [A-Za-z0-9_\-.:/]（支持中文名；'/' 为
+// OpenRouter/vLLM 网关风格的模型命名段——如 deepseek/deepseek-v4.1-flash，
+// 常见于自建网关，拒绝会导致真实模型无法保存）。
 func validAIPrefsID(s string, max int) bool {
 	s = strings.TrimSpace(s)
 	if s == "" || len([]rune(s)) > max {
@@ -215,7 +217,7 @@ func validAIPrefsID(s string, max int) bool {
 	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case r == '_' || r == '-' || r == '.' || r == ':' || r == ' ':
+		case r == '_' || r == '-' || r == '.' || r == ':' || r == ' ' || r == '/':
 		case r >= 0x4e00 && r <= 0x9fff: // CJK（名称）
 		default:
 			return false

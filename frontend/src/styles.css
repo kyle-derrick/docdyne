@@ -8013,3 +8013,63 @@ svg.ai-trace-spin { width: 12px; height: 12px; border: none; border-radius: 0; a
 .gantt-dark .gantt_task_progress_drag {
   background: rgba(255, 255, 255, 0.14);
 }
+
+/* ---- 分享目录左侧文件树（v2.7）：与文件页目录树同感 ---- */
+.share-tree-wrap {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+.share-tree-side {
+  width: 220px;
+  flex: none;
+  overflow: auto;
+  border-right: 1px solid var(--border-color, #e5e7eb);
+  padding-right: 8px;
+}
+.share-tree-side-title {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: .65;
+  padding: 4px 6px 8px;
+}
+.share-tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.share-tree-children.root { overflow: visible; }
+.share-tree-node-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px 4px 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  border-radius: 6px;
+  color: inherit;
+}
+.share-tree-node-label:hover { background: var(--surface-hover, rgba(127,127,127,.12)); }
+.share-tree-node.current > .share-tree-node-label { background: var(--primary); color: #fff; }
+.share-tree-caret {
+  width: 14px; height: 14px; flex: none;
+  position: relative;
+  cursor: pointer;
+}
+.share-tree-caret::before {
+  content: ''; position: absolute; left: 4px; top: 3px;
+  border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  opacity: .7; transform-origin: 2px 4px; transform: rotate(0deg);
+  transition: transform .12s ease;
+}
+.share-tree-caret.open::before { transform: rotate(90deg); }
+.share-tree-caret.leaf::before { opacity: .2; }
+.share-tree-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-tree-side .share-tree-children { padding-left: 10px; }
+.share-tree-side .share-tree-children.root { padding-left: 0; }

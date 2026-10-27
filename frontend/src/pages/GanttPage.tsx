@@ -11,8 +11,9 @@
 // - 导出 CSV（本地生成，不经 dhtmlx 云端导出服务——自托管无外联）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Button } from 'antd'
-import { History as HistoryIcon } from 'lucide-react'
+import { Button, Segmented } from 'antd'
+import { History as HistoryIcon, ImageDown, Printer } from 'lucide-react'
+import { toPng } from 'html-to-image'
 import {
   FileWithVersion,
   fetchFileText,
@@ -53,6 +54,7 @@ export default function GanttPage({ mode: routeMode, fileId: routeFileId }: { mo
   const [reloadKey, setReloadKey] = useState(0)
   const [verHistOpen, setVerHistOpen] = useState(false)
   const [aiChatOpen, setAiChatOpen] = useState(false)
+  const [zoomLevel, setZoomLevel] = useState<'day' | 'week' | 'month' | 'quarter' | 'year'>('month')
   const [aiQuick, setAiQuick] = useState<AIQuickCommand | null>(null)
 
   const markDirty = useCallback(() => {
@@ -74,6 +76,14 @@ export default function GanttPage({ mode: routeMode, fileId: routeFileId }: { mo
       if (!host) return
       ganttRef.current = g
       setupGantt(g, !viewMode)
+      // 时间轴缩放（ext.zoom，Community 内置）：日/周/月/季/年 五档。
+      g.attachEvent('onGanttReady', () => {
+        try {
+          const zoom = g.ext.zoom as unknown as { init: (cfg: unknown) => void; setCurrent: (v: string) => void } | undefined
+          zoom?.init(ganttZoomLevels(g))
+          zoom?.setCurrent(zoomLevel)
+        } catch { /* 旧版无 ext.zoom 时静默跳过（默认档位仍可用） */ }
+      })
       g.init(host)
       if (!viewMode) {
         const onAnyChange = () => markDirty()
@@ -179,6 +189,42 @@ export default function GanttPage({ mode: routeMode, fileId: routeFileId }: { mo
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
+  }
+
+  // ---- 导出 PNG / PDF（纯浏览器本地：html-to-image 渲染 DOM → dataURL；
+  //      PDF 经打印窗口由浏览器「另存为 PDF」，不经 dhtmlx 云端导出服务） ----
+  const exportImage = async (kind: 'png' | 'pdf') => {
+    const g = ganttRef.current
+    const host = hostRef.current?.querySelector('.gantt_container') as HTMLElement | null
+    if (!g || !host) return
+    const save = (file: string, href: string) => {
+      const a = document.createElement('a')
+      a.href = href
+      a.download = file
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    }
+    const base = (file?.name ?? 'plan').replace(/\.ddgantt$/i, '')
+    try {
+      // 只读态导出当前视图：临时切换只读避免拖拽句柄入画。
+      const wasReadonly = g.config.readonly
+      g.config.readonly = true
+      g.render()
+      const dataUrl = await toPng(host, { backgroundColor: getComputedStyle(document.body).backgroundColor || '#fff', pixelRatio: 2 })
+      g.config.readonly = wasReadonly
+      g.render()
+      if (kind === 'png') {
+        save(`${base}.png`, dataUrl)
+        return
+      }
+      const w = window.open('', '_blank', 'noopener')
+      if (!w) return
+      w.document.write(`<html><head><title>${base}</title><style>@page{size:landscape;margin:8mm}body{margin:0}img{width:100%}</style></head><body><img src="${dataUrl}" onload="window.print()"></body></html>`)
+      w.document.close()
+    } catch {
+      setError(zh ? '导出失败' : 'Export failed')
+    }
   }
 
   // ---- AI 工具循环（任务级操作，经 gantt 单例即时上图） ----
@@ -308,7 +354,28 @@ export default function GanttPage({ mode: routeMode, fileId: routeFileId }: { mo
         <span className="editor-head-actions">
           <Button size="small" icon={<HistoryIcon size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file}
             onClick={() => setVerHistOpen(true)}>{zh ? '历史版本' : 'History'}</Button>
+          <Segmented
+            size="small"
+            value={zoomLevel}
+            onChange={(v) => {
+              const next = v as typeof zoomLevel
+              setZoomLevel(next)
+              const g = ganttRef.current
+              try {
+                ;(g?.ext.zoom as unknown as { setCurrent: (x: string) => void } | undefined)?.setCurrent(next)
+              } catch { /* 无 ext.zoom 时忽略 */ }
+            }}
+            options={[
+              { value: 'day', label: zh ? '日' : 'D' },
+              { value: 'week', label: zh ? '周' : 'W' },
+              { value: 'month', label: zh ? '月' : 'M' },
+              { value: 'quarter', label: zh ? '季' : 'Q' },
+              { value: 'year', label: zh ? '年' : 'Y' },
+            ]}
+          />
           <Button size="small" disabled={!file} onClick={exportCSV}>{zh ? '导出 CSV' : 'Export CSV'}</Button>
+          <Button size="small" icon={<ImageDown size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file} onClick={() => void exportImage('png')}>PNG</Button>
+          <Button size="small" icon={<Printer size={14} strokeWidth={2} aria-hidden="true" />} disabled={!file} onClick={() => void exportImage('pdf')}>PDF</Button>
           {aiOn && (
             <AIEditChatButton open={aiChatOpen} onToggle={() => setAiChatOpen((v) => !v)} onQuick={openAiChatWith} kind="gantt-json" disabled={saving || !file} />
           )}
@@ -362,4 +429,19 @@ export default function GanttPage({ mode: routeMode, fileId: routeFileId }: { mo
       )}
     </div>
   )
+}
+
+
+/** 时间轴缩放档位（gantt.ext.zoom；Community 内置）：日/周/月/季/年。 */
+function ganttZoomLevels(g: GanttStatic) {
+  const dts = (fmt: string) => g.date.date_to_str(fmt)
+  return {
+    levels: [
+      { name: 'day', scale_height: 30, min_column_width: 55, scales: [{ unit: 'day', step: 1, format: dts('%m月%d日') }] },
+      { name: 'week', scale_height: 30, min_column_width: 70, scales: [{ unit: 'week', step: 1, format: (d: Date) => `${d.getFullYear()}年 第${g.date.date_to_str('%W')(d)}周` }, { unit: 'day', step: 1, format: dts('%D') }] },
+      { name: 'month', scale_height: 30, min_column_width: 45, scales: [{ unit: 'month', step: 1, format: dts('%Y年%m月') }, { unit: 'day', step: 1, format: dts('%d') }] },
+      { name: 'quarter', scale_height: 30, min_column_width: 80, scales: [{ unit: 'month', step: 3, format: (d: Date) => `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}` }, { unit: 'month', step: 1, format: dts('%m月') }] },
+      { name: 'year', scale_height: 30, min_column_width: 55, scales: [{ unit: 'year', step: 1, format: dts('%Y年') }, { unit: 'month', step: 1, format: dts('%m月') }] },
+    ],
+  }
 }

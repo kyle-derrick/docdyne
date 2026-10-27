@@ -1245,7 +1245,7 @@ export default function AIPersonalPanel({ onError, onNotice }: { onError: (msg: 
                     value={m.id}
                     onPressEnter={() => void detectModel(i, m.id)}
                     onChange={(e) => setEditing({ ...editing, models: editing.models.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)) })}
-                    placeholder="模型 ID，如 deepseek-chat"
+                    placeholder="模型 ID，如 deepseek-chat / deepseek/deepseek-v4.1-flash"
                     style={{ flex: 2, minWidth: 140 }}
                   />
                   <Input

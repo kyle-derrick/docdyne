@@ -495,6 +495,65 @@ function entryDownloadUrl(token: string, path: string): string {
   return `/api/v1/public/shares/${encodeURIComponent(token)}/download?path=${encodeURIComponent(path)}`
 }
 
+/** 分享目录左侧文件树的递归节点（v2.7）：目录懒加载展开，点目录导航。 */
+function ShareTreeNode({
+  path,
+  name,
+  currentDir,
+  children,
+  expanded,
+  onToggle,
+  onNavigate,
+  depth,
+}: {
+  path: string
+  name: string
+  currentDir: string
+  children: Record<string, ShareTreeEntry[]>
+  expanded: Set<string>
+  onToggle: (path: string) => void
+  onNavigate: (path: string) => void
+  depth: number
+}) {
+  const isOpen = expanded.has(path)
+  const kids = children[path] ?? []
+  return (
+    <li className={`share-tree-node${currentDir === path ? ' current' : ''}`}>
+      <button
+        className="share-tree-node-label"
+        style={{ paddingLeft: depth * 14 + 6 }}
+        onClick={() => onNavigate(path)}
+        onDoubleClick={() => onToggle(path)}
+        title={name}
+      >
+        <span
+          className={`share-tree-caret${isOpen ? ' open' : ''}${kids.length === 0 ? ' leaf' : ''}`}
+          onClick={(e) => { e.stopPropagation(); onToggle(path) }}
+          aria-hidden="true"
+        />
+        <span className="share-tree-node-name">{name}</span>
+      </button>
+      {isOpen && kids.length > 0 && (
+        <ul className="share-tree-children">
+          {kids.map((k) => (
+            <ShareTreeNode
+              key={k.path}
+              path={k.path}
+              name={k.name}
+              currentDir={currentDir}
+              children={children}
+              expanded={expanded}
+              onToggle={onToggle}
+              onNavigate={onNavigate}
+              depth={depth + 1}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
 function FolderShareView({ token, info }: { token: string; info: PublicShareInfo }) {
   const [dir, setDir] = useState('')
   const [entries, setEntries] = useState<ShareTreeEntry[] | null>(null)
@@ -529,6 +588,41 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
     if (hit?.mime_type) setViewing({ ...viewing, mime_type: hit.mime_type, size: hit.size })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries])
+  // 左侧文件树（v2.7）：目录节点懒加载（tree API），path → 子目录清单缓存；
+  // 当前目录高亮联动，点目录导航、点文件开查看弹窗（与列表一致）。
+  const [treeChildren, setTreeChildren] = useState<Record<string, ShareTreeEntry[]>>({})
+  const [treeExpanded, setTreeExpanded] = useState<Set<string>>(new Set(['']))
+  const loadTreeNode = useCallback(async (path: string) => {
+    if (treeChildren[path] !== undefined) return
+    try {
+      const res = await publicShareTree(token, path)
+      setTreeChildren((prev) => ({ ...prev, [path]: sortTreeEntries(res.entries ?? []).filter((e) => e.type === 'folder') }))
+    } catch {
+      setTreeChildren((prev) => ({ ...prev, [path]: [] }))
+    }
+  }, [token, treeChildren])
+  // 根节点首次加载（与列表并行的独立缓存）。
+  useEffect(() => {
+    let alive = true
+    publicShareTree(token, '')
+      .then((res) => { if (alive) setTreeChildren((prev) => ({ ...prev, '': sortTreeEntries(res.entries ?? []).filter((e) => e.type === 'folder') })) })
+      .catch(() => { if (alive) setTreeChildren((prev) => ({ ...prev, '': [] })) })
+    return () => { alive = false }
+  }, [token])
+  // 目录切换时把路径上的祖先全部展开并预取。
+  useEffect(() => {
+    const segs = dir.split('/').filter(Boolean)
+    let acc = ''
+    const paths = ['']
+    for (const seg of segs) {
+      acc = acc ? `${acc}/${seg}` : seg
+      paths.push(acc)
+    }
+    setTreeExpanded((prev) => { const n = new Set(prev); paths.forEach((p) => n.add(p)); return n })
+    paths.forEach((p2) => void loadTreeNode(p2))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dir])
+
   // 右键菜单（v2.6：查看 / 新标签页打开 / 下载 / 打开网页）。
   const [ctxMenu, setCtxMenu] = useState<{ entry: ShareTreeEntry; x: number; y: number } | null>(null)
   useEffect(() => {
@@ -650,6 +744,31 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
         {view === 'site' && siteReady === true && !rawBase && <p className="hint">加载网页…</p>}
 
         {(view === 'files' || siteReady !== true) && (
+          <div className="share-tree-wrap soft-fade">
+          {/* 左侧目录树（v2.7）：懒加载子目录；点目录导航（与面包屑/列表联动）。 */}
+          <aside className="share-tree-side">
+            <div className="share-tree-side-title">目录</div>
+            <ul className="share-tree-children root">
+              <ShareTreeNode
+                path=""
+                name={info.name}
+                currentDir={dir}
+                children={treeChildren}
+                expanded={treeExpanded}
+                onToggle={(p) => {
+                  setTreeExpanded((prev) => {
+                    const n = new Set(prev)
+                    if (n.has(p)) n.delete(p)
+                    else n.add(p)
+                    return n
+                  })
+                  void loadTreeNode(p)
+                }}
+                onNavigate={(p) => void loadDir(p)}
+                depth={0}
+              />
+            </ul>
+          </aside>
           <div className="share-tree soft-fade" key={dir}>
             {siteReady === null && <p className="hint">正在检查网页入口…</p>}
             <nav className="share-tree-crumb">
@@ -712,6 +831,7 @@ function FolderShareView({ token, info }: { token: string; info: PublicShareInfo
                 })}
               </ul>
             )}
+          </div>
           </div>
         )}
 
